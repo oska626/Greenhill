@@ -3,15 +3,21 @@ import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 
-const endpoint = (process.env.AZURE_OPENAI_ENDPOINT || '').replace(/\/+$/, '');
+// 強制為動態路由，防止 Vercel 於 build 階段做靜態預渲染
+export const dynamic = 'force-dynamic';
 
-const client = new OpenAI({
-  baseURL: endpoint,
-  apiKey: process.env.AZURE_OPENAI_API_KEY || '',
-  defaultHeaders: {
-    'api-key': process.env.AZURE_OPENAI_API_KEY || '',
-  },
-});
+function getOpenAIClient() {
+  const endpoint = (process.env.AZURE_OPENAI_ENDPOINT || '').replace(/\/+$/, '');
+  const apiKey = process.env.AZURE_OPENAI_API_KEY || 'build-phase-dummy-key';
+
+  return new OpenAI({
+    baseURL: endpoint || 'https://dummy.openai.azure.com',
+    apiKey: apiKey,
+    defaultHeaders: {
+      'api-key': apiKey,
+    },
+  });
+}
 
 function getMarkdownContext(filename: string) {
   try {
@@ -25,6 +31,7 @@ function getMarkdownContext(filename: string) {
 
 export async function POST(req: Request) {
   try {
+    const client = getOpenAIClient();
     const { playerState, action, chatHistory } = await req.json();
 
     let updatedState = { ...playerState };
@@ -66,7 +73,6 @@ export async function POST(req: Request) {
           actions: ['A. [除錯] 關閉除錯模式並恢復遊戲 (輸入 30624700)'],
         });
       } else {
-        // 離開除錯模式
         return NextResponse.json({
           success: true,
           newState: updatedState,
@@ -91,7 +97,6 @@ export async function POST(req: Request) {
     // 【特殊指令 2：地圖呼叫指令 (MAP COMMAND)】
     // -------------------------------------------------------------
     if (rawAction.toLowerCase() === '地圖' || rawAction.toLowerCase() === 'map') {
-      // 若處於戰鬥狀態中呼叫地圖，即刻被何仔粗口駁回並懲罰扣血
       if (!updatedState.in_respite && updatedState.combat_rounds > 0) {
         updatedState.qi_hp = Math.max(0, updatedState.qi_hp - 5);
         const mapRejection = `何仔一巴星埋嚟，怒吼：「開緊片仲睇地圖？把刀劈到喉嚨喇，睇路呀！」\n\n你分心睇地圖，被對方刀鋒擦過手臂，氣血扣減 5 點！`;
@@ -116,21 +121,44 @@ export async function POST(req: Request) {
     }
 
     // -------------------------------------------------------------
-    // 1. 機變與數值核心邏輯（F 消耗、B 息事寧人回補）
+    // 1. 機變與數值核心邏輯
     // -------------------------------------------------------------
     if (rawAction.startsWith('F')) {
       updatedState.wit_points = Math.max(0, (updatedState.wit_points ?? 2) - 1);
     }
     if (rawAction.startsWith('B')) {
       updatedState.wit_points = Math.min(2, (updatedState.wit_points ?? 0) + 1);
-      // 息事寧人可能伴隨何仔防線代價
       if (rawAction.includes('何仔') || rawAction.includes('認契弟')) {
         updatedState.ho_defense = Math.max(0, (updatedState.ho_defense ?? 60) - 10);
       }
     }
     if (rawAction.startsWith('D')) {
-      // 交畀同伴：若交畀何仔，何仔防線扣 5-10
       updatedState.ho_defense = Math.max(0, (updatedState.ho_defense ?? 60) - 8);
+    }
+
+    // 回血與物品消耗
+    if (
+      rawAction.includes('包紮') ||
+      rawAction.includes('草藥') ||
+      rawAction.includes('烈酒') ||
+      rawAction.includes('金創藥')
+    ) {
+      const healAmount = 15;
+      updatedState.qi_hp = Math.min(updatedState.max_qi_hp, (updatedState.qi_hp ?? 0) + healAmount);
+
+      if (Array.isArray(updatedState.inventory)) {
+        const itemIdx = updatedState.inventory.findIndex((item: string) =>
+          item.includes('草藥') || item.includes('烈酒') || item.includes('金創藥')
+        );
+        if (itemIdx !== -1) {
+          updatedState.inventory[itemIdx] = '';
+        }
+      }
+    } else if (rawAction.includes('茶檔') || rawAction.includes('苦茶')) {
+      if ((updatedState.copper ?? 0) >= 5) {
+        updatedState.copper -= 5;
+        updatedState.qi_hp = Math.min(updatedState.max_qi_hp, (updatedState.qi_hp ?? 0) + 8);
+      }
     }
 
     // -------------------------------------------------------------
@@ -228,18 +256,16 @@ export async function POST(req: Request) {
     }
 
     // -------------------------------------------------------------
-    // 3. 戰鬥上限與喘息循環控制 (Pacing & Respite Loop)
+    // 3. 戰鬥上限與喘息循環控制
     // -------------------------------------------------------------
     if (!isInitialCreation && !updatedState.in_respite) {
       updatedState.combat_rounds = (updatedState.combat_rounds ?? 0) + 1;
-      // 戰鬥到達 3-4 回合，強制脫離險境轉入安全喘息期
       if (updatedState.combat_rounds >= 4) {
         updatedState.in_respite = true;
         updatedState.combat_rounds = 0;
-        updatedState.wit_points = Math.min(2, (updatedState.wit_points ?? 0) + 1); // 進入喘息期自動回補 1 點機變
+        updatedState.wit_points = Math.min(2, (updatedState.wit_points ?? 0) + 1);
       }
     } else if (updatedState.in_respite) {
-      // 喘息期推進 2 回合後自動結束，重臨危機
       updatedState.combat_rounds = (updatedState.combat_rounds ?? 0) + 1;
       if (updatedState.combat_rounds >= 2) {
         updatedState.in_respite = false;
@@ -256,7 +282,7 @@ export async function POST(req: Request) {
     const cityMap = getMarkdownContext('04_city_map.md');
 
     // -------------------------------------------------------------
-    // 5. 終極 GM 執行引擎 System Prompt
+    // 5. System Prompt
     // -------------------------------------------------------------
     const systemPrompt = `你係硬派文字TRPG《明心閣》嘅掌故人（GM）。
 
@@ -308,11 +334,11 @@ E. [修煉武學]
 F. [其他] ${updatedState.wit_points === 0 ? '【機變耗盡，此選項已鎖定】' : ''}
 
 【後台數值參考】
-- 玩家：${updatedState.identity} ｜ 機變：${updatedState.wit_points}/2
+- 玩家：${updatedState.identity} ｜ 氣血：${updatedState.qi_hp}/${updatedState.max_qi_hp} ｜ 機變：${updatedState.wit_points}/2
 - 何仔防線：${updatedState.ho_defense}/100 ｜ 轄下街區：${updatedState.controlled_streets}
+- 行囊清單：${JSON.stringify(updatedState.inventory)}
 - 玩家最新動作：${rawAction}`;
 
-    // 格式化歷史紀錄
     const formattedHistory = (Array.isArray(chatHistory) ? chatHistory : [])
       .slice(-4)
       .map((item: any) => {
@@ -351,7 +377,6 @@ F. [其他] ${updatedState.wit_points === 0 ? '【機變耗盡，此選項已鎖
 
     const rawText = response.choices[0].message?.content || '（江湖沉寂，無事發生）';
 
-    // Regex 擷取 A 至 F 選項
     const matchedActions = rawText.match(/[A-F]\.\s*\[.*?\].*/g);
     const cleanText = rawText.replace(/(?:^|\n)\s*(?:[-*]\s*)?[A-F]\.\s*\[.*?\].*/g, '').trim();
 
