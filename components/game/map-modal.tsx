@@ -1,0 +1,118 @@
+'use client';
+
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { X } from 'lucide-react';
+
+interface MapModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+const MAP_AREAS = [
+  { name: '鳴森樓', desc: '城中最老茶樓，消息匯聚之地', x: 50, y: 45 },
+  { name: '青石大街', desc: '貫穿南北的主街，商販雲集', x: 50, y: 22 },
+  { name: '後巷暗道', desc: '藏污納垢之所，江湖人出沒', x: 78, y: 55 },
+  { name: '城隍廟', desc: '夜間香火不斷，可疑人物聚集', x: 25, y: 68 },
+  { name: '碼頭倉庫', desc: '貨物進出之地，暗藏玄機', x: 82, y: 80 },
+  { name: '北城門', desc: '通往城外山道，守衛森嚴', x: 50, y: 8 },
+];
+
+export function MapModal({ open, onOpenChange }: MapModalProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl border-zinc-800 bg-zinc-950 p-0 overflow-hidden">
+        <DialogHeader className="px-6 pt-5 pb-3 border-b border-zinc-800">
+          <DialogTitle className="text-lg font-semibold text-zinc-100">
+            青山城 · 區域分佈
+          </DialogTitle>
+          <DialogDescription className="text-sm text-zinc-500">
+            江湖路險，步步為營
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="px-6 py-4 space-y-4">
+          {/* ASCII / Block map */}
+          <div className="relative rounded-lg border border-zinc-800 bg-zinc-900/60 p-4 overflow-hidden">
+            <div className="relative h-72 w-full">
+              {/* Map grid background */}
+              <svg className="absolute inset-0 h-full w-full opacity-20" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+                    <path d="M 24 0 L 0 0 0 24" fill="none" stroke="rgb(63 63 70)" strokeWidth="0.5" />
+                  </pattern>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#grid)" />
+              </svg>
+
+              {/* City walls */}
+              <div className="absolute inset-2 border-2 border-dashed border-zinc-700/60 rounded-lg" />
+
+              {/* Roads */}
+              <div className="absolute left-1/2 top-2 bottom-2 w-px bg-zinc-700/40 -translate-x-1/2" />
+              <div className="absolute top-1/2 left-2 right-2 h-px bg-zinc-700/40 -translate-y-1/2" />
+
+              {/* Area markers */}
+              {MAP_AREAS.map((area, i) => (
+                <div
+                  key={i}
+                  className="absolute flex flex-col items-center gap-1"
+                  style={{
+                    left: `${area.x}%`,
+                    top: `${area.y}%`,
+                    transform: 'translate(-50%, -50%)',
+                  }}
+                >
+                  <div className="relative">
+                    <div className="h-3 w-3 rounded-full bg-amber-600/80 ring-2 ring-amber-900/40 shadow-[0_0_8px_rgba(217,119,6,0.4)]" />
+                    <span className="absolute -top-4 left-1/2 -translate-x-1/2 text-[10px] font-mono text-zinc-500">
+                      {i + 1}
+                    </span>
+                  </div>
+                  <span className="whitespace-nowrap text-[11px] font-medium text-zinc-300 bg-zinc-900/80 px-1.5 py-0.5 rounded">
+                    {area.name}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Area legend */}
+          <div className="grid grid-cols-2 gap-2">
+            {MAP_AREAS.map((area, i) => (
+              <div
+                key={i}
+                className="flex items-start gap-2 rounded-md border border-zinc-800 bg-zinc-900/40 px-3 py-2"
+              >
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded bg-amber-900/30 text-[10px] font-mono text-amber-500">
+                  {i + 1}
+                </span>
+                <div className="min-w-0">
+                  <div className="text-xs font-medium text-zinc-200">{area.name}</div>
+                  <div className="text-[11px] text-zinc-500 leading-snug">{area.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 px-6 pb-5 pt-2 border-t border-zinc-800">
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            className="border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+          >
+            <X className="h-4 w-4 mr-1.5" />
+            关闭
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
