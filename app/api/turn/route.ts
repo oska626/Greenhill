@@ -26,8 +26,7 @@ export interface GameState {
 }
 
 const SYSTEM_PROMPT = `
-你係文字冒險遊戲《青山城》的遊戲主持人 (GM)。
-背景為古代中原底層江湖，冷酷殘酷市井風格，完全禁止現代詞彙（如槍械、摩天樓、科技）。
+你係文字冒險遊戲《青山城》的遊戲主持人 (GM)。古代底層江湖背景，冷酷殘酷市井風格，完全禁止現代詞彙。
 
 ==============================
 一、文風與排版規範（冷硬短句）
@@ -57,21 +56,16 @@ const SYSTEM_PROMPT = `
 3. 江湖因果 (worldFlags)：
    - 產生重大永久影響時（重傷他人、得罪 NPC、私吞公款），在 addWorldFlag 回傳 4-10 字簡短標籤（例如 "打斷張屠戶右手"、"私吞十文規費"）。無重大影響則留空 ""。
    - 審查傳入的【已記下江湖因果】，令 NPC 態度與局勢產生實質反應。
-4. 任務道具唯一性：
-   - 任務道具（如【生草藥包】、【一壺苦涼茶】）不可重複發放。若玩家已有，何仔不可再給，acquiredItem 留空 ""。
 
 ==============================
-三、時空鎖與主線狀態機 (questStep)
+三、經濟與銀兩規範（嚴禁暗中收支）
 ==============================
-1. 地點時空鎖定：
-   - 何仔只在「明心閣總壇」；容姐只在「容姐茶檔」；域卡度與張屠戶只在「泥濘市集」。
-   - 嚴禁當前地點與 NPC 脫節。只有玩家選擇「動身前往 [地點]」時方可更新 locationUpdate。
-2. 線性推進與轉場判定：
-   - "prologue_briefing"（總壇領命）：玩家選擇動身去茶檔時，強制回傳 locationUpdate: "容姐茶檔", acquiredItem: "【生草藥包】", nextQuestStep: "yung_tea_stall"。原地交涉則停留本階段。
-   - "yung_tea_stall"（茶檔交藥）：交付藥包換茶後，玩家選擇動身去市集時，強制回傳 locationUpdate: "泥濘市集", consumedItem: "【生草藥包】", acquiredItem: "【一壺苦涼茶】", nextQuestStep: "market_collection"。
-   - "market_collection"（市集收規）：向張屠戶討回 50 文規費（或動手打服）後，強制回傳 silverDelta: 50, nextQuestStep: "huizhi_ambush"。在此之前【匯智樓刀手絕對不可現身】。
-   - "huizhi_ambush"（伏擊戰）：匯智樓刀手突襲殺入。戰鬥結算後，強制回傳 nextQuestStep: "sandbox"。
-   - "sandbox"（自由市井）：引導至城西各據點（聚財坊、黑市武館、怡紅院、回總壇），依據防線與因果自由發展。
+1. 資金劃分：
+   - 個人銀兩 (silver)：玩家私有財物。
+   - 門派流動金 (factionFunds)：明心閣堂口公款。
+2. 嚴禁幽靈變更：
+   - 凡有 silverDelta 或 factionFundsDelta 變動，【必須在 narrative 明文交代】！
+   - 嚴禁不寫文字卻暗中扣減/增加銀兩。未經交代兩者 Delta 必須為 0。
 
 ==============================
 四、選項生成與 JSON 規範
@@ -97,30 +91,12 @@ const SYSTEM_PROMPT = `
   "customMaxHp": 0,
   "customMaxMp": 0,
   "addWorldFlag": "產生的重大因果標籤（若無則為空字串）",
-  "consumedItem": "使用的物品名稱（若無則為空字串）",
-  "acquiredItem": "獲得的物品名稱（若無則為空字串）",
-  "locationUpdate": "更新後的當前地點（若無變更則為空字串）",
   "hpDelta": 0,
   "mpDelta": 0,
   "silverDelta": 0,
   "factionFundsDelta": 0,
-  "hozaiDefenseDelta": 0,
-  "nextQuestStep": "prologue_briefing" | "yung_tea_stall" | "market_collection" | "huizhi_ambush" | "sandbox"
+  "hozaiDefenseDelta": 0
 }
-
-==============================
-五、經濟與銀兩規範（嚴禁暗中收支）
-==============================
-1. 資金劃分：
-   - 個人銀兩 (silver)：玩家私有財物。用於買藥、飲茶、行賄、聚財坊賭博、黑市消費。
-   - 門派流動金 (factionFunds)：明心閣堂口公款。用於總壇修繕、防線加固、兄弟月餉。
-2. 嚴禁幽靈變更：
-   - 凡有 silverDelta 或 factionFundsDelta 變動，【必須在 narrative 明文交代】！
-   - 嚴禁不寫文字卻暗中扣減/增加銀兩。
-   - 第一幕何仔交代任務時，若未明確給予盤纏，兩者 Delta 必須為 0！
-3. 收規歸屬：
-   - 第三幕向張屠戶收回 50 文規費，正常應繳納堂口（factionFundsDelta: 50）。
-   - 只有玩家明確選擇「私吞/中飽私囊」時，方可轉為個人銀兩（silverDelta: 50），並必須回傳 addWorldFlag: "私吞堂口規費"。
 `;
 
 export async function POST(req: NextRequest) {
@@ -139,6 +115,7 @@ export async function POST(req: NextRequest) {
     }
 
     const isPrologue = action?.includes("[初入堂口]");
+    const actionText = action || "環顧四周";
 
     const updatedState: GameState = {
       ...state,
@@ -147,6 +124,81 @@ export async function POST(req: NextRequest) {
       inventory: Array.isArray(state.inventory) ? [...state.inventory] : [],
       worldFlags: Array.isArray(state.worldFlags) ? [...state.worldFlags] : [],
     };
+
+    // ========================================================
+    // 狀態機與時空鎖（由代碼硬性控制，徹底解決瞬移與搶跑問題）
+    // ========================================================
+    let contextGuidance = "";
+
+    // 1. 第一幕：總壇領命
+    if (updatedState.questStep === "prologue_briefing") {
+      updatedState.currentLocation = "明心閣總壇"; // 強制鎖死地標，第一回合絕不允許跳到茶檔
+
+      const isLeaving = actionText.includes("容姐茶檔") || actionText.includes("動身") || actionText.includes("領命");
+      if (!isPrologue && isLeaving) {
+        updatedState.currentLocation = "容姐茶檔";
+        updatedState.questStep = "yung_tea_stall";
+        if (!updatedState.inventory.includes("【生草藥包】") && updatedState.inventory.length < updatedState.maxInventory) {
+          updatedState.inventory.push("【生草藥包】");
+        }
+        contextGuidance = "玩家接過草藥包，走出總壇，剛來到容姐茶檔。容姐正用破布擦拭油膩木桌。";
+      } else {
+        contextGuidance = "玩家身處明心閣總壇，何仔端坐案前吩咐差事，要求將生草藥包送往容姐茶檔。";
+      }
+    }
+    // 2. 第二幕：容姐茶檔
+    else if (updatedState.questStep === "yung_tea_stall") {
+      updatedState.currentLocation = "容姐茶檔";
+
+      const isLeavingToMarket = actionText.includes("泥濘市集") || actionText.includes("市集") || actionText.includes("出發");
+      if (isLeavingToMarket) {
+        updatedState.currentLocation = "泥濘市集";
+        updatedState.questStep = "market_collection";
+        // 交付草藥，換取苦茶
+        const herbIdx = updatedState.inventory.indexOf("【生草藥包】");
+        if (herbIdx !== -1) updatedState.inventory.splice(herbIdx, 1);
+        if (!updatedState.inventory.includes("【一壺苦涼茶】") && updatedState.inventory.length < updatedState.maxInventory) {
+          updatedState.inventory.push("【一壺苦涼茶】");
+        }
+        contextGuidance = "玩家來到泥濘市集，域卡度已在肉檔前等候，張屠戶按著剁骨刀態度蠻橫，拖欠 50 文規費。";
+      } else {
+        contextGuidance = "玩家在容姐茶檔。容姐接下草藥包，遞出一壺苦涼茶，低聲提醒市集最近有匯智樓的人探頭探腦。";
+      }
+    }
+    // 3. 第三幕：市集收規
+    else if (updatedState.questStep === "market_collection") {
+      updatedState.currentLocation = "泥濘市集";
+
+      const feeHandled = actionText.includes("收") || actionText.includes("打") || actionText.includes("規費") || actionText.includes("逼") || actionText.startsWith("A.") || actionText.startsWith("B.");
+      if (feeHandled && !updatedState.flags.collectedMarketFee) {
+        updatedState.flags.collectedMarketFee = true;
+        updatedState.factionFunds += 50; // 代碼確定性結算公款
+        updatedState.questStep = "huizhi_ambush";
+        contextGuidance = "50 文規費剛落袋，巷尾驟然傳來拔刀聲。數名匯智樓刀手手持精鐵短刃，堵死市集兩頭！";
+      } else {
+        contextGuidance = "泥濘市集肉檔前。張屠戶滿臉橫肉，域卡度站在一旁抱胸冷笑，逼問 50 文規費。";
+      }
+    }
+    // 4. 第四幕：匯智樓伏擊戰
+    else if (updatedState.questStep === "huizhi_ambush") {
+      updatedState.currentLocation = "泥濘市集";
+      contextGuidance = "匯智樓刀手圍攻逼近。短兵相接，泥水飛濺。戰況激烈。";
+      // 戰鬥產生具體動作後，推進至沙盒
+      if (actionText.startsWith("A.") || actionText.startsWith("B.") || actionText.startsWith("F.")) {
+        updatedState.questStep = "sandbox";
+      }
+    }
+    // 5. 第五幕：城西自由江湖沙盒
+    else {
+      const LANDMARKS = ["明心閣總壇", "容姐茶檔", "泥濘市集", "聚財坊", "黑市武館", "仙館", "怡紅院"];
+      for (const loc of LANDMARKS) {
+        if (actionText.includes(loc)) {
+          updatedState.currentLocation = loc;
+          break;
+        }
+      }
+      contextGuidance = `開放沙盒階段。玩家身處「${updatedState.currentLocation}」。請依據何仔防線(${updatedState.hozaiDefense}/100)與已記因果，生成該地標專屬的市井突發事件與 A-E 抉擇。`;
+    }
 
     const apiKey =
       process.env.AZURE_OPENAI_API_KEY ||
@@ -200,9 +252,9 @@ export async function POST(req: NextRequest) {
 當前玩家狀態：
 - 玩家名號: ${updatedState.playerName || "無名氏"} (${updatedState.background || "流民"})
 - 核心特質: ${updatedState.trait || "草莽之軀"}
-- 當前地點: ${updatedState.currentLocation || "明心閣總壇"}
+- 當前地點: ${updatedState.currentLocation}
 - 當前回合: ${updatedState.turn}
-- 主線階段: ${updatedState.questStep || "prologue_briefing"}
+- 主線階段: ${updatedState.questStep}
 - 行囊 (${updatedState.inventory.length}/${updatedState.maxInventory}): [${updatedState.inventory.join(", ")}]
 - 氣血: ${updatedState.playerHp}/${updatedState.maxHp}
 - 內力: ${updatedState.playerMp}/${updatedState.maxMp}
@@ -210,12 +262,13 @@ export async function POST(req: NextRequest) {
 - 門派流動金: ${updatedState.factionFunds} 文
 - 何仔防線: ${updatedState.hozaiDefense}/100
 - 已記下江湖因果: [${updatedState.worldFlags.join("、 ") || "暫無重大恩怨"}]
+- 場景指引: ${contextGuidance}
 
-玩家執行的行動: "${action || "環顧四周"}"
+玩家執行的行動: "${actionText}"
 
 【重要生成要求】
-1. 劇情敘事必須 100% 使用第二人稱「你」，嚴禁使用第三人稱！
-2. 風格使用繁體中文冷硬短句書面語，總長度嚴格在 80-120 字以內，兩段為限（\\n\\n）。
+1. 劇情敘事必須 100% 使用第二人稱「你」，嚴禁使用第三人稱代詞！
+2. 風格嚴格使用繁體中文冷硬短句書面語，總長度嚴格在 80-120 字以內，兩段為限（\\n\\n）。
 3. 若為第 1 回合，依據出身背景與特質裁決 customMaxHp 與 customMaxMp。
 4. 審視傳入的「江湖因果」，保持局勢連貫反饋。
 5. 嚴格輸出 A 至 E 共 5 個選項（不要生成 F）。
@@ -235,7 +288,7 @@ export async function POST(req: NextRequest) {
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: prompt }
         ],
-        temperature: 0.7,
+        temperature: 0.6,
         response_format: { type: "json_object" }
       }),
     });
@@ -274,13 +327,15 @@ export async function POST(req: NextRequest) {
     }
 
     // 第一回合動態裁決氣血與內力上限
-    if (parsed.customMaxHp && typeof parsed.customMaxHp === "number" && parsed.customMaxHp > 0) {
-      updatedState.maxHp = parsed.customMaxHp;
-      updatedState.playerHp = parsed.customMaxHp;
-    }
-    if (parsed.customMaxMp && typeof parsed.customMaxMp === "number" && parsed.customMaxMp > 0) {
-      updatedState.maxMp = parsed.customMaxMp;
-      updatedState.playerMp = parsed.customMaxMp;
+    if (isPrologue) {
+      if (parsed.customMaxHp && typeof parsed.customMaxHp === "number" && parsed.customMaxHp > 0) {
+        updatedState.maxHp = parsed.customMaxHp;
+        updatedState.playerHp = parsed.customMaxHp;
+      }
+      if (parsed.customMaxMp && typeof parsed.customMaxMp === "number" && parsed.customMaxMp > 0) {
+        updatedState.maxMp = parsed.customMaxMp;
+        updatedState.playerMp = parsed.customMaxMp;
+      }
     }
 
     // 累積江湖因果標籤
@@ -292,54 +347,26 @@ export async function POST(req: NextRequest) {
     }
 
     // 結算常規數值增減
-    if (parsed.hpDelta) updatedState.playerHp = Math.max(0, Math.min(updatedState.maxHp, updatedState.playerHp + parsed.hpDelta));
-    if (parsed.mpDelta) updatedState.playerMp = Math.max(0, Math.min(updatedState.maxMp, updatedState.playerMp + parsed.mpDelta));
-    // 安全結算個人銀兩（防止字串拼接或 NaN）
+    if (parsed.hpDelta && !isNaN(Number(parsed.hpDelta))) {
+      updatedState.playerHp = Math.max(0, Math.min(updatedState.maxHp, updatedState.playerHp + Number(parsed.hpDelta)));
+    }
+    if (parsed.mpDelta && !isNaN(Number(parsed.mpDelta))) {
+      updatedState.playerMp = Math.max(0, Math.min(updatedState.maxMp, updatedState.playerMp + Number(parsed.mpDelta)));
+    }
     if (parsed.silverDelta !== undefined && parsed.silverDelta !== null) {
       const sDelta = Number(parsed.silverDelta);
       if (!isNaN(sDelta)) {
         updatedState.silver = Math.max(0, updatedState.silver + sDelta);
       }
     }
-    // 安全結算門派流動金（防止字串拼接或 NaN）
     if (parsed.factionFundsDelta !== undefined && parsed.factionFundsDelta !== null) {
       const fDelta = Number(parsed.factionFundsDelta);
       if (!isNaN(fDelta)) {
         updatedState.factionFunds = Math.max(0, updatedState.factionFunds + fDelta);
       }
     }
-    if (parsed.hozaiDefenseDelta) updatedState.hozaiDefense = Math.max(0, Math.min(100, updatedState.hozaiDefense + parsed.hozaiDefenseDelta));
-
-    if (parsed.locationUpdate && parsed.locationUpdate.trim() !== "") {
-      updatedState.currentLocation = parsed.locationUpdate.trim();
-    }
-
-    if (parsed.nextQuestStep) {
-      updatedState.questStep = parsed.nextQuestStep;
-    }
-
-    const consumedItem = parsed.consumedItem;
-    if (consumedItem && typeof consumedItem === "string" && consumedItem.trim() !== "") {
-      const target = consumedItem.trim();
-      const idx = updatedState.inventory.findIndex((item: string) =>
-        item && item.trim() !== "" && (item.includes(target) || target.includes(item))
-      );
-      if (idx !== -1) {
-        updatedState.inventory.splice(idx, 1);
-      }
-    }
-
-    // 防重複發放任務道具
-    const acquiredItem = parsed.acquiredItem;
-    if (acquiredItem && typeof acquiredItem === "string" && acquiredItem.trim() !== "") {
-      const itemTrimmed = acquiredItem.trim();
-      const alreadyHas = updatedState.inventory.some(
-        (invItem) => invItem.includes(itemTrimmed) || itemTrimmed.includes(invItem)
-      );
-
-      if (!alreadyHas && updatedState.inventory.length < updatedState.maxInventory) {
-        updatedState.inventory.push(itemTrimmed);
-      }
+    if (parsed.hozaiDefenseDelta && !isNaN(Number(parsed.hozaiDefenseDelta))) {
+      updatedState.hozaiDefense = Math.max(0, Math.min(100, updatedState.hozaiDefense + Number(parsed.hozaiDefenseDelta)));
     }
 
     return NextResponse.json({
