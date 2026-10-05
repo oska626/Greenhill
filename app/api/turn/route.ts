@@ -146,10 +146,14 @@ export async function POST(req: NextRequest) {
           updatedState.inventory.push("【生草藥包】");
         }
         contextGuidance = "玩家接過草藥包，走出總壇，剛來到容姐茶檔。容姐正用破布擦拭油膩木桌。";
-      } else {
-        contextGuidance = "玩家身處明心閣總壇，何仔端坐案前吩咐差事，要求將生草藥包送往容姐茶檔。";
+            } else {
+        if (isPrologue) {
+          // 開局第 1 回合：強制何仔按玩家出身與特質開口敲打
+          contextGuidance = `開局第 1 回合。何仔打量剛入堂口的你，必須根據你的出身背景「${updatedState.background}」與特質「${updatedState.trait}」，開口譏諷敲打一兩句，再把生草藥包推到案前交代差事。`;
+        } else {
+          contextGuidance = "玩家身處明心閣總壇，何仔端坐案前，催促你盡快啟程前往容姐茶檔。";
+        }
       }
-    }
     // 2. 第二幕：容姐茶檔
     else if (updatedState.questStep === "yung_tea_stall") {
       updatedState.currentLocation = "容姐茶檔";
