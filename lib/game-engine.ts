@@ -160,15 +160,15 @@ export function aptitude(name: string, background: string, trait: string) {
 }
 
 function openingPortrait(background: string, trait: string) {
-  if (background === "爛賭收數佬") return "你指腹有骰繭，進門先看何仔的手。";
-  if (background === "城西街童扒手") return "你先看退路，兩指慣常貼著袖口。";
-  if (background === "濕鳩武館棄徒") return "你肩背繃緊，舊傷牽住半邊步子。";
-  if (background === "黑市醫道學徒") return "你指甲縫帶著藥色，先聞草藥包。";
-  if (/醫|毒|藥/.test(trait)) return "你指甲縫帶著藥色，先聞草藥包。";
-  if (/偷|巧|快|扒/.test(trait)) return "你兩指藏在袖底，眼先掃過退路。";
-  if (/拳|壯|狠|勇/.test(trait)) return "你拳骨有舊繭，站著不肯彎背。";
-  if (/見風|察言|口才|機靈/.test(trait)) return "你進門先看人臉色，話留在齒間。";
-  return "你鞋底沾著城西的泥，站定先看退路。";
+  if (background === "爛賭收數佬") return "你進明心閣，指腹骰繭未退。";
+  if (background === "城西街童扒手") return "你進明心閣，眼先掃過退路。";
+  if (background === "濕鳩武館棄徒") return "你進明心閣，肩上舊傷扯著步子。";
+  if (background === "黑市醫道學徒") return "你進明心閣，指甲縫留著藥色。";
+  if (/醫|毒|藥/.test(trait)) return "你進明心閣，指甲縫留著藥色。";
+  if (/偷|巧|快|扒/.test(trait)) return "你進明心閣，眼先掃過退路。";
+  if (/拳|壯|狠|勇/.test(trait)) return "你進明心閣，拳骨上的繭還硬。";
+  if (/見風|察言|口才|機靈/.test(trait)) return "你進明心閣，先看何仔的臉色。";
+  return "你進明心閣，鞋底帶著城西泥。";
 }
 
 function openingAssessment(background: string, trait: string) {
@@ -242,10 +242,10 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
       state.maxMp = stats.mp; state.playerMp = stats.mp;
       const cleanName = state.playerName.replace(/[「」\r\n]/g, "").trim();
       const address = cleanName && Array.from(cleanName).length <= 8 ? cleanName : "小子";
-      event = `你跨進明心閣。${openingPortrait(state.background, state.trait)}你見何仔把草藥包推到你面前。`;
+      event = `你穿過城西泥巷，聞見茶檔藥味，聽見肉檔討債。${openingPortrait(state.background, state.trait)}你看見何仔推來草藥包。`;
       npcReply = {
         speaker: "何仔",
-        line: `${address}，${openingAssessment(state.background, state.trait)}。域卡度昨夜挨了匯智樓一刀。去容姐處換金創散，送去市集；張屠戶欠的五十文也收回。`,
+        line: `${address}，${openingAssessment(state.background, state.trait)}。域卡度挨了匯智樓的刀。去容姐處換金創散救人，再向張屠戶收五十文。`,
       };
     } else {
       event += flavor("prologue_briefing");

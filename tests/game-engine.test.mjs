@@ -17,17 +17,18 @@ function newGame() {
 test("opening gives each created background a concrete character detail", () => {
   const portraits = [
     ["爛賭收數佬", "察言觀色", "骰繭"],
-    ["城西街童扒手", "手疾眼快", "袖口"],
+    ["城西街童扒手", "手疾眼快", "退路"],
     ["濕鳩武館棄徒", "皮糙肉厚", "舊傷"],
     ["黑市醫道學徒", "辨毒識藥", "藥色"],
-    ["自定義市井流民", "見風使舵", "人臉色"],
+    ["自定義市井流民", "見風使舵", "何仔的臉色"],
   ];
   for (const [background, trait, detail] of portraits) {
     const opening = resolveTurn({ ...newGame(), background, trait }, "[初入堂口] 阿七", true);
     assert.ok(opening.event.includes(detail), `${background} should show ${detail}`);
+    assert.ok(opening.event.startsWith("你穿過城西泥巷"), "city overview should precede Ho Zai");
     assert.equal(opening.npcReply.speaker, "何仔");
     assert.ok(opening.npcReply.line.includes("阿七，你"), `${background} needs Ho Zai's assessment`);
-    assert.ok(opening.npcReply.line.includes("域卡度昨夜挨了匯智樓一刀"));
+    assert.ok(opening.npcReply.line.includes("域卡度挨了匯智樓的刀"));
     assert.ok(opening.npcReply.line.includes("五十文"));
     assert.ok(!opening.event.includes("打量你的出身"));
   }

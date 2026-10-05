@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { normalizeState, resolveTurn, type GameState, type Landmark } from "@/lib/game-engine";
 
 const SYSTEM_PROMPT = `你是青山城城西的文字冒險主持人。只寫繁體中文冷硬短句，古代底層市井，無神怪、高武、現代物品。
-只以「你」寫旁白。玩家名號只可在 NPC 對白出現。原地行動不重複描寫環境。開局先寫你進堂與何仔審視你的動作，再由何仔當面評你，從域卡度受傷引出差事，勿只列任務。
+只以「你」寫旁白。玩家名號只可在 NPC 對白出現。原地行動不重複描寫環境。開局第一段先用一筆城西市井聲氣帶你入堂，第二段由何仔當面評你，從域卡度受傷引出差事，勿只列任務。
 只回 JSON：{"narrative":"..."}。narrative 須 80 至 120 字，嚴格兩段，以 \\n\\n 分隔；第二段的 NPC 對白另起一行。
 只敘述提供的確定事件，不增減金錢、道具、氣血、內力或地點，不讓玩家離開城西七據點。`;
 
@@ -13,7 +13,7 @@ const SPEAKER: Record<Landmark, string> = {
 
 function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker: string; line: string }): string {
   if (state.questStep === "prologue_briefing" && npcReply?.speaker === "何仔") {
-    return `${event}\n\n你伸手去接，何仔卻先按住藥包。\n何仔：「${npcReply.line}」`;
+    return `${event}\n\n你伸手，卻見何仔按住藥包。\n何仔：「${npcReply.line}」`;
   }
   const clauses = event.split(/(?<=。)/).filter(Boolean);
   const midpoint = Math.max(1, Math.ceil(clauses.length / 2));
@@ -92,7 +92,7 @@ async function narrate(state: GameState, action: string, event: string, moneyCha
 
   const deployment = (process.env.AZURE_OPENAI_DEPLOYMENT_NAME || process.env.AZURE_OPENAI_DEPLOYMENT || "gpt-4o").trim();
   const openingInstruction = state.questStep === "prologue_briefing"
-    ? `開局人物：出身「${state.background}」，特質「${state.trait}」。第一段寫你入堂與何仔審視你的細節；第二段讓何仔當面評你，再由傷者與欠帳帶出差事，不能像任務清單。\n`
+    ? `開局人物：出身「${state.background}」，特質「${state.trait}」。第一段先寫城西泥巷、茶檔與肉檔的短景，再寫你入堂；第二段讓何仔當面評你，再由傷者與欠帳帶出差事，不能像任務清單。\n`
     : "";
   const replyInstruction = npcReply ? `確定對白：${npcReply.speaker}：「${npcReply.line}」。第二段原句保留。\n` : "";
   const prompt = `地點：${state.currentLocation}；階段：${state.questStep}；你做了：${action.slice(0, 180)}。\n${openingInstruction}確定事件：${event}\n${replyInstruction}已記因果：${state.worldFlags.join("、") || "無"}。只寫確定事件；所有收支金額須明說。`;
