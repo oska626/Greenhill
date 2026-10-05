@@ -163,8 +163,8 @@ function openingPortrait(background: string, trait: string) {
   if (background === "爛賭收數佬") return "你進明心閣，指腹骰繭未退。";
   if (background === "城西街童扒手") return "你進明心閣，眼先掃過退路。";
   if (background === "濕鳩武館棄徒") return "你進明心閣，肩上舊傷扯著步子。";
-  if (background === "黑市醫道學徒") return "你進明心閣，指甲縫留著藥色。";
-  if (/醫|毒|藥/.test(trait)) return "你進明心閣，指甲縫留著藥色。";
+  if (background === "黑市醫道學徒") return "你進明心閣，指縫藥色未褪。";
+  if (/醫|毒|藥/.test(trait)) return "你進明心閣，指縫藥色未褪。";
   if (/偷|巧|快|扒/.test(trait)) return "你進明心閣，眼先掃過退路。";
   if (/拳|壯|狠|勇/.test(trait)) return "你進明心閣，拳骨上的繭還硬。";
   if (/見風|察言|口才|機靈/.test(trait)) return "你進明心閣，先看何仔的臉色。";
@@ -172,15 +172,15 @@ function openingPortrait(background: string, trait: string) {
 }
 
 function openingAssessment(background: string, trait: string) {
-  if (background === "爛賭收數佬") return "你手上骰繭未退，收數該拿手";
-  if (background === "城西街童扒手") return "你先看退路，倒有點眼力";
-  if (background === "濕鳩武館棄徒") return "你肩上舊傷未好，骨頭倒硬";
-  if (background === "黑市醫道學徒") return "你認得藥，也認得刀傷";
-  if (/醫|毒|藥/.test(trait)) return "你聞藥比聞人快，還算有用";
-  if (/偷|巧|快|扒/.test(trait)) return "你眼先掃退路，手也夠快";
-  if (/拳|壯|狠|勇/.test(trait)) return "你拳骨有繭，挨打也不退";
-  if (/見風|察言|口才|機靈/.test(trait)) return "你先看人臉色，倒懂活命";
-  return "你一身城西泥，倒還站得穩";
+  if (background === "爛賭收數佬") return "你會收數，也會救人麼";
+  if (background === "城西街童扒手") return "你腳快，別只顧逃命";
+  if (background === "濕鳩武館棄徒") return "你骨頭硬，別只護自己";
+  if (background === "黑市醫道學徒") return "你認得藥，別讓我收屍";
+  if (/醫|毒|藥/.test(trait)) return "你認得藥，別讓我收屍";
+  if (/偷|巧|快|扒/.test(trait)) return "你腳快，別只顧逃命";
+  if (/拳|壯|狠|勇/.test(trait)) return "你骨頭硬，別只護自己";
+  if (/見風|察言|口才|機靈/.test(trait)) return "你會看人臉色，今日看人命";
+  return "你腳下站得穩，別叫我失望";
 }
 
 export function normalizeState(raw: unknown): GameState | null {
@@ -242,10 +242,10 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
       state.maxMp = stats.mp; state.playerMp = stats.mp;
       const cleanName = state.playerName.replace(/[「」\r\n]/g, "").trim();
       const address = cleanName && Array.from(cleanName).length <= 8 ? cleanName : "小子";
-      event = `你穿過城西泥巷，聞見茶檔藥味，聽見肉檔討債。${openingPortrait(state.background, state.trait)}你看見何仔推來草藥包。`;
+      event = `你踩過城西泥巷。你聽茶檔搗藥、肉檔拍案討數。${openingPortrait(state.background, state.trait)}你見何仔推來藥包。`;
       npcReply = {
         speaker: "何仔",
-        line: `${address}，${openingAssessment(state.background, state.trait)}。域卡度挨了匯智樓的刀。去容姐處換金創散救人，再向張屠戶收五十文。`,
+        line: `${address}，${openingAssessment(state.background, state.trait)}。域卡度是自家人，挨了匯智樓一刀。去容姐茶檔換金創散。救他；再收張屠戶五十文。`,
       };
     } else {
       event += flavor("prologue_briefing");

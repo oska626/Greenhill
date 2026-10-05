@@ -25,10 +25,10 @@ test("opening gives each created background a concrete character detail", () => 
   for (const [background, trait, detail] of portraits) {
     const opening = resolveTurn({ ...newGame(), background, trait }, "[初入堂口] 阿七", true);
     assert.ok(opening.event.includes(detail), `${background} should show ${detail}`);
-    assert.ok(opening.event.startsWith("你穿過城西泥巷"), "city overview should precede Ho Zai");
+    assert.ok(opening.event.startsWith("你踩過城西泥巷"), "city overview should precede Ho Zai");
     assert.equal(opening.npcReply.speaker, "何仔");
     assert.ok(opening.npcReply.line.includes("阿七，你"), `${background} needs Ho Zai's assessment`);
-    assert.ok(opening.npcReply.line.includes("域卡度挨了匯智樓的刀"));
+    assert.ok(opening.npcReply.line.includes("域卡度是自家人，挨了匯智樓一刀"));
     assert.ok(opening.npcReply.line.includes("五十文"));
     assert.ok(!opening.event.includes("打量你的出身"));
   }
