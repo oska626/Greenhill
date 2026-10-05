@@ -42,7 +42,7 @@ const SYSTEM_PROMPT = `
 4. 第四幕 (huizhi_ambush)：匯智樓插旗。規費剛收完，匯智樓管事率精銳傭兵殺入市集插旗踩場，正式引爆衝突！
 
 【輸出規範】
-必須以繁體中文（帶道地江湖市井感）輸出合規的 JSON：
+必須以繁體中文輸出合規的 JSON：
 {
   "narrative": "場景描寫與對話劇情",
   "options": ["1. [行動] ...", "2. [行動] ...", "3. [行動] ..."],
@@ -80,11 +80,48 @@ export async function POST(req: NextRequest) {
       inventory: Array.isArray(state.inventory) ? [...state.inventory] : [],
     };
 
-    // 確保讀取的是 OPENAI_API_KEY
-    const apiKey = process.env.OPENAI_API_KEY;
+    // 讀取 Azure OpenAI 環境變數
+    const apiKey =
+      process.env.AZURE_OPENAI_API_KEY ||
+      process.env.AZURE_API_KEY;
+
+    let endpoint =
+      process.env.AZURE_OPENAI_ENDPOINT ||
+      process.env.AZURE_ENDPOINT;
+
+    const deployment =
+      process.env.AZURE_OPENAI_DEPLOYMENT_NAME ||
+      process.env.AZURE_OPENAI_DEPLOYMENT ||
+      process.env.AZURE_DEPLOYMENT_NAME ||
+      "gpt-4o";
+
+    const apiVersion =
+      process.env.AZURE_OPENAI_API_VERSION ||
+      "2024-02-15-preview";
+
+    // 檢查 Key
     if (!apiKey) {
-      return NextResponse.json({ error: "伺服器遺失 API Key (OPENAI_API_KEY)。請檢查 Vercel Environment Variables 設定，並 Redeploy。" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Vercel 遺失 AZURE_OPENAI_API_KEY。請確認環境變數已設置。" },
+        { status: 500 }
+      );
     }
+
+    // 檢查 Endpoint
+    if (!endpoint) {
+      return NextResponse.json(
+        { error: "Vercel 缺少 AZURE_OPENAI_ENDPOINT (例: https://your-resource.openai.azure.com)。請在 Vercel Environment Variables 補齊。" },
+        { status: 500 }
+      );
+    }
+
+    // 格式化 Endpoint URL
+    endpoint = endpoint.replace(/\/$/, "");
+    if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
+      endpoint = `https://${endpoint}.openai.azure.com`;
+    }
+
+    const azureUrl = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`;
 
     const prompt = `
 當前玩家狀態：
@@ -104,50 +141,52 @@ export async function POST(req: NextRequest) {
 請根據世界觀、當前階段與玩家行動，產生下一回合劇情及選項。必須嚴格輸出 JSON 格式。
 `;
 
-    // 正確的 OpenAI API 請求格式
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    // Azure OpenAI 專用請求 (使用 api-key Header)
+    const response = await fetch(azureUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
+        "api-key": apiKey,
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini", // 使用 gpt-4o-mini 確保速度與成本效益，你亦可改為 gpt-4o
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: prompt }
         ],
         temperature: 0.7,
-        response_format: { type: "json_object" } // 強制 OpenAI 必定回傳 JSON，杜絕格式錯誤
+        response_format: { type: "json_object" }
       }),
     });
 
     if (!response.ok) {
-      const errorData = await response.text();
-      console.error("OpenAI API 錯誤:", errorData);
-      return NextResponse.json({ error: `OpenAI API 請求拒絕 (Status: ${response.status})` }, { status: 500 });
+      const errorText = await response.text();
+      console.error("Azure OpenAI 錯誤詳情:", errorText);
+      return NextResponse.json(
+        { error: `Azure OpenAI 調用失敗 (HTTP ${response.status}): ${errorText}` },
+        { status: 500 }
+      );
     }
 
     let data;
     try {
       data = await response.json();
-    } catch(e) {
-      return NextResponse.json({ error: "無法解析 OpenAI 回傳內容" }, { status: 500 });
+    } catch (e) {
+      return NextResponse.json({ error: "無法解析 Azure OpenAI 回傳內容" }, { status: 500 });
     }
-    
-    // 讀取 OpenAI 回傳的 message 內容
+
     let resultText = data.choices?.[0]?.message?.content;
-    
     if (!resultText) {
-      return NextResponse.json({ error: "AI 未能產生回應，請重試行動" }, { status: 500 });
+      return NextResponse.json({ error: "AI 未能產生內容，請重試行動" }, { status: 500 });
     }
+
+    resultText = resultText.replace(/```json\n?/g, "").replace(/```/g, "").trim();
 
     let parsed;
     try {
       parsed = JSON.parse(resultText);
     } catch (parseError) {
       console.error("JSON 解析失敗:", resultText);
-      return NextResponse.json({ error: "AI 輸出的劇情格式混亂，無法解析，請點擊重試" }, { status: 500 });
+      return NextResponse.json({ error: "AI 輸出格式異常，請重試行動" }, { status: 500 });
     }
 
     if (parsed.hpDelta) updatedState.playerHp = Math.max(0, Math.min(updatedState.maxHp, updatedState.playerHp + parsed.hpDelta));
