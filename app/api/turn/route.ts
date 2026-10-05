@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
     try {
       body = await req.json();
     } catch (e) {
-      return NextResponse.json({ error: "前端傳送的資料格式錯誤 (req.json 解析失敗)" }, { status: 400 });
+      return NextResponse.json({ error: "前端傳送的資料格式錯誤" }, { status: 400 });
     }
 
     const { action, state }: { action?: string; state?: GameState } = body;
@@ -73,7 +73,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "遺失遊戲狀態 (State is required)" }, { status: 400 });
     }
 
-    // 嚴密防護的狀態拷貝，避免任何 undefined 導致 Spread 崩潰
     const updatedState: GameState = {
       ...state,
       turn: (state.turn || 1) + 1,
@@ -81,9 +80,10 @@ export async function POST(req: NextRequest) {
       inventory: Array.isArray(state.inventory) ? [...state.inventory] : [],
     };
 
-    const apiKey = process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY;
+    // 確保讀取的是 OPENAI_API_KEY
+    const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: "伺服器遺失 API Key (GEMINI_API_KEY)。請檢查 Vercel Environment Variables 設定，並確保已 Redeploy 套用。" }, { status: 500 });
+      return NextResponse.json({ error: "伺服器遺失 API Key (OPENAI_API_KEY)。請檢查 Vercel Environment Variables 設定，並 Redeploy。" }, { status: 500 });
     }
 
     const prompt = `
@@ -101,44 +101,47 @@ export async function POST(req: NextRequest) {
 
 玩家選擇的行動: "${action || "環顧四周"}"
 
-請根據世界觀、當前階段與玩家行動，產生下一回合劇情及選項。嚴格遵守 JSON 格式輸出。
+請根據世界觀、當前階段與玩家行動，產生下一回合劇情及選項。必須嚴格輸出 JSON 格式。
 `;
 
-    const response = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + apiKey,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: SYSTEM_PROMPT }, { text: prompt }] }],
-          generationConfig: {
-            responseMimeType: "application/json",
-            temperature: 0.7,
-          },
-        }),
-      }
-    );
+    // 正確的 OpenAI API 請求格式
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini", // 使用 gpt-4o-mini 確保速度與成本效益，你亦可改為 gpt-4o
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: prompt }
+        ],
+        temperature: 0.7,
+        response_format: { type: "json_object" } // 強制 OpenAI 必定回傳 JSON，杜絕格式錯誤
+      }),
+    });
 
     if (!response.ok) {
-      throw new Error(`LLM API 請求失敗 (Status: ${response.status})`);
+      const errorData = await response.text();
+      console.error("OpenAI API 錯誤:", errorData);
+      return NextResponse.json({ error: `OpenAI API 請求拒絕 (Status: ${response.status})` }, { status: 500 });
     }
 
     let data;
     try {
       data = await response.json();
     } catch(e) {
-      return NextResponse.json({ error: "無法解析 LLM 回傳內容" }, { status: 500 });
+      return NextResponse.json({ error: "無法解析 OpenAI 回傳內容" }, { status: 500 });
     }
     
-    let resultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    // 讀取 OpenAI 回傳的 message 內容
+    let resultText = data.choices?.[0]?.message?.content;
     
     if (!resultText) {
       return NextResponse.json({ error: "AI 未能產生回應，請重試行動" }, { status: 500 });
     }
 
-    // 終極 JSON 防禦：清理 LLM 自作聰明加上的 markdown 標籤
-    resultText = resultText.replace(/```json\n?/g, "").replace(/```/g, "").trim();
-    
     let parsed;
     try {
       parsed = JSON.parse(resultText);
