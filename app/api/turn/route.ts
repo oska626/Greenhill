@@ -11,7 +11,7 @@ const SPEAKER: Record<Landmark, string> = {
   "聚財坊": "奇仕", "黑市武館": "衛林", "仙館": "佚名", "怡紅院": "玉樺",
 };
 
-function fallbackNarrative(event: string, state: GameState): string {
+function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker: string; line: string }): string {
   const clauses = event.split(/(?<=。)/).filter(Boolean);
   const midpoint = Math.max(1, Math.ceil(clauses.length / 2));
   const first = clauses.slice(0, midpoint).join("");
@@ -41,10 +41,10 @@ function fallbackNarrative(event: string, state: GameState): string {
     sandbox: "城西的事，還得一步一步辦。",
   };
   const companionBetrayed = state.currentLocation === "泥濘市集" && state.worldFlags.includes("出賣域卡度");
-  const speaker = companionBetrayed ? "張屠戶" : SPEAKER[state.currentLocation];
-  const line = companionBetrayed
+  const speaker = npcReply?.speaker || (companionBetrayed ? "張屠戶" : SPEAKER[state.currentLocation]);
+  const line = npcReply?.line || (companionBetrayed
     ? state.questStep === "huizhi_ambush" ? "你一個也走不掉。" : "這條街的賬，我還記著。"
-    : speech[state.questStep];
+    : speech[state.questStep]);
   const dialogue = `\n${speaker}：「${line}」`;
   const additions = detail[state.questStep];
   if (state.questStep === "sandbox" && state.turn % 2 === 0) additions.reverse();
@@ -58,13 +58,14 @@ function fallbackNarrative(event: string, state: GameState): string {
   return `${first}\n\n${second}${dialogue}`;
 }
 
-function validNarrative(value: unknown): value is string {
+function validNarrative(value: unknown, npcReply?: { speaker: string; line: string }): value is string {
   if (typeof value !== "string") return false;
   const parts = value.split("\n\n");
   const length = Array.from(value.replace(/\s/g, "")).length;
   return parts.length === 2 && parts.every(Boolean) && length >= 80 && length <= 120
     && !/[他她它]|手機|電腦|槍械|超人|修仙|法術/.test(value)
-    && /\n[^：\n]+：[「『]/.test(parts[1]);
+    && /\n[^：\n]+：[「『]/.test(parts[1])
+    && (!npcReply || parts[1].includes(`${npcReply.speaker}：「${npcReply.line}」`));
 }
 
 function azureUrl(endpoint: string, deployment: string) {
@@ -77,20 +78,21 @@ function azureUrl(endpoint: string, deployment: string) {
   return `${base}/openai/deployments/${deployment}/chat/completions?api-version=${version}`;
 }
 
-async function narrate(state: GameState, action: string, event: string, moneyChanged: boolean) {
-  const fallback = fallbackNarrative(event, state);
-  const useFallback = (reason: string) => ({ text: fallback, source: "fallback" as const, reason });
+async function narrate(state: GameState, action: string, event: string, moneyChanged: boolean, npcReply?: { speaker: string; line: string }) {
+  const fallback = fallbackNarrative(event, state, npcReply);
+  const fallbackResult = (reason: string) => ({ text: fallback, source: "fallback" as const, reason });
   // The deterministic account already contains the exact transaction.
-  if (moneyChanged) return useFallback("money_change");
+  if (moneyChanged) return fallbackResult("money_change");
   const key = process.env.AZURE_OPENAI_API_KEY || process.env.AZURE_API_KEY;
   const endpoint = (process.env.AZURE_OPENAI_ENDPOINT || process.env.AZURE_ENDPOINT || "").trim();
-  if (!key || !endpoint) return useFallback("missing_azure_config");
+  if (!key || !endpoint) return fallbackResult("missing_azure_config");
 
   const deployment = (process.env.AZURE_OPENAI_DEPLOYMENT_NAME || process.env.AZURE_OPENAI_DEPLOYMENT || "gpt-4o").trim();
   const openingInstruction = state.questStep === "prologue_briefing"
     ? `開局人物：出身「${state.background}」，特質「${state.trait}」。第一段寫出與兩者相符的短肖像；可改寫事件中的人物細節，不能只重述出身名稱。\n`
     : "";
-  const prompt = `地點：${state.currentLocation}；階段：${state.questStep}；你做了：${action.slice(0, 180)}。\n${openingInstruction}確定事件：${event}\n已記因果：${state.worldFlags.join("、") || "無"}。只寫確定事件；所有收支金額須明說。`;
+  const replyInstruction = npcReply ? `確定對白：${npcReply.speaker}：「${npcReply.line}」。第二段原句保留。\n` : "";
+  const prompt = `地點：${state.currentLocation}；階段：${state.questStep}；你做了：${action.slice(0, 180)}。\n${openingInstruction}確定事件：${event}\n${replyInstruction}已記因果：${state.worldFlags.join("、") || "無"}。只寫確定事件；所有收支金額須明說。`;
   try {
     const response = await fetch(azureUrl(endpoint, deployment), {
       method: "POST",
@@ -98,14 +100,14 @@ async function narrate(state: GameState, action: string, event: string, moneyCha
       body: JSON.stringify({ model: deployment, messages: [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: prompt }], temperature: 0.3, response_format: { type: "json_object" } }),
       signal: AbortSignal.timeout(15000),
     });
-    if (!response.ok) return useFallback(`azure_http_${response.status}`);
+    if (!response.ok) return fallbackResult(`azure_http_${response.status}`);
     const data = await response.json();
     const parsed = JSON.parse(data.choices?.[0]?.message?.content || "{}");
-    return validNarrative(parsed.narrative)
+    return validNarrative(parsed.narrative, npcReply)
       ? { text: parsed.narrative, source: "azure" as const }
-      : useFallback("invalid_narrative");
+      : fallbackResult("invalid_narrative");
   } catch {
-    return useFallback("azure_request_or_parse_error");
+    return fallbackResult("azure_request_or_parse_error");
   }
 }
 
@@ -122,7 +124,7 @@ export async function POST(req: NextRequest) {
   }
   const opening = payload.action.startsWith("[初入堂口]") && state.questStep === "prologue_briefing" && state.turn === 1;
   const turn = resolveTurn(state, payload.action, opening);
-  const narration = await narrate(turn.state, payload.action, turn.event, Boolean(turn.moneyNote));
+  const narration = await narrate(turn.state, payload.action, turn.event, Boolean(turn.moneyNote), turn.npcReply);
   return NextResponse.json({
     narrative: narration.text, options: turn.options, state: turn.state,
     narrativeSource: narration.source,

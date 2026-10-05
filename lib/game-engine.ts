@@ -36,6 +36,7 @@ export interface TurnResult {
   options: string[];
   event: string;
   moneyNote: string;
+  npcReply?: { speaker: string; line: string };
 }
 
 const PROLOGUE_OPTIONS = [
@@ -90,6 +91,60 @@ const SANDBOX_OPTIONS: Record<Landmark, string[]> = {
   "黑市武館": ["A. [打黑拳] 挨一場黑拳，賺二十文私銀。", "B. [練拳] 向衛林請教拳腳。", "C. [觀擂] 觀察擂台對手。", "D. [問阿黃] 問阿黃拳館近況。", "E. [歇息] 在拳館歇腳。"],
   "仙館": ["A. [問藥] 打聽止血藥價。", "B. [看人] 觀察館內客人。", "C. [問佚名] 問佚名黑市傳聞。", "D. [拒藥] 拒絕來路不明的丹藥。", "E. [離席] 離開藥桌。"],
   "怡紅院": ["A. [問玉樺] 問玉樺城西消息。", "B. [聽曲] 聽一曲，稍作調息。", "C. [查客] 留意陌生客人。", "D. [問路] 問清附近暗巷。", "E. [離席] 離開席位。"],
+};
+
+type Reaction = { event: string; line: string; speaker?: string };
+const SANDBOX_REACTIONS: Record<Landmark, Record<string, Reaction>> = {
+  "明心閣總壇": {
+    "休整": { event: "", line: "先把氣養回來，門還得守。" },
+    "固防": { event: "", line: "帳記清楚，牆也補結實。" },
+    "盤點": { event: "你翻開堂口帳簿，逐筆核對公款，沒有漏下一文。", line: "少一文，你先來答。" },
+    "問何仔": { event: "你問何仔匯智樓近況，聽見城西幾處路口都添了眼線。", line: "人還沒到，眼睛先到了。" },
+    "巡視": { event: "你巡過總壇門口與後巷，記住兩處鬆動的門閂。", line: "今夜把門看緊。" },
+  },
+  "容姐茶檔": {
+    "買藥": { event: "", line: "藥敷緊，傷口別再沾泥。" },
+    "打探": { event: "你問容姐城西傳聞，聽見匯智樓又在街口認人。", line: "有人認你的臉，少走明路。" },
+    "喝茶": { event: "你端起苦茶，熱氣壓住喉頭的乾澀。", line: "茶喝完就走，別坐成靶子。" },
+    "辨藥": { event: "你攤開藥包，請容姐辨過草藥氣味與碎屑。", line: "認準藥味，別吞錯東西。" },
+    "看街": { event: "你從茶檔望向街口，記下兩條能退回市集的窄巷。", line: "看夠了就收眼，別叫人看回來。" },
+  },
+  "泥濘市集": {
+    "巡街收規": { event: "", line: "規費歸堂口，別叫人說閒話。" },
+    "問價": { event: "你問過兩家藥攤，聽見同一味傷藥報出兩個價。", line: "急著買，價就由人開。" },
+    "找域卡度": { event: "你問域卡度肋下刀傷。你見他按住舊布條，呼吸仍穩，刀口卻未合。", line: "還撐得住。你盯住巷口。" },
+    "盯梢": { event: "你退到肉檔陰影，盯住巷口來往的灰衣人。", line: "那兩個步子太齊，當心。", speaker: "域卡度" },
+    "歇腳": { event: "你靠著肉檔外牆歇腳，耳朵仍朝巷口張著。", line: "歇夠就走，這裏不養閒人。" },
+    "查眼線": { event: "你沿肉檔外圍查眼線，發現有人見你便轉入窄巷。", line: "你還敢在這條街露面？", speaker: "張屠戶" },
+  },
+  "聚財坊": {
+    "押小": { event: "", line: "骰盅一開，輸贏自己認。" },
+    "看盤": { event: "你盯住骰盅落桌，記下莊家收手時的停頓。", line: "看得久，也未必看得透。" },
+    "問奇仕": { event: "你問奇仕堂口欠帳，聽見他只肯談帳面，不肯報人名。", line: "帳在這裏，人你自己找。" },
+    "查老千": { event: "你盯住桌邊換籌碼的手，見有人袖口藏得太緊。", line: "抓賊要抓手，別只抓影。" },
+    "離桌": { event: "你離開賭桌，先把自己的錢袋按緊。", line: "走得了，算你有本事。" },
+  },
+  "黑市武館": {
+    "打黑拳": { event: "", line: "錢拿穩，傷自己養。" },
+    "練拳": { event: "你照衛林指點收緊肘線，連打三記短拳。", line: "拳別伸盡，留手護肋。" },
+    "觀擂": { event: "你看完一場擂台，記下對手換步時露出的空門。", line: "看見空門，也要打得到。" },
+    "問阿黃": { event: "你問阿黃拳館近況，聽見近來上擂的人多，能走下來的少。", line: "今早又抬走一個。", speaker: "阿黃" },
+    "歇息": { event: "你在武館角落歇息，聽見擂台上拳肉相撞。", line: "歇夠就起來，別擋路。" },
+  },
+  "仙館": {
+    "問藥": { event: "你問止血藥價，先看清封口，再掂藥包分量。", line: "價在牌上，成色自己驗。" },
+    "看人": { event: "你掃過館內客人，見有人只看藥，不肯露手。", line: "看人別看太久。" },
+    "問佚名": { event: "你問佚名黑市傳聞，聽見近來有人暗收傷藥。", line: "問得多，價也跟著漲。" },
+    "拒藥": { event: "你推開來歷不明的丹藥，沒有讓藥粉沾手。", line: "不要便罷，命是你的。" },
+    "離席": { event: "你離開藥桌，把袖口收緊，沒碰旁邊的藥瓶。", line: "走時看路。" },
+  },
+  "怡紅院": {
+    "問玉樺": { event: "你問玉樺城西消息，聽見有人在樓裏打聽明心閣。", line: "人未露面，話已傳開。" },
+    "聽曲": { event: "你聽完一曲，指尖仍按著錢袋。", line: "曲盡了，該醒了。" },
+    "查客": { event: "你留意席間陌生客，記下兩人同時望向門口。", line: "有些客，只等別人先走。" },
+    "問路": { event: "你問清附近暗巷的出口，記住轉角那道窄門。", line: "認路可以，別把人帶來。" },
+    "離席": { event: "你起身離席，從側門繞開樓前人群。", line: "下回來，記得先敲門。" },
+  },
 };
 
 const finite = (value: unknown, fallback: number, min: number, max: number) =>
@@ -157,6 +212,7 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
   const oldSilver = state.silver;
   const oldFunds = state.factionFunds;
   let event = "";
+  let npcReply: TurnResult["npcReply"];
   const absurd = customAction(action) && /槍械|手槍|步槍|機關槍|超人|神仙|飛天|激光|雷射|核彈|手機|電腦|修仙|法術/.test(action);
   const choice = /^[A-E]\./.test(action) ? action.charCodeAt(0) - 65 : -1;
   const flavor = (step: Exclude<QuestStep, "sandbox">) => choice >= 0 ? TUTORIAL_FLAVOR[step][choice] : "你自定手段，仍把眼前差事辦下去。";
@@ -245,6 +301,11 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
       event += "你走到城西邊界，見外頭有人把守，便折返原地。";
     } else {
       const tag = /^\w\. \[([^\]]+)\]/.exec(action)?.[1] || "";
+      const reaction = SANDBOX_REACTIONS[state.currentLocation][tag];
+      if (reaction) npcReply = { speaker: reaction.speaker || ({
+        "明心閣總壇": "何仔", "容姐茶檔": "容姐", "泥濘市集": "域卡度",
+        "聚財坊": "奇仕", "黑市武館": "衛林", "仙館": "佚名", "怡紅院": "玉樺",
+      } satisfies Record<Landmark, string>)[state.currentLocation], line: reaction.line };
       if (customAction(action) && /撒沙|撒泥|石灰|撩陰|掀桌|掀枱|逃跑|裝死/.test(action)) {
         const suited = /手疾|身法|靈巧|扒手|察言|皮糙|命硬/.test(state.trait);
         event += suited ? "你使出市井陰招，借自身所長甩開眼線。" : "你使出市井陰招，卻手慢半拍，只勉強保住退路。";
@@ -272,7 +333,7 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
           state.silver += won ? 10 : -10;
           event += won ? "你押十文私銀，骰子落小，贏回十文淨利。" : "你押十文私銀，骰子落大，輸掉十文。";
         } else event += "你掏不出十文私銀，奇仕不讓你下注。";
-      } else event += `你在${state.currentLocation}照自己的意思行事，留意四下動靜。`;
+      } else event += reaction?.event || `你在${state.currentLocation}照自己的意思行事，留意四下動靜。`;
     }
     state.hozaiDefense = Math.max(0, state.hozaiDefense - 2);
     event += "你感到匯智樓施壓，何仔防線減二。";
@@ -297,5 +358,5 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
     : state.currentLocation === "泥濘市集" && state.worldFlags.includes("出賣域卡度")
       ? SANDBOX_OPTIONS["泥濘市集"].map((option) => option.startsWith("C.") ? "C. [查眼線] 留意匯智樓眼線。" : option)
       : SANDBOX_OPTIONS[state.currentLocation];
-  return { state, options, event: event.trim(), moneyNote: changes.join("，") };
+  return { state, options, event: event.trim(), moneyNote: changes.join("，"), npcReply };
 }

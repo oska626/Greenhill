@@ -30,6 +30,25 @@ test("opening gives each created background a concrete character detail", () => 
   }
 });
 
+test("every sandbox choice has a distinct event and NPC reply", () => {
+  for (const location of LANDMARKS) {
+    const state = { ...newGame(), questStep: "sandbox", currentLocation: location, silver: 100, factionFunds: 100 };
+    const options = resolveTurn(state, `F. [前往] ${location}`, false).options;
+    const events = new Set();
+    for (const option of options) {
+      const turn = resolveTurn(state, option, false);
+      assert.ok(!turn.event.includes("照自己的意思行事"), `${location}: ${option}`);
+      assert.ok(turn.npcReply?.line, `${location}: ${option} needs a reply`);
+      events.add(turn.event);
+    }
+    assert.equal(events.size, options.length, `${location} should react differently to each choice`);
+  }
+  const market = { ...newGame(), questStep: "sandbox", currentLocation: "泥濘市集" };
+  const injury = resolveTurn(market, "C. [找域卡度] 問域卡度傷勢。", false);
+  assert.match(injury.event, /刀口卻未合/);
+  assert.equal(injury.npcReply.speaker, "域卡度");
+});
+
 test("every tutorial option advances one scene without skipping medicine or fee", () => {
   const opening = resolveTurn(newGame(), "[初入堂口] 阿七", true);
   assert.equal(opening.state.turn, 1);
