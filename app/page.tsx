@@ -138,14 +138,18 @@ export default function GamePage() {
     setGameState(initialCharacterState);
     setNarrative(
       `青山城連日暴雨初歇，簷前濁水滴瀝未止。\n\n` +
-      `明心閣青瓦古堂內，正廳中央的昔日鑄劍巨爐早已冷透，積滿塵灰。閣主何仔眼圈烏黑，正坐在缺角長木凳上揉著太陽穴，順手將一包粗布紮緊的生草藥拍在滿是茶漬的木几上。\n\n` +
+      `明心閣青瓦古堂內，正廳中央昔日鑄劍巨爐早已冷透，積滿塵灰。閣主何仔眼圈烏黑，正坐在缺角長木凳上揉住太陽穴，順手將一包粗布紮緊嘅生草藥拍在滿是茶漬嘅木几上。\n\n` +
       `「${trimmedName}，天光喇，雨停咗班刀手就該出動。你新入堂口，咪成日企喺度似碌木。」何仔打了個哈欠，斜眼瞥著你：\n` +
       `「拎呢包生草藥去巷口交畀容姐煲茶，順便去市集搵域卡度。市集欠咗三日規費，收唔齊返嚟，今晚成個閣嘅手足都要捱餓。」`
     );
+
+    // 開局固定 A 至 E 五大選項
     setOptions([
-      "1. [領命出發] 拿起木几上的【生草藥包】，戴上破斗笠動身前往容姐茶檔。",
-      "2. [打探門路] 追問何仔：「如果市集有人耍賴唔交規費，我應該點應付？」",
-      "3. [查驗地圖] 掃視堂內牆上的城西羊皮舊圖，確認容姐茶檔與市集的位置。",
+      "A. [正面領命] 拎起木几上嘅【生草藥包】，戴上破斗笠動身前往容姐茶檔。",
+      "B. [市井陰招] 嬉皮笑臉打聽：「何仔，張屠戶欠規費如果敢反枱，我可唔可以用下三濫陰佢？」",
+      "C. [言語套料] 試探問多句：「城東匯智樓鋒少最近咁狼胎，係咪有咩後台撐腰？」",
+      "D. [身法觀察] 掃視古堂牆上嘅羊皮舊圖，暗自記熟前往容姐茶檔同市集嘅後巷退路。",
+      "E. [交畀何仔] 「何仔，我初嚟報到人生路不熟，不如你嬉皮笑臉陪我行一趟？」",
     ]);
     setView("game");
   };
@@ -186,6 +190,13 @@ export default function GamePage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // 提交 Option F 自定義打字破局
+  const handleCustomSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customInput.trim()) return;
+    handleAction(`F. [自訂手段] ${customInput.trim()}`);
   };
 
   if (view === "creation") {
@@ -348,43 +359,49 @@ export default function GamePage() {
             )}
           </div>
 
+          {/* 行動選擇區域：A-E 按鈕 + F 自定義輸入 */}
           <div className="bg-stone-900/80 border border-stone-800 rounded-lg p-4 flex flex-col gap-3">
-            <div className="text-xs font-semibold text-stone-400 tracking-wider">可執行抉擇</div>
-            <div className="grid grid-cols-1 gap-2">
+            <div className="text-xs font-semibold text-stone-400 tracking-wider">江湖抉擇 (A - E)</div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {options.map((opt, idx) => (
                 <button
                   key={idx}
                   disabled={loading}
                   onClick={() => handleAction(opt)}
-                  className="text-left text-xs md:text-sm px-4 py-2.5 rounded bg-stone-800/70 hover:bg-stone-700/80 hover:border-amber-700/60 border border-stone-700/50 transition duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-stone-200"
+                  className={`text-left text-xs md:text-sm px-3.5 py-2.5 rounded border transition duration-150 disabled:opacity-40 disabled:cursor-not-allowed ${
+                    opt.startsWith("E.")
+                      ? "bg-amber-950/30 border-amber-700/60 hover:bg-amber-900/50 text-amber-200 font-medium md:col-span-2"
+                      : "bg-stone-800/70 hover:bg-stone-700/80 border-stone-700/50 text-stone-200 hover:border-stone-500"
+                  }`}
                 >
                   {opt}
                 </button>
               ))}
             </div>
 
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleAction(customInput);
-              }}
-              className="mt-2 flex gap-2 pt-2 border-t border-stone-800/60"
-            >
-              <input
-                type="text"
-                value={customInput}
-                disabled={loading}
-                onChange={(e) => setCustomInput(e.target.value)}
-                placeholder="輸入其他江湖招數或市井手段（例如：就地踢泥、借故大叫...）"
-                className="flex-1 bg-stone-950 border border-stone-700/80 rounded px-3 py-1.5 text-xs md:text-sm focus:outline-none focus:border-amber-600 text-stone-200 placeholder:text-stone-600 disabled:opacity-50"
-              />
-              <button
-                type="submit"
-                disabled={loading || !customInput.trim()}
-                className="bg-amber-800/80 hover:bg-amber-700 text-amber-100 px-4 py-1.5 rounded text-xs md:text-sm font-medium transition disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                執行
-              </button>
+            {/* F 選項：專屬自定義打字破局 */}
+            <form onSubmit={handleCustomSubmit} className="mt-2 pt-3 border-t border-stone-800 flex flex-col gap-1.5">
+              <div className="text-xs font-semibold text-amber-400/90 tracking-wider flex items-center gap-1.5">
+                <span>F. [自訂手段]</span>
+                <span className="text-[11px] text-stone-500 font-normal">自行輸入下三濫招式或突發行動破局</span>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={customInput}
+                  disabled={loading}
+                  onChange={(e) => setCustomInput(e.target.value)}
+                  placeholder="例：就地抓一把爛泥掟落對方隻眼、翻轉張枱借力跳窗、大叫官差嚟喇..."
+                  className="flex-1 bg-stone-950 border border-stone-700/80 rounded px-3 py-2 text-xs md:text-sm focus:outline-none focus:border-amber-600 text-stone-200 placeholder:text-stone-600 disabled:opacity-50"
+                />
+                <button
+                  type="submit"
+                  disabled={loading || !customInput.trim()}
+                  className="bg-amber-700 hover:bg-amber-600 text-amber-100 px-5 py-2 rounded text-xs md:text-sm font-medium transition disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
+                >
+                  出招
+                </button>
+              </div>
             </form>
           </div>
         </section>
