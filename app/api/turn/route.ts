@@ -80,26 +80,11 @@ export async function POST(req: NextRequest) {
       inventory: Array.isArray(state.inventory) ? [...state.inventory] : [],
     };
 
-    // 讀取 Azure OpenAI 環境變數
+    // 1. 取得 API Key
     const apiKey =
       process.env.AZURE_OPENAI_API_KEY ||
       process.env.AZURE_API_KEY;
 
-    let endpoint =
-      process.env.AZURE_OPENAI_ENDPOINT ||
-      process.env.AZURE_ENDPOINT;
-
-    const deployment =
-      process.env.AZURE_OPENAI_DEPLOYMENT_NAME ||
-      process.env.AZURE_OPENAI_DEPLOYMENT ||
-      process.env.AZURE_DEPLOYMENT_NAME ||
-      "gpt-4o";
-
-    const apiVersion =
-      process.env.AZURE_OPENAI_API_VERSION ||
-      "2024-02-15-preview";
-
-    // 檢查 Key
     if (!apiKey) {
       return NextResponse.json(
         { error: "Vercel 遺失 AZURE_OPENAI_API_KEY。請確認環境變數已設置。" },
@@ -107,21 +92,46 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 檢查 Endpoint
-    if (!endpoint) {
+    // 2. 取得 Endpoint 與 Deployment 名稱
+    const rawEndpoint = (
+      process.env.AZURE_OPENAI_ENDPOINT ||
+      process.env.AZURE_ENDPOINT ||
+      ""
+    ).trim();
+
+    const deployment = (
+      process.env.AZURE_OPENAI_DEPLOYMENT_NAME ||
+      process.env.AZURE_OPENAI_DEPLOYMENT ||
+      process.env.AZURE_DEPLOYMENT_NAME ||
+      "gpt-4o"
+    ).trim();
+
+    if (!rawEndpoint) {
       return NextResponse.json(
-        { error: "Vercel 缺少 AZURE_OPENAI_ENDPOINT (例: https://your-resource.openai.azure.com)。請在 Vercel Environment Variables 補齊。" },
+        { error: "Vercel 缺少 AZURE_OPENAI_ENDPOINT。請填入截圖上的端點網址。" },
         { status: 500 }
       );
     }
 
-    // 格式化 Endpoint URL
-    endpoint = endpoint.replace(/\/$/, "");
-    if (!endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
-      endpoint = `https://${endpoint}.openai.azure.com`;
-    }
+    // 3. 專為 Azure AI Foundry (services.ai.azure.com) 精準解析 URL
+    let azureUrl = rawEndpoint;
 
-    const azureUrl = `${endpoint}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`;
+    // 若直接貼上截圖上的 /openai/v1/responses，自動轉為標準 chat/completions
+    if (azureUrl.includes("/openai/v1/responses")) {
+      azureUrl = azureUrl.replace("/openai/v1/responses", "/openai/v1/chat/completions");
+    } else if (azureUrl.includes("/responses")) {
+      azureUrl = azureUrl.replace("/responses", "/chat/completions");
+    } else if (azureUrl.endsWith("/openai/v1")) {
+      azureUrl = `${azureUrl}/chat/completions`;
+    } else if (!azureUrl.includes("/chat/completions")) {
+      const base = azureUrl.replace(/\/$/, "");
+      if (base.includes("services.ai.azure.com")) {
+        azureUrl = `${base}/openai/v1/chat/completions`;
+      } else {
+        const apiVersion = process.env.AZURE_OPENAI_API_VERSION || "2024-10-21";
+        azureUrl = `${base}/openai/deployments/${deployment}/chat/completions?api-version=${apiVersion}`;
+      }
+    }
 
     const prompt = `
 當前玩家狀態：
@@ -141,14 +151,16 @@ export async function POST(req: NextRequest) {
 請根據世界觀、當前階段與玩家行動，產生下一回合劇情及選項。必須嚴格輸出 JSON 格式。
 `;
 
-    // Azure OpenAI 專用請求 (使用 api-key Header)
+    // 4. 發出請求 (支援 Azure AI Foundry 標準 Header 與 Request Body)
     const response = await fetch(azureUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "api-key": apiKey,
+        "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
+        model: deployment,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: prompt }
@@ -160,9 +172,11 @@ export async function POST(req: NextRequest) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("Azure OpenAI 錯誤詳情:", errorText);
+      console.error("Azure OpenAI 錯誤:", errorText);
       return NextResponse.json(
-        { error: `Azure OpenAI 調用失敗 (HTTP ${response.status}): ${errorText}` },
+        {
+          error: `Azure OpenAI 調用失敗 (HTTP ${response.status})。\n請求網址: ${azureUrl}\n詳細回報: ${errorText}`
+        },
         { status: 500 }
       );
     }
