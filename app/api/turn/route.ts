@@ -35,11 +35,14 @@ const SYSTEM_PROMPT = `
    - 必須寫「你拔出短刀」、「你眉頭一皺」、「你望向四周爛泥」！
 2. 玩家名號（如「阿七」）只限於【NPC 對白開口嗌玩家】時使用（例如：何仔罵：「阿七，你咪成碌木咁企喺度！」）。除此以外，GM 旁白絕對不可用玩家名號做主語。
 
-【排版與節奏規範（極度重要）】
-narrative 內文嚴禁寫成一大段！必須使用雙換行符（\\n\\n）嚴格拆分為 2 至 3 個清晰段落：
-1. 第一段【環境鏡頭】：描寫現場環境、聲音、氣味或氛圍。
-2. 第二段【危機焦點】：描寫當前威脅、異常動靜、敵人細節或壓迫感。
-3. 第三段【動作對白】：NPC 互動或事件爆發，NPC 對白必須另起新行展示。
+【排版與節奏規範（極度重要：嚴禁水字數）】
+1. 嚴禁原地重複描寫環境：
+   - 只有【切換至新地標】的第一回合，才用一兩句簡單交待現場氣氛。
+   - 【原地交涉、同一場景】：絕對禁止再描寫樑柱、燈籠、泥地、擺設等廢話！開頭第一句直接切入動作與 NPC 表情反饋。
+2. 篇幅精簡有力：
+   - 全篇 narrative 總字數嚴格控制在 120 至 160 字以內，兩段為限（\\n\\n），短促、帶殺氣、快節奏。
+   - 第一段：承接玩家動作與 NPC 的即時神態反應。
+   - 第二段：局勢最新變化與 NPC 說話（對白獨立起行）。
 
 【語言風格：正宗香港市井江湖白話（拒絕假粵語／書面語換皮）】
 全篇（包括 GM 旁白與所有角色對話）必須使用道地香港口語。嚴禁以書面語語法硬套粵語字！
@@ -112,6 +115,10 @@ narrative 內文嚴禁寫成一大段！必須使用雙換行符（\\n\\n）嚴�
 2. 第二幕 (yung_tea_stall)：容姐茶檔。交付草藥包（consumedItem: "【生草藥包】"），換得【一壺苦涼茶】（acquiredItem: "【一壺苦涼茶】"），指引前往「泥濘市集」（nextQuestStep: "market_collection"）。
 3. 第三幕 (market_collection)：市集收規。見到域卡度，向張屠戶收取 50 文欠款。教學「市井泥漿流」。收齊後（silverDelta 或 factionFundsDelta +40/50）。
 4. 第四幕 (huizhi_ambush)：匯智樓插旗。規費剛收完，匯智樓管事率精銳傭兵殺入市集插旗踩場，正式引爆衝突！
+
+【任務道具唯一性規範】
+- 任務道具（如【生草藥包】、【一壺苦涼茶】）在全遊戲中【嚴禁重複獲得】！
+- 若玩家行囊中已經有【生草藥包】，何仔不可再遞出，acquiredItem 必須留空 ""！
 
 【輸出規範】
 必須以繁體中文廣東話輸出合規的 JSON：
@@ -336,11 +343,17 @@ export async function POST(req: NextRequest) {
     }
 
     const acquiredItem = parsed.acquiredItem;
-    if (acquiredItem && typeof acquiredItem === "string" && acquiredItem.trim() !== "") {
-      if (updatedState.inventory.length < updatedState.maxInventory) {
-        updatedState.inventory.push(acquiredItem.trim());
-      }
-    }
+if (acquiredItem && typeof acquiredItem === "string" && acquiredItem.trim() !== "") {
+  const itemTrimmed = acquiredItem.trim();
+  // 檢查背囊是否已經擁有該物品，且背囊未滿
+  const alreadyHas = updatedState.inventory.some(
+    (invItem) => invItem.includes(itemTrimmed) || itemTrimmed.includes(invItem)
+  );
+
+  if (!alreadyHas && updatedState.inventory.length < updatedState.maxInventory) {
+    updatedState.inventory.push(itemTrimmed);
+  }
+}
 
     return NextResponse.json({
       narrative: parsed.narrative,
