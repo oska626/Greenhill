@@ -33,6 +33,14 @@ interface ApiResponse {
   error?: string;
 }
 
+interface SavedGameData {
+  state: GameState;
+  narrative: string;
+  options: string[];
+}
+
+const SAVE_KEY = "qingshan_game_save_v1";
+
 const BACKGROUNDS = [
   {
     id: "debt_collector",
@@ -84,10 +92,15 @@ const BACKGROUNDS = [
 export default function GamePage() {
   const [view, setView] = useState<"creation" | "game">("creation");
 
+  // 存檔狀態
+  const [savedGame, setSavedGame] = useState<SavedGameData | null>(null);
+
+  // 創角表單狀態
   const [playerName, setPlayerName] = useState<string>("阿七");
   const [selectedBgId, setSelectedBgId] = useState<string>("debt_collector");
   const [customTrait, setCustomTrait] = useState<string>("見風使舵");
 
+  // 遊戲進行狀態
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [narrative, setNarrative] = useState<string>("");
   const [options, setOptions] = useState<string[]>([]);
@@ -97,10 +110,65 @@ export default function GamePage() {
 
   const narrativeEndRef = useRef<HTMLDivElement>(null);
 
+  // 初始化時讀取 LocalStorage 存檔
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (raw) {
+        const parsed: SavedGameData = JSON.parse(raw);
+        if (parsed?.state && parsed?.narrative && Array.isArray(parsed?.options)) {
+          setSavedGame(parsed);
+        }
+      }
+    } catch (e) {
+      console.error("讀取存檔失敗:", e);
+    }
+  }, []);
+
+  // 滾動至最新劇情
   useEffect(() => {
     narrativeEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [narrative, loading]);
 
+  // 寫入本地存檔
+  const saveToLocalStorage = (state: GameState, narr: string, opts: string[]) => {
+    try {
+      const payload: SavedGameData = { state, narrative: narr, options: opts };
+      localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
+      setSavedGame(payload);
+    } catch (e) {
+      console.error("自動存檔失敗:", e);
+    }
+  };
+
+  // 載入舊存檔
+  const handleLoadSavedGame = () => {
+    if (!savedGame) return;
+    setGameState(savedGame.state);
+    setNarrative(savedGame.narrative);
+    setOptions(savedGame.options);
+    setView("game");
+  };
+
+  // 重新開始機制（清空存檔）
+  const handleRestartGame = () => {
+    if (window.confirm("確定要重頭嚟過？當前所有江湖進度與存檔將會抹除！")) {
+      try {
+        localStorage.removeItem(SAVE_KEY);
+      } catch (e) {
+        console.error("清除存檔失敗:", e);
+      }
+      setSavedGame(null);
+      setGameState(null);
+      setNarrative("");
+      setOptions([]);
+      setCustomInput("");
+      setErrorMsg("");
+      setView("creation");
+    }
+  };
+
+  // 建立新角色並進入遊戲
   const handleStartGame = () => {
     if (!playerName.trim()) {
       setErrorMsg("請先輸入江湖名號");
@@ -135,25 +203,31 @@ export default function GamePage() {
       },
     };
 
-    setGameState(initialCharacterState);
-        setNarrative(
+    const initialNarrative =
       `青山城連日暴雨初歇，簷前濁水滴瀝未止。\n\n` +
       `明心閣青瓦古堂內，正廳中央座巨型鑄劍爐早已經冷透積灰。閣主何仔對眼黑眼圈重過撞鬼，坐喺張缺角長凳度捽住個太陽穴，順手將一包用粗麻布紮實嘅生草藥「啪」一聲掟喺張油漬茶几度。\n\n` +
       `「${trimmedName}，天光喇，雨一停班刀手就出嚟搵食。新入堂口咪成碌木咁企喺度。」何仔擘大個口打哈欠，斜眼睥住你：\n` +
-      `「同我拎呢包草藥去巷仔交畀容姐煲苦茶，順手去泥濘市集搵域卡度。市集欠咗成三日規費未交，今次收唔齊返嚟，今晚成個閣嘅兄弟一齊食西北風。」`
-    );
+      `「同我拎呢包草藥去巷仔交畀容姐煲苦茶，順手去泥濘市集搵域卡度。市集欠咗成三日規費未交，今次收唔齊返嚟，今晚成個閣嘅兄弟一齊食西北風。」`;
 
-    // 真正港產黑道／江湖白話選項
-    setOptions([
+    const initialOptions = [
       "A. [領命辦事] 擸起几上包草藥，扯低破斗笠：「得，我依家過去容姐度。」",
       "B. [市井陰招] 側側膊陰陰笑：「何仔，張屠戶條契弟如果賴皮，係咪照舊撩陰踩腳、撒石灰招呼佢？」",
       "C. [套探虛實] 壓低把聲問：「城東匯智樓班刀手最近咁踩界，鋒少條粉腸背後邊個照緊？」",
       "D. [睇定退路] 睄實牆上張爛羊皮圖，暗自記熟去茶檔同市集嘅後巷生路死路。",
       "E. [推畀何仔] 「何仔，你身為阿頭，唔係縮喺堂口推個新仔出去送死呀化？一齊行啦。」",
-    ]);
+    ];
+
+    setGameState(initialCharacterState);
+    setNarrative(initialNarrative);
+    setOptions(initialOptions);
+
+    // 儲存至 LocalStorage
+    saveToLocalStorage(initialCharacterState, initialNarrative, initialOptions);
+
     setView("game");
   };
 
+  // 提交玩家行動
   const handleAction = async (actionText: string) => {
     if (!actionText.trim() || loading || !gameState) return;
     setLoading(true);
@@ -180,10 +254,17 @@ export default function GamePage() {
         throw new Error(data.error || `伺服器拒絕請求 (HTTP ${res.status})`);
       }
 
-      setGameState(data.state);
-      setNarrative(data.narrative);
-      setOptions(data.options || []);
+      const nextState = data.state;
+      const nextNarrative = data.narrative;
+      const nextOptions = data.options || [];
+
+      setGameState(nextState);
+      setNarrative(nextNarrative);
+      setOptions(nextOptions);
       setCustomInput("");
+
+      // 每回合自動存檔
+      saveToLocalStorage(nextState, nextNarrative, nextOptions);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "行動處理發生未知錯誤";
       setErrorMsg(msg);
@@ -192,15 +273,16 @@ export default function GamePage() {
     }
   };
 
-  // 提交 Option F 自定義打字破局
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!customInput.trim()) return;
     handleAction(`F. [自訂手段] ${customInput.trim()}`);
   };
 
+  // ---------------- 創角頁面 ----------------
   if (view === "creation") {
     const curBg = BACKGROUNDS.find((b) => b.id === selectedBgId) || BACKGROUNDS[0];
+
     return (
       <div className="min-h-screen bg-stone-950 text-stone-200 flex flex-col justify-center items-center p-4">
         <div className="max-w-2xl w-full bg-stone-900/90 border border-stone-800 rounded-lg p-6 shadow-2xl space-y-6">
@@ -208,6 +290,23 @@ export default function GamePage() {
             <h1 className="text-2xl font-bold tracking-widest text-amber-500">青山城 · 泥潭入道</h1>
             <p className="text-xs text-stone-400">大雨滂沱，刀鋒未冷。在城西這片泥濘死地，立下你的身家姓名。</p>
           </div>
+
+          {/* 舊存檔載入按鈕 */}
+          {savedGame && (
+            <div className="p-3.5 bg-amber-950/30 border border-amber-700/60 rounded-lg flex items-center justify-between gap-3">
+              <div className="text-xs text-amber-200/90">
+                <span className="font-semibold text-amber-400">發現舊進度：</span>
+                {savedGame.state.playerName}（{savedGame.state.background}）· 第 {savedGame.state.turn} 回合 · 位於 {savedGame.state.currentLocation}
+              </div>
+              <button
+                type="button"
+                onClick={handleLoadSavedGame}
+                className="bg-amber-700 hover:bg-amber-600 text-stone-100 px-3.5 py-1.5 rounded text-xs font-medium transition shrink-0 shadow"
+              >
+                繼續江湖路
+              </button>
+            </div>
+          )}
 
           {errorMsg && (
             <div className="p-3 bg-rose-950/40 border border-rose-800 text-rose-300 rounded text-xs">
@@ -284,13 +383,14 @@ export default function GamePage() {
             onClick={handleStartGame}
             className="w-full bg-amber-700/90 hover:bg-amber-600 text-stone-100 font-medium py-2.5 rounded transition duration-150 shadow-md text-sm tracking-wider mt-2"
           >
-            確認創角 · 踏入青山城
+            確認創角 · 開啟全新江湖
           </button>
         </div>
       </div>
     );
   }
 
+  // ---------------- 主遊戲頁面 ----------------
   return (
     <div className="min-h-screen bg-stone-950 text-stone-200 flex flex-col font-sans">
       <header className="border-b border-stone-800 bg-stone-900/80 backdrop-blur px-4 py-3 sticky top-0 z-20">
@@ -308,7 +408,7 @@ export default function GamePage() {
             </span>
           </div>
 
-          <div className="flex items-center gap-4 text-stone-300">
+          <div className="flex items-center gap-3.5 text-stone-300">
             <div>
               <span className="text-stone-500 mr-1">銀兩:</span>
               <span className="text-amber-400 font-mono font-medium">{gameState?.silver ?? 0}</span> 文
@@ -321,12 +421,26 @@ export default function GamePage() {
               <span className="text-stone-500 mr-1">何仔防線:</span>
               <span
                 className={`font-mono font-bold ${
-                  (gameState?.hozaiDefense ?? 60) <= 20 ? "text-rose-500 animate-pulse" : (gameState?.hozaiDefense ?? 60) <= 40 ? "text-amber-500" : "text-emerald-400"
+                  (gameState?.hozaiDefense ?? 60) <= 20
+                    ? "text-rose-500 animate-pulse"
+                    : (gameState?.hozaiDefense ?? 60) <= 40
+                    ? "text-amber-500"
+                    : "text-emerald-400"
                 }`}
               >
                 {gameState?.hozaiDefense ?? 60}/100
               </span>
             </div>
+
+            {/* 重新開始按鈕 */}
+            <button
+              type="button"
+              onClick={handleRestartGame}
+              className="ml-2 px-2.5 py-1 rounded bg-stone-800 hover:bg-rose-900/50 hover:text-rose-300 border border-stone-700/60 hover:border-rose-700/50 text-[11px] text-stone-400 transition"
+              title="抹除所有進度，重返創角頁面"
+            >
+              重頭嚟過
+            </button>
           </div>
         </div>
       </header>
@@ -359,7 +473,6 @@ export default function GamePage() {
             )}
           </div>
 
-          {/* 行動選擇區域：A-E 按鈕 + F 自定義輸入 */}
           <div className="bg-stone-900/80 border border-stone-800 rounded-lg p-4 flex flex-col gap-3">
             <div className="text-xs font-semibold text-stone-400 tracking-wider">江湖抉擇 (A - E)</div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -379,7 +492,6 @@ export default function GamePage() {
               ))}
             </div>
 
-            {/* F 選項：專屬自定義打字破局 */}
             <form onSubmit={handleCustomSubmit} className="mt-2 pt-3 border-t border-stone-800 flex flex-col gap-1.5">
               <div className="text-xs font-semibold text-amber-400/90 tracking-wider flex items-center gap-1.5">
                 <span>F. [自訂手段]</span>
