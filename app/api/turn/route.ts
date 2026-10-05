@@ -31,11 +31,11 @@ const SYSTEM_PROMPT = `
 ==============================
 一、文風與排版規範（冷硬短句）
 ==============================
-1. 文風：使用繁體中文標準書面語。風格仿冷硬古龍武俠，多用短句、動詞與名詞白描，句式凌厲短促，留白營造壓迫感，嚴禁冗長抒情與繁複修飾。
-2. 視角：100% 使用【第二人稱「你」】。嚴禁使用第三人稱代詞或玩家名號做旁白主語（玩家名號僅限 NPC 開口對話時使用）。
+1. 文風：繁體中文標準書面語。風格仿冷硬古龍武俠，多用動詞與名詞白描，句式短促，嚴禁繁複環境修飾與抒情。
+2. 視角：100% 使用【第二人稱「你」】。嚴禁使用第三人稱（嚴禁寫「阿七拔刀」）。名號僅限 NPC 開口對話時使用。
 3. 排版與篇幅：
    - 全篇 narrative 總字數嚴格控制在【80 至 120 字以內】，嚴格以【兩段為限】（中間以 \\n\\n 分隔）。
-   - 第一段：承接你的動作與 NPC 即時反應（原地交涉嚴禁描寫桌椅、樑柱、燈籠等環境；僅切換新地標首回合可用半句交代氣候）。
+   - 第一段：承接你的動作與 NPC 即時反應（原地交涉嚴禁描寫桌椅、樑柱等環境；僅切換新地標首回合可用半句交代氣候）。
    - 第二段：局勢最新變化與 NPC 話語（NPC 對話獨立起行）。
 
 ==============================
@@ -50,57 +50,21 @@ const SYSTEM_PROMPT = `
    - 非第 1 回合一律填 0。
 2. 自訂手段 (F) 邏輯審查與懲罰：
    - 合理市井手段（撒沙、掀桌、逃跑、裝死）：正常依據特質判定成敗。
-   - 荒唐/超現實行為（自稱超人、掏出火器、發射激光、神仙一擊）：
-     * 判定為【當場出醜 / 腦中發熱 / 服用劣質黑市丹藥產生妄想】。
-     * 行動必定失敗，強制扣減氣血（hpDelta: -10 至 -20），何仔防線受損（hozaiDefenseDelta: -5 至 -10）。
+   - 荒唐行為（超人、槍械、神仙一擊）：判定為丹藥幻覺或當場出醜，強制扣減氣血（hpDelta: -10 至 -20）。
 3. 江湖因果 (worldFlags)：
-   - 產生重大永久影響時（重傷他人、得罪 NPC、私吞公款），在 addWorldFlag 回傳 4-10 字簡短標籤（例如 "打斷張屠戶右手"、"私吞十文規費"）。無重大影響則留空 ""。
-   - 審查傳入的【已記下江湖因果】，令 NPC 態度與局勢產生實質反應。
+   - 產生重大影響時在 addWorldFlag 回傳 4-10 字簡短標籤（例如 "打斷張屠戶右手"、"私吞十文規費"）。無重大影響則留空 ""。
+4. 城西邊界鎖定：
+   - 活動範圍嚴格鎖死在城西（明心閣總壇、容姐茶檔、泥濘市集、聚財坊、黑市武館、仙館、怡紅院）。禁止生成前往外城或外部總壇的選項。
 
-==============================
-三、經濟與銀兩規範（嚴禁暗中收支）
-==============================
-1. 資金劃分：
-   - 個人銀兩 (silver)：玩家私有財物。
-   - 門派流動金 (factionFunds)：明心閣堂口公款。
-2. 嚴禁幽靈變更：
-   - 凡有 silverDelta 或 factionFundsDelta 變動，【必須在 narrative 明文交代】！
-   - 嚴禁不寫文字卻暗中扣減/增加銀兩。未經交代兩者 Delta 必須為 0。
-
-==============================
-四、選項生成與 JSON 規範
-==============================
-1. 眼見為實：選項必須基於眼前實況。敵人未實體拔刀現身包圍前，嚴禁生成任何戰鬥迎擊選項。
-2. 城西邊界鎖定（嚴禁離開）：
-   - 活動範圍鎖死在城西（明心閣總壇、容姐茶檔、泥濘市集、聚財坊、黑市武館、仙館、怡紅院）。
-   - 匯智樓、官府僅為勢力背景，選項 (A-E) 絕對禁止出現前往外城、離開青山城或攻打外部總壇。
-   - 若自訂手段 (F) 企圖強行出城，一律判定為被哨卡或外圍精銳刀手截殺逼退。
-3. 每次嚴格生成 A 至 E 共 5 個選項（嚴禁由 AI 生成 F 選項）：
-   - A. [正面/硬碰] 正統武功、正面拔刀、直接交涉
-   - B. [市井/陰招] 泥漿流下三濫手段（撒沙、撩陰、踩腳、就地取材）
-   - C. [交涉/打探] 言語試探、討價還價、恐嚇威逼、觀察破綻
-   - D. [身法/觀察/道具] 尋找破綻、走位避險、或使用隨身道具
-   - E. [應變/同門]：
-  * 只有同伴【實體在場陪同】時（如市集有域卡度在旁），才可生成 [交由同門]。
-  * 若身邊冇同伴同行（如茶檔只有你同容姐、或總壇面對何仔），【絕對嚴禁召喚不在場角色】！E 必須轉為 [妥協/隱忍/藉故離開/虛與委蛇]。
-
-必須以繁體中文輸出合規的 JSON：
+必須以繁體中文輸出合規 JSON：
 {
-  "narrative": "場景描寫與對話（第二人稱『你』，冷硬短句，嚴格兩段以\\n\\n分隔，80-120字）",
-  "options": [
-    "A. [行動名稱] 具體說明",
-    "B. [行動名稱] 具體說明",
-    "C. [行動名稱] 具體說明",
-    "D. [行動名稱] 具體說明",
-    "E. [交由同門] 具體說明"
-  ],
+  "narrative": "80-120字冷硬短句，兩段（\\n\\n分隔）",
+  "options": ["A. ...", "B. ...", "C. ...", "D. ...", "E. ..."],
   "customMaxHp": 0,
   "customMaxMp": 0,
-  "addWorldFlag": "產生的重大因果標籤（若無則為空字串）",
+  "addWorldFlag": "",
   "hpDelta": 0,
   "mpDelta": 0,
-  "silverDelta": 0,
-  "factionFundsDelta": 0,
   "hozaiDefenseDelta": 0
 }
 `;
@@ -110,12 +74,11 @@ export async function POST(req: NextRequest) {
     let body;
     try {
       body = await req.json();
-    } catch (e) {
+    } catch {
       return NextResponse.json({ error: "前端傳送的資料格式錯誤" }, { status: 400 });
     }
 
     const { action, state }: { action?: string; state?: GameState } = body;
-
     if (!state) {
       return NextResponse.json({ error: "遺失遊戲狀態 (State is required)" }, { status: 400 });
     }
@@ -132,12 +95,12 @@ export async function POST(req: NextRequest) {
     };
 
     // ========================================================
-    // 狀態機：前 4 幕選項由代碼鎖死，AI 僅負責劇情潤色
+    // 確定性主線狀態機（前 4 幕代碼鎖死選項與因果鏈）
     // ========================================================
     let contextGuidance = "";
     let fixedOptions: string[] | null = null;
 
-    // 1. 第一幕：總壇領命
+    // 1. 第一幕：總壇領命（救手足、送藥換藥）
     if (updatedState.questStep === "prologue_briefing") {
       updatedState.currentLocation = "明心閣總壇";
 
@@ -148,94 +111,98 @@ export async function POST(req: NextRequest) {
         if (!updatedState.inventory.includes("【生草藥包】") && updatedState.inventory.length < updatedState.maxInventory) {
           updatedState.inventory.push("【生草藥包】");
         }
-        contextGuidance = "玩家抵達容姐茶檔。容姐正用油布抹桌。";
+        contextGuidance = "玩家攜帶生草藥包剛抵達容姐茶檔。容姐正在擦桌。需將生草藥交給容姐配成金創散。";
         fixedOptions = [
-          "A. [交付藥包] 將生草藥包遞給容姐，換取苦涼茶。",
-          "B. [試探口風] 向容姐打聽最近城西有何風吹草動。",
-          "C. [查看四周] 觀察茶檔周遭是否有可疑眼線。",
-          "D. [歇息喝茶] 討碗粗茶潤喉，稍作調息。",
-          "E. [轉身離去] 不多廢話，辦完事即刻動身前往泥濘市集。"
+          "A. [交付藥包] 將生草藥包遞給容姐，請她配製金創散送去市集救人。",
+          "B. [打探口風] 詢問容姐，匯智樓最近在城西究竟有何異動。",
+          "C. [查看四周] 審視茶檔對街，看是否有可疑眼線徘徊。",
+          "D. [閉目調息] 坐在竹凳上閉目養神，按刀待發。",
+          "E. [無聲催促] 叩響木桌，催促容姐盡快取藥，人命關天。"
         ];
       } else {
-        contextGuidance = `開局第 1 回合。何仔上下打量剛入堂口的你，必須根據你的出身背景「${updatedState.background}」與特質「${updatedState.trait}」，開口譏諷敲打一句，隨即把生草藥包推到案前命令送去容姐茶檔。`;
+        contextGuidance = `開局第 1 回合。何仔打量剛入堂口的你，依據出身背景「${updatedState.background}」與特質「${updatedState.trait}」冷聲嘲弄一句。隨後推出生草藥包交代因果：「域卡度昨夜在泥濘市集被匯智樓的人陰了一刀，如今正帶傷在肉檔逼數。拿這包生草藥去容姐茶檔換金創散，送去市集救他，順便把張屠戶欠的五十文規費帶回來。」`;
         fixedOptions = [
-          "A. [領命啟程] 接過生草藥包，立即動身前往容姐茶檔。",
-          "B. [反唇相譏] 嘲諷何仔的眼光與用人之道。",
-          "C. [追問底細] 詢問這包生草藥到底有何名堂。",
-          "D. [暗中查看] 趁接過藥包時，掂量其分量與暗記。",
-          "E. [虛與委蛇] 躬身稱是，暗中打量總壇四周退路。"
+          "A. [領命啟程] 接過生草藥包，立即動身前往容姐茶檔換藥。",
+          "B. [冷言反譏] 譏諷堂口收五十文規費竟然要傷號頂在前頭。",
+          "C. [追問底細] 詢問匯智樓近來因何事頻頻越界生事。",
+          "D. [掂量藥包] 查驗藥包分量與成色，默不作聲。",
+          "E. [躬身虛應] 領下差事，暗自打量堂內守備與退路。"
         ];
       }
     }
-    // 2. 第二幕：容姐茶檔
+    // 2. 第二幕：容姐茶檔（取得金創散，獲得伏擊預警）
     else if (updatedState.questStep === "yung_tea_stall") {
       updatedState.currentLocation = "容姐茶檔";
 
-      const isLeavingToMarket = actionText.includes("泥濘市集") || actionText.includes("市集") || actionText.startsWith("E.") || (actionText.startsWith("A.") && updatedState.inventory.includes("【一壺苦涼茶】"));
+      const isLeavingToMarket = actionText.includes("泥濘市集") || actionText.includes("市集") || actionText.includes("啟程") || actionText.startsWith("A.");
       if (isLeavingToMarket) {
         updatedState.currentLocation = "泥濘市集";
         updatedState.questStep = "market_collection";
-        contextGuidance = "玩家來到泥濘市集肉檔前。同門域卡度已在等候，張屠戶按著剁骨刀拖欠 50 文規費。";
+        contextGuidance = "玩家懷揣金創散趕到泥濘市集肉檔前。同門域卡度左肋滲血正靠著木柱喘息，肉檔張屠戶按著剁骨刀冷笑拖延，頻頻瞥向巷口。";
         fixedOptions = [
-          "A. [正面逼索] 亮出明心閣腰牌，要張屠戶立刻交出 50 文規費。",
-          "B. [泥漿陰招] 抓起肉攤碎骨或爛泥，冷不防朝張屠戶面門招呼。",
-          "C. [言語恐嚇] 搬出何仔手段，威嚇張屠戶後果自負。",
-          "D. [審視攤檔] 尋找肉檔錢匣位置，伺機強取。",
-          "E. [交由域卡度] 退後一步，示意域卡度拔刀動手。"
+          "A. [先救同門] 將金創散拋給域卡度裹傷，自己拔刀直面張屠戶。",
+          "B. [按刀逼索] 跨步上前短刀直抵肉案，限張屠戶三息交出五十文規費。",
+          "C. [市井陰招] 腳尖勾起地上的爛泥碎骨，作勢直撩張屠戶雙目。",
+          "D. [提防巷口] 察覺張屠戶神色有詐，暗自回頭盯防巷尾動靜。",
+          "E. [交由域卡度] 示意域卡度上前施壓，自己在側翼掠陣戒備。"
         ];
       } else {
-        // 交付藥包，換取苦茶
+        // 消耗草藥，換取金創散
         const herbIdx = updatedState.inventory.indexOf("【生草藥包】");
         if (herbIdx !== -1) updatedState.inventory.splice(herbIdx, 1);
-        if (!updatedState.inventory.includes("【一壺苦涼茶】") && updatedState.inventory.length < updatedState.maxInventory) {
-          updatedState.inventory.push("【一壺苦涼茶】");
+        if (!updatedState.inventory.includes("【金創散】") && updatedState.inventory.length < updatedState.maxInventory) {
+          updatedState.inventory.push("【金創散】");
         }
-        contextGuidance = "容姐收下藥包，遞出一壺苦涼茶，低聲警告最近匯智樓的人在市集盯得很緊。";
+        contextGuidance = "容姐迅速將草藥研磨成一包金創散遞給你，低聲警示：「域卡度傷在肋下，硬撐不了多久。還有，今晨有兩個匯智樓刀手在茶檔對街晃悠，肉檔怕是有套，小心點。」";
         fixedOptions = [
-          "A. [動身啟程] 提起苦涼茶，動身前往泥濘市集與域卡度會合。",
-          "B. [追問匯智樓] 問清匯智樓到底派了多少刀手在市集。",
-          "C. [仰頭飲茶] 喝下一口苦涼茶，平復內息。",
-          "D. [冷眼旁觀] 站在茶棚角落，審視街面動靜。",
-          "E. [告辭隱忍] 拱手不語，默默收起涼茶準備出發。"
+          "A. [收藥啟程] 收起金創散，快步趕往泥濘市集與域卡度會合。",
+          "B. [追問刀手] 問清對街那兩名匯智樓刀手的兵刃與去向。",
+          "C. [討碗烈茶] 仰頭灌下一碗苦茶，借藥力定住心神。",
+          "D. [審視街面] 站在茶檔屋簷陰影下，掃視通往市集的石板街。",
+          "E. [抱拳別過] 點頭示意明白，不再廢話立即動身。"
         ];
       }
     }
-    // 3. 第三幕：市集收規
+    // 3. 第三幕：市集收規（中圈套，屠戶吹呼哨）
     else if (updatedState.questStep === "market_collection") {
       updatedState.currentLocation = "泥濘市集";
 
-      const feeHandled = actionText.includes("收") || actionText.includes("打") || actionText.includes("規費") || actionText.includes("逼") || actionText.startsWith("A.") || actionText.startsWith("B.") || actionText.startsWith("E.");
-      if (feeHandled && !updatedState.flags.collectedMarketFee) {
+      const feeCollected = actionText.includes("收") || actionText.includes("打") || actionText.includes("逼") || actionText.includes("救") || actionText.startsWith("A.") || actionText.startsWith("B.");
+      if (feeCollected && !updatedState.flags.collectedMarketFee) {
         updatedState.flags.collectedMarketFee = true;
-        updatedState.factionFunds += 50;
+        updatedState.factionFunds += 50; // 代碼確定性加公款
+        // 若身上有金創散，視為已給域卡度使用
+        const drugIdx = updatedState.inventory.indexOf("【金創散】");
+        if (drugIdx !== -1) updatedState.inventory.splice(drugIdx, 1);
+
         updatedState.questStep = "huizhi_ambush";
-        contextGuidance = "50 文規費剛落袋，巷尾驟然傳來拔刀聲。數名匯智樓刀手堵死市集兩頭！";
+        contextGuidance = "張屠戶被迫摸出五十文銅錢扔在案上，隨即獰笑著撮唇吹響一聲尖銳呼哨！巷尾刀光暴起，三名持鐵葉短刀的匯智樓灰衣刀手堵死市集兩頭！";
         fixedOptions = [
-          "A. [正面迎敵] 拔出隨身短刀，迎向領頭的匯智樓刀手。",
-          "B. [市井爛招] 踢翻旁邊菜筐肉案阻擋刀手，就地抓爛泥撒眼。",
-          "C. [呼應同門] 與域卡度背靠背結陣，死守市集狹道。",
-          "D. [棄陣突圍] 借屋簷與窄巷地形，施展身法強行破圍。",
-          "E. [交由域卡度] 讓域卡度在前頂住刀陣，自己伺機背後突襲。"
+          "A. [正面迎敵] 短刀出鞘，護住負傷的域卡度，硬接撲來的刀光。",
+          "B. [掀翻肉案] 飛起一腳掀翻油膩肉案，將滿案碎骨爛肉砸向刀手。",
+          "C. [背水結陣] 與域卡度背靠背緊貼，沉刀死守狹窄巷道。",
+          "D. [借勢突圍] 踩上屠攤木柱借力翻上屋簷，伺機脫出重圍。",
+          "E. [交由域卡度] 讓域卡度借傷誘敵，自己矮身從側翼抹向刀手下盤。"
         ];
       } else {
-        contextGuidance = "泥濘市集張屠戶肉檔前。張屠戶態度蠻橫，域卡度按刀待發。";
+        contextGuidance = "泥濘市集肉檔前。域卡度按著傷口喘息，張屠戶握著剔骨刀冷笑拖延，五十文規費遲遲不肯拿出來。";
         fixedOptions = [
-          "A. [強行拔刀] 砍在肉案上，限張屠戶三息內交出 50 文。",
-          "B. [市井陰招] 撩陰腿偷襲張屠戶下盤。",
-          "C. [談判分肥] 假意寬限兩日，暗中試探張屠戶有何底牌。",
-          "D. [搜尋破綻] 觀察張屠戶握刀架勢與周遭逃生路線。",
-          "E. [交由域卡度] 讓域卡度上前動粗索款。"
+          "A. [短刀逼喉] 刀尖前遞三寸逼向張屠戶面門，喝令立刻交錢。",
+          "B. [撒沙襲面] 抓起肉案旁的碎骨石灰，作勢朝張屠戶面上招呼。",
+          "C. [言語喝破] 當場喝破他頻頻望向街角是在等匯智樓援兵。",
+          "D. [審視退路] 觀察肉檔四周退路與域卡度的傷勢深淺。",
+          "E. [示意同門] 示意域卡度上前亮堂口腰牌，施加最後通牒。"
         ];
       }
     }
-    // 4. 第四幕：匯智樓伏擊
+    // 4. 第四幕：匯智樓伏擊戰
     else if (updatedState.questStep === "huizhi_ambush") {
       updatedState.currentLocation = "泥濘市集";
-      contextGuidance = "市集血戰。短兵相接，刀光混著泥水。此回合戰鬥結束後進入自由江湖。";
-      updatedState.questStep = "sandbox"; // 戰鬥結算後直接進入 Sandbox
-      fixedOptions = null; // 伏擊戰打完，正式將選項權限交還 AI
+      contextGuidance = "市集血戰。匯智樓刀手步步緊逼，短兵相接。此回合戰鬥突圍後，主線教學結束，正式進入自由沙盒。";
+      updatedState.questStep = "sandbox"; // 戰鬥結算後切換至沙盒
+      fixedOptions = null; // 交還給 AI 生成沙盒動態選項
     }
-    // 5. 第五幕：開放江湖沙盒
+    // 5. 第五幕：開放江湖沙盒（7 大地標動態路由）
     else {
       const LANDMARKS = ["明心閣總壇", "容姐茶檔", "泥濘市集", "聚財坊", "黑市武館", "仙館", "怡紅院"];
       for (const loc of LANDMARKS) {
@@ -244,47 +211,24 @@ export async function POST(req: NextRequest) {
           break;
         }
       }
-      contextGuidance = `城西自由沙盒。玩家身處「${updatedState.currentLocation}」。何仔防線: ${updatedState.hozaiDefense}/100。請生成該地標事件與 A-E 抉擇。`;
-      fixedOptions = null; // 沙盒由 AI 動態生成
+      contextGuidance = `城西自由沙盒。玩家身處「${updatedState.currentLocation}」。何仔防線: ${updatedState.hozaiDefense}/100。請生成該地標專屬事件與 A-E 抉擇。`;
+      fixedOptions = null;
     }
 
+    // ==========================================
+    // 調用 Azure OpenAI
+    // ==========================================
+    const apiKey = process.env.AZURE_OPENAI_API_KEY || process.env.AZURE_API_KEY;
+    const rawEndpoint = (process.env.AZURE_OPENAI_ENDPOINT || process.env.AZURE_ENDPOINT || "").trim();
+    const deployment = (process.env.AZURE_OPENAI_DEPLOYMENT_NAME || process.env.AZURE_OPENAI_DEPLOYMENT || "gpt-4o").trim();
 
-    const apiKey =
-      process.env.AZURE_OPENAI_API_KEY ||
-      process.env.AZURE_API_KEY;
-
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: "Vercel 遺失 AZURE_OPENAI_API_KEY。請確認環境變數已設置。" },
-        { status: 500 }
-      );
-    }
-
-    const rawEndpoint = (
-      process.env.AZURE_OPENAI_ENDPOINT ||
-      process.env.AZURE_ENDPOINT ||
-      ""
-    ).trim();
-
-    const deployment = (
-      process.env.AZURE_OPENAI_DEPLOYMENT_NAME ||
-      process.env.AZURE_OPENAI_DEPLOYMENT ||
-      process.env.AZURE_DEPLOYMENT_NAME ||
-      "gpt-4o"
-    ).trim();
-
-    if (!rawEndpoint) {
-      return NextResponse.json(
-        { error: "Vercel 缺少 AZURE_OPENAI_ENDPOINT。" },
-        { status: 500 }
-      );
+    if (!apiKey || !rawEndpoint) {
+      return NextResponse.json({ error: "Azure API 配置無效" }, { status: 500 });
     }
 
     let azureUrl = rawEndpoint;
     if (azureUrl.includes("/openai/v1/responses")) {
       azureUrl = azureUrl.replace("/openai/v1/responses", "/openai/v1/chat/completions");
-    } else if (azureUrl.includes("/responses")) {
-      azureUrl = azureUrl.replace("/responses", "/chat/completions");
     } else if (azureUrl.endsWith("/openai/v1")) {
       azureUrl = `${azureUrl}/chat/completions`;
     } else if (!azureUrl.includes("/chat/completions")) {
@@ -298,30 +242,15 @@ export async function POST(req: NextRequest) {
     }
 
     const prompt = `
-當前玩家狀態：
-- 玩家名號: ${updatedState.playerName || "無名氏"} (${updatedState.background || "流民"})
-- 核心特質: ${updatedState.trait || "草莽之軀"}
-- 當前地點: ${updatedState.currentLocation}
-- 當前回合: ${updatedState.turn}
-- 主線階段: ${updatedState.questStep}
-- 行囊 (${updatedState.inventory.length}/${updatedState.maxInventory}): [${updatedState.inventory.join(", ")}]
-- 氣血: ${updatedState.playerHp}/${updatedState.maxHp}
-- 內力: ${updatedState.playerMp}/${updatedState.maxMp}
-- 個人銀兩: ${updatedState.silver} 文
-- 門派流動金: ${updatedState.factionFunds} 文
-- 何仔防線: ${updatedState.hozaiDefense}/100
-- 已記下江湖因果: [${updatedState.worldFlags.join("、 ") || "暫無重大恩怨"}]
+當前狀態：
+- 名號: ${updatedState.playerName || "無名氏"} (${updatedState.background || "流民"}) | 特質: ${updatedState.trait || "草莽之軀"}
+- 地點: ${updatedState.currentLocation} | 階段: ${updatedState.questStep}
+- 氣血: ${updatedState.playerHp}/${updatedState.maxHp} | 內力: ${updatedState.playerMp}/${updatedState.maxMp}
+- 個人銀兩: ${updatedState.silver} 文 | 門派金: ${updatedState.factionFunds} 文 | 何仔防線: ${updatedState.hozaiDefense}/100
+- 已記江湖因果: [${updatedState.worldFlags.join("、 ") || "無"}]
 - 場景指引: ${contextGuidance}
 
-玩家執行的行動: "${actionText}"
-
-【重要生成要求】
-1. 劇情敘事必須 100% 使用第二人稱「你」，嚴禁使用第三人稱代詞！
-2. 風格嚴格使用繁體中文冷硬短句書面語，總長度嚴格在 80-120 字以內，兩段為限（\\n\\n）。
-3. 若為第 1 回合，依據出身背景與特質裁決 customMaxHp 與 customMaxMp。
-4. 審視傳入的「江湖因果」，保持局勢連貫反饋。
-5. 嚴格輸出 A 至 E 共 5 個選項（不要生成 F）。
-6. 必須嚴格輸出合規 JSON。
+玩家行動: "${actionText}"
 `;
 
     const response = await fetch(azureUrl, {
@@ -344,38 +273,16 @@ export async function POST(req: NextRequest) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("Azure OpenAI 錯誤:", errorText);
-      return NextResponse.json(
-        {
-          error: `Azure OpenAI 調用失敗 (HTTP ${response.status})。\n請求網址: ${azureUrl}\n詳細回報: ${errorText}`
-        },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: `Azure 請求失敗: ${errorText}` }, { status: 500 });
     }
 
-    let data;
-    try {
-      data = await response.json();
-    } catch (e) {
-      return NextResponse.json({ error: "無法解析 Azure OpenAI 回傳內容" }, { status: 500 });
-    }
-
-    let resultText = data.choices?.[0]?.message?.content;
-    if (!resultText) {
-      return NextResponse.json({ error: "AI 未能產生內容，請重試行動" }, { status: 500 });
-    }
-
+    const data = await response.json();
+    let resultText = data.choices?.[0]?.message?.content?.trim() || "";
     resultText = resultText.replace(/```json\n?/g, "").replace(/```/g, "").trim();
 
-    let parsed;
-    try {
-      parsed = JSON.parse(resultText);
-    } catch (parseError) {
-      console.error("JSON 解析失敗:", resultText);
-      return NextResponse.json({ error: "AI 輸出格式異常，請重試行動" }, { status: 500 });
-    }
+    const parsed = JSON.parse(resultText);
 
-    // 第一回合動態裁決氣血與內力上限
+    // 第一回合動態資質裁決
     if (isPrologue) {
       if (parsed.customMaxHp && typeof parsed.customMaxHp === "number" && parsed.customMaxHp > 0) {
         updatedState.maxHp = parsed.customMaxHp;
@@ -387,7 +294,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 累積江湖因果標籤
+    // 戰鬥損耗與數值安全結算
+    if (parsed.hpDelta && !isNaN(Number(parsed.hpDelta))) {
+      updatedState.playerHp = Math.max(0, Math.min(updatedState.maxHp, updatedState.playerHp + Number(parsed.hpDelta)));
+    }
+    if (parsed.mpDelta && !isNaN(Number(parsed.mpDelta))) {
+      updatedState.playerMp = Math.max(0, Math.min(updatedState.maxMp, updatedState.playerMp + Number(parsed.mpDelta)));
+    }
+    if (parsed.hozaiDefenseDelta && !isNaN(Number(parsed.hozaiDefenseDelta))) {
+      updatedState.hozaiDefense = Math.max(0, Math.min(100, updatedState.hozaiDefense + Number(parsed.hozaiDefenseDelta)));
+    }
+
+    // 江湖因果標籤去重寫入
     if (parsed.addWorldFlag && typeof parsed.addWorldFlag === "string" && parsed.addWorldFlag.trim() !== "") {
       const flag = parsed.addWorldFlag.trim();
       if (!updatedState.worldFlags.includes(flag)) {
@@ -395,37 +313,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 結算常規數值增減
-    if (parsed.hpDelta && !isNaN(Number(parsed.hpDelta))) {
-      updatedState.playerHp = Math.max(0, Math.min(updatedState.maxHp, updatedState.playerHp + Number(parsed.hpDelta)));
-    }
-    if (parsed.mpDelta && !isNaN(Number(parsed.mpDelta))) {
-      updatedState.playerMp = Math.max(0, Math.min(updatedState.maxMp, updatedState.playerMp + Number(parsed.mpDelta)));
-    }
-    if (parsed.silverDelta !== undefined && parsed.silverDelta !== null) {
-      const sDelta = Number(parsed.silverDelta);
-      if (!isNaN(sDelta)) {
-        updatedState.silver = Math.max(0, updatedState.silver + sDelta);
-      }
-    }
-    if (parsed.factionFundsDelta !== undefined && parsed.factionFundsDelta !== null) {
-      const fDelta = Number(parsed.factionFundsDelta);
-      if (!isNaN(fDelta)) {
-        updatedState.factionFunds = Math.max(0, updatedState.factionFunds + fDelta);
-      }
-    }
-    if (parsed.hozaiDefenseDelta && !isNaN(Number(parsed.hozaiDefenseDelta))) {
-      updatedState.hozaiDefense = Math.max(0, Math.min(100, updatedState.hozaiDefense + Number(parsed.hozaiDefenseDelta)));
-    }
-
     return NextResponse.json({
       narrative: parsed.narrative,
-      options: fixedOptions || parsed.options, // 前 4 幕強制使用代碼固定選項，徹底杜絕 AI 幻覺
+      options: fixedOptions || parsed.options, // 前 4 幕代碼鎖死選項，沙盒交還 AI
       state: updatedState,
     });
   } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : "發生未知的伺服器錯誤";
-    console.error("Turn processing error:", errorMessage);
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+    const errorMsg = err instanceof Error ? err.message : "伺服器內部錯誤";
+    return NextResponse.json({ error: errorMsg }, { status: 500 });
   }
 }
