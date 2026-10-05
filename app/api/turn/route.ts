@@ -119,25 +119,33 @@ const SYSTEM_PROMPT = `
 - 嚴禁當前地點掛「泥濘市集」，劇情卻描寫玩家在跟容姐對話！
 - 只有玩家選擇了「動身前往 [地點]」的選項時，才允許更新 locationUpdate。
 
-【開局四幕：單向線性硬門禁（嚴禁跳步搶跑）】
-你必須嚴格檢查傳入的 questStep，絕對禁止跨幕推進：
+【主線動線與強制轉場判定 (questStep)】
+你必須嚴格對照玩家傳入的 questStep 推進，並在達成條件時【強制更新 nextQuestStep】：
 
-1. 第一幕【明心閣交帶】(questStep: "prologue_briefing")：
-   - 唯一核心：何仔交帶任務並遞出草藥包。
-   - 轉移條件：只有玩家明確選擇「出發去茶檔/動身」，才轉移至容姐茶檔（locationUpdate: "容姐茶檔"，nextQuestStep: "yung_tea_stall"）。
-   - 若玩家在總壇內偷睇藥包或閒聊，事件純粹在總壇內部結算，絕不准容姐隔空出聲！
+1. "prologue_briefing"（總壇領命）：
+   - 轉場條件：玩家只要選擇動身/出發去茶檔，必須強制回傳：
+     locationUpdate: "容姐茶檔", acquiredItem: "【生草藥包】", nextQuestStep: "yung_tea_stall"
 
-2. 第二幕【容姐茶檔】(questStep: "yung_tea_stall")：
-   - 唯一核心：將【生草藥包】交畀容姐（consumedItem），換取【一壺苦涼茶】（acquiredItem），可向容姐打聽一兩句口風。
-   - 轉移條件：完成後，何仔/容姐指示你前往市集搵域卡度。只有玩家選擇「離開茶檔前往市集」，地點才轉為「泥濘市集」（locationUpdate: "泥濘市集"，nextQuestStep: "market_collection"）。
+2. "yung_tea_stall"（茶檔交藥）：
+   - 轉場條件：交出藥包換取苦茶後，只要玩家選擇動身去市集，必須強制回傳：
+     locationUpdate: "泥濘市集", consumedItem: "【生草藥包】", acquiredItem: "【一壺苦涼茶】", nextQuestStep: "market_collection"
 
-3. 第三幕【市集收規】(questStep: "market_collection")：
-   - 唯一核心：到達泥濘市集，見到同門「域卡度」，向豬肉檔「張屠戶」收取欠交嘅 50 文規費。
-   - 【絕對禁止】：在此階段匯智樓刀手【絕對不得出場】！必須先完成收規（軟磨硬泡、恐嚇、或動手打服張屠戶）。
-   - 只有當 50 文規費成功收回或徹底談判破裂後，nextQuestStep 才准變更為 "huizhi_ambush"。
+3. "market_collection"（市集收規）：
+   - 轉場條件：成功向張屠戶收回 50 文規費（或徹底談判破裂動手），必須強制回傳：
+     silverDelta: 50, nextQuestStep: "huizhi_ambush"
 
-4. 第四幕【匯智樓伏擊】(questStep: "huizhi_ambush")：
-   - 規費剛落袋，匯智樓管事帶領刀手正式踢檔包圍市集。此時此刻，方可生成拔刀迎戰或突圍逃跑的選項！
+4. "huizhi_ambush"（匯智樓伏擊戰）：
+   - 轉場條件：打完伏擊戰（無論係擊退刀手、負傷突圍定係被同門救出），事件告一段落，必須強制回傳：
+     nextQuestStep: "sandbox"
+
+5. "sandbox"（城西自由江湖沙盒）：
+   - 主線新手教學正式結束，進入開放市井生態。
+   - 驅動核心：AI 必須根據【何仔防線】、【門派流動金】及【江湖因果 worldFlags】動態生成事件。
+   - 選項 A-E 必須轉為【據點探索與差事】：
+     * 前往聚財坊賭錢借貸或逼數
+     * 前往黑市武館打黑拳賺銀兩
+     * 前往怡紅院探聽各大幫派虛實
+     * 回明心閣總壇協助何仔加固防線
 
 【任務道具唯一性規範】
 - 任務道具（如【生草藥包】、【一壺苦涼茶】）在全遊戲中【嚴禁重複獲得】！
