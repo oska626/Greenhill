@@ -1,31 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-
-export interface GameState {
-  turn: number;
-  playerName: string;
-  background: string;
-  trait: string;
-  currentLocation: string;
-  inventory: string[];
-  maxInventory: number;
-  playerHp: number;
-  maxHp: number;
-  playerMp: number;
-  maxMp: number;
-  silver: number;
-  factionFunds: number;
-  hozaiDefense: number;
-  worldFlags: string[];
-  questStep: "prologue_briefing" | "yung_tea_stall" | "market_collection" | "huizhi_ambush" | "sandbox";
-  flags: {
-    tookHerbs: boolean;
-    visitedYung: boolean;
-    collectedMarketFee: boolean;
-    marketAmbushTriggered: boolean;
-  };
-}
+import { aptitude, LANDMARKS, normalizeState, type GameState } from "@/lib/game-engine";
 
 interface ApiResponse {
   narrative: string;
@@ -107,14 +83,16 @@ export default function GamePage() {
   const [errorMsg, setErrorMsg] = useState<string>("");
 
   const narrativeEndRef = useRef<HTMLDivElement>(null);
+  const lastActionRef = useRef<string>("");
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
       if (raw) {
         const parsed: SavedGameData = JSON.parse(raw);
-        if (parsed?.state && parsed?.narrative && Array.isArray(parsed?.options)) {
-          setSavedGame(parsed);
+        const state = normalizeState(parsed?.state);
+        if (state && typeof parsed?.narrative === "string" && Array.isArray(parsed?.options)) {
+          setSavedGame({ ...parsed, state });
         }
       }
     } catch (e) {
@@ -170,6 +148,7 @@ export default function GamePage() {
     const trimmedName = playerName.trim();
     const bg = BACKGROUNDS.find((b) => b.id === selectedBgId) || BACKGROUNDS[0];
     const initialTrait = selectedBgId === "custom" ? customTrait.trim() || "草莽之軀" : bg.trait;
+    const stats = aptitude(trimmedName, bg.name, initialTrait);
 
     const initialCharacterState: GameState = {
       turn: 1,
@@ -179,10 +158,10 @@ export default function GamePage() {
       currentLocation: "明心閣總壇",
       inventory: [...bg.startingItems],
       maxInventory: 4,
-      playerHp: bg.hp,
-      maxHp: bg.hp,
-      playerMp: bg.mp,
-      maxMp: bg.mp,
+      playerHp: stats.hp,
+      maxHp: stats.hp,
+      playerMp: stats.mp,
+      maxMp: stats.mp,
       silver: 0,
       factionFunds: 10,
       hozaiDefense: 60,
@@ -197,17 +176,18 @@ export default function GamePage() {
     };
 
     setGameState(initialCharacterState);
-    setNarrative("青山城連日暴雨初歇，簷前濁水滴瀝未止。\n\n何仔坐喺正廳長凳度，正瞇起對黑眼圈打量緊你嘅底細……");
+    setNarrative("");
     setOptions([]);
     setView("game");
     setLoading(true);
+    lastActionRef.current = `[初入堂口] ${trimmedName}（出身：${bg.name}，特質：${initialTrait}）踏入明心閣總壇，向何仔領命。`;
 
     try {
       const res = await fetch("/api/turn", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: `[初入堂口] ${trimmedName}（出身：${bg.name}，特質：${initialTrait}）踏入明心閣總壇，向何仔領命。`,
+          action: lastActionRef.current,
           state: initialCharacterState,
         }),
       });
@@ -237,6 +217,7 @@ export default function GamePage() {
 
   const handleAction = async (actionText: string) => {
     if (!actionText.trim() || loading || !gameState) return;
+    lastActionRef.current = actionText;
     setLoading(true);
     setErrorMsg("");
 
@@ -287,6 +268,7 @@ export default function GamePage() {
 
   if (view === "creation") {
     const curBg = BACKGROUNDS.find((b) => b.id === selectedBgId) || BACKGROUNDS[0];
+    const curStats = aptitude(playerName.trim(), curBg.name, selectedBgId === "custom" ? customTrait : curBg.trait);
 
     return (
       <div className="min-h-screen bg-stone-950 text-stone-200 flex flex-col justify-center items-center p-4">
@@ -345,7 +327,7 @@ export default function GamePage() {
                 >
                   <div className="font-semibold text-sm flex justify-between items-center">
                     <span className={selectedBgId === bg.id ? "text-amber-400" : ""}>{bg.name}</span>
-                    <span className="text-[10px] text-stone-500">血:{bg.hp} 氣:{bg.mp}</span>
+                    <span className="text-[10px] text-stone-500">血:{aptitude(playerName.trim(), bg.name, bg.trait).hp} 氣:{aptitude(playerName.trim(), bg.name, bg.trait).mp}</span>
                   </div>
                   <div className="text-xs text-stone-400 mt-1 line-clamp-2 leading-relaxed">{bg.desc}</div>
                 </button>
@@ -369,8 +351,8 @@ export default function GamePage() {
           <div className="bg-stone-950/80 border border-stone-800/80 rounded p-3 space-y-2 text-xs">
             <div className="font-semibold text-stone-300">初始命盤預覽</div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-stone-400">
-              <div>氣血上限: <span className="font-mono text-rose-400">{curBg.hp}</span></div>
-              <div>內力上限: <span className="font-mono text-sky-400">{curBg.mp}</span></div>
+              <div>氣血上限: <span className="font-mono text-rose-400">{curStats.hp}</span></div>
+              <div>內力上限: <span className="font-mono text-sky-400">{curStats.mp}</span></div>
               <div>行囊容量: <span className="font-mono text-stone-200">4 格</span></div>
               <div>初期銀兩: <span className="font-mono text-amber-400">0 文</span></div>
             </div>
@@ -454,7 +436,7 @@ export default function GamePage() {
               <div className="p-4 bg-rose-950/40 border border-rose-800 text-rose-300 rounded text-sm">
                 ⚠️ {errorMsg}
                 <button
-                  onClick={() => handleAction("重試當前回合")}
+                  onClick={() => lastActionRef.current.startsWith("[初入堂口]") ? handleStartGame() : handleAction(lastActionRef.current)}
                   className="ml-4 underline text-rose-200 hover:text-white"
                 >
                   重新嘗試
@@ -608,34 +590,17 @@ export default function GamePage() {
           <div className="bg-stone-900/80 border border-stone-800 rounded-lg p-4 space-y-2 text-xs">
             <div className="font-semibold text-stone-400 mb-2">城西地標與堂口</div>
             <div className="space-y-1.5 text-stone-400">
-              <div className="flex justify-between items-center py-0.5">
-                <span>明心閣總壇 (何仔)</span>
-                <span className="text-[10px] text-emerald-400">大本營</span>
-              </div>
-              <div className="flex justify-between items-center py-0.5">
-                <span>容姐茶檔 (容姐)</span>
-                <span className="text-[10px] text-amber-300">補給</span>
-              </div>
-              <div className="flex justify-between items-center py-0.5">
-                <span>泥濘市集 (域卡度)</span>
-                <span className="text-[10px] text-rose-400">收規</span>
-              </div>
-              <div className="flex justify-between items-center py-0.5 opacity-60">
-                <span>怡紅院 (玉樺)</span>
-                <span className="text-[10px] text-stone-500">情報</span>
-              </div>
-              <div className="flex justify-between items-center py-0.5 opacity-60">
-                <span>聚財坊 (奇仕)</span>
-                <span className="text-[10px] text-stone-500">賭博借貸</span>
-              </div>
-              <div className="flex justify-between items-center py-0.5 opacity-60">
-                <span>武館 (衛林/阿黃)</span>
-                <span className="text-[10px] text-stone-500">黑拳</span>
-              </div>
-              <div className="flex justify-between items-center py-0.5 opacity-60">
-                <span>仙館 (佚名)</span>
-                <span className="text-[10px] text-stone-500">禁藥</span>
-              </div>
+              {LANDMARKS.map((location) => (
+                <button
+                  key={location}
+                  type="button"
+                  disabled={loading || gameState?.questStep !== "sandbox"}
+                  onClick={() => handleAction(`F. [前往] ${location}`)}
+                  className={`block w-full text-left py-1 px-2 rounded disabled:opacity-45 ${gameState?.currentLocation === location ? "text-amber-300 bg-stone-800" : "hover:bg-stone-800 hover:text-stone-200"}`}
+                >
+                  {location}
+                </button>
+              ))}
             </div>
           </div>
         </aside>

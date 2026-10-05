@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/game-engine.test.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
