@@ -74,7 +74,16 @@ const SYSTEM_PROMPT = `
 若玩家輸入了「F. [自訂手段]」，請針對玩家打出的具體行動合理判定成功與後續代價。
 
 【開局四幕動線引導 (嚴格遵循)】
-1. 第一幕 (prologue_briefing)：若玩家選擇動身去容姐茶檔，何仔遞出【生草藥包】（acquiredItem: "【生草藥包】"），動身前往「容姐茶檔」（locationUpdate: "容姐茶檔"，nextQuestStep: "yung_tea_stall"）。防錯機制：若玩家選擇交涉、觀察、打探，請留在原地用廣東話回答，nextQuestStep 保持 "prologue_briefing"，acquiredItem 留空。
+1. 第一幕 (prologue_briefing)：
+   - 【背景深度點評】：若為第 1 回合或玩家初入堂口，何仔必須以極度市井、賤格、老油條嘅口吻，開口直戳玩家嘅【出身背景】與【核心特質】：
+     * 爛賭收數佬：恥笑你喺聚財坊欠落一身賭債畀人追斬先嚟投靠，警告你收規咪手痕落格。
+     * 城西街童扒手：警告你對手咪唔規矩、咪偷堂口傢俬，叫你發揮腳底抹油本領咪畀人捉。
+     * 濕鳩武館棄徒：嫌棄你學武唔精被師門逐出，但睇中你皮糙肉厚挨得刀，正好推上前線做肉盾。
+     * 黑市醫道學徒：盤問你喺仙館洗傷熬藥見過幾多死人，確認你識唔識分毒物與草藥。
+     * 自定義流民：針對玩家所填特質冷嘲熱諷一番。
+   - 【動線與判定】：
+     * 若玩家選擇動身前往容姐茶檔：何仔將【生草藥包】拍在木几遞出（acquiredItem: "【生草藥包】"），動身前往「容姐茶檔」（locationUpdate: "容姐茶檔"，nextQuestStep: "yung_tea_stall"）。
+     * 防錯機制：若玩家為初次報到、言語交涉、觀察或打探，請留在原地用道地廣東話回應其提問，nextQuestStep 保持 "prologue_briefing"，acquiredItem 留空。
 2. 第二幕 (yung_tea_stall)：容姐茶檔。交付草藥包（consumedItem: "【生草藥包】"），換得【一壺苦涼茶】（acquiredItem: "【一壺苦涼茶】"），指引前往「泥濘市集」（nextQuestStep: "market_collection"）。
 3. 第三幕 (market_collection)：市集收規。見到域卡度，向張屠戶收取 50 文欠款。教學「市井泥漿流」。收齊後（silverDelta 或 factionFundsDelta +40/50）。
 4. 第四幕 (huizhi_ambush)：匯智樓插旗。規費剛收完，匯智樓管事率精銳傭兵殺入市集插旗踩場，正式引爆衝突！
