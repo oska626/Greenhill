@@ -104,6 +104,18 @@ export function aptitude(name: string, background: string, trait: string) {
   return { hp: 100 + variation, mp: 50 - variation };
 }
 
+function openingPortrait(background: string, trait: string) {
+  if (background === "爛賭收數佬") return "你指腹有骰繭，進門先看何仔的手。";
+  if (background === "城西街童扒手") return "你進門先看退路，兩指慣常貼著袖口。";
+  if (background === "濕鳩武館棄徒") return "你肩背繃緊，舊傷牽住半邊步子。";
+  if (background === "黑市醫道學徒") return "你指甲縫帶著藥色，先聞草藥包。";
+  if (/醫|毒|藥/.test(trait)) return "你指甲縫帶著藥色，先聞草藥包。";
+  if (/偷|巧|快|扒/.test(trait)) return "你兩指藏在袖底，眼先掃過退路。";
+  if (/拳|壯|狠|勇/.test(trait)) return "你拳骨有舊繭，站著不肯彎背。";
+  if (/見風|察言|口才|機靈/.test(trait)) return "你進門先看人臉色，話留在齒間。";
+  return "你鞋底沾著城西的泥，站定先看退路。";
+}
+
 export function normalizeState(raw: unknown): GameState | null {
   if (!raw || typeof raw !== "object") return null;
   const value = raw as Partial<GameState>;
@@ -160,7 +172,7 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
       const stats = aptitude(state.playerName, state.background, state.trait);
       state.maxHp = stats.hp; state.playerHp = stats.hp;
       state.maxMp = stats.mp; state.playerMp = stats.mp;
-      event = "你初入明心閣，聽何仔打量你的出身，又看見草藥推到面前。你聽何仔交代：到容姐茶檔換金創散救域卡度，再去市集收五十文規費。";
+      event = `${openingPortrait(state.background, state.trait)}你接過何仔推來的草藥包。你得去容姐茶檔換金創散，救市集的域卡度，再向張屠戶收五十文規費。`;
     } else {
       event += flavor("prologue_briefing");
       state.questStep = "yung_tea_stall";

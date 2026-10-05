@@ -14,6 +14,22 @@ function newGame() {
   };
 }
 
+test("opening gives each created background a concrete character detail", () => {
+  const portraits = [
+    ["爛賭收數佬", "察言觀色", "骰繭"],
+    ["城西街童扒手", "手疾眼快", "袖口"],
+    ["濕鳩武館棄徒", "皮糙肉厚", "舊傷"],
+    ["黑市醫道學徒", "辨毒識藥", "藥色"],
+    ["自定義市井流民", "見風使舵", "人臉色"],
+  ];
+  for (const [background, trait, detail] of portraits) {
+    const opening = resolveTurn({ ...newGame(), background, trait }, "[初入堂口] 阿七", true);
+    assert.ok(opening.event.includes(detail), `${background} should show ${detail}`);
+    assert.ok(opening.event.includes("五十文規費"));
+    assert.ok(!opening.event.includes("打量你的出身"));
+  }
+});
+
 test("every tutorial option advances one scene without skipping medicine or fee", () => {
   const opening = resolveTurn(newGame(), "[初入堂口] 阿七", true);
   assert.equal(opening.state.turn, 1);

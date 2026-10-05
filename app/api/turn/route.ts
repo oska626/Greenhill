@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { normalizeState, resolveTurn, type GameState, type Landmark } from "@/lib/game-engine";
 
 const SYSTEM_PROMPT = `你是青山城城西的文字冒險主持人。只寫繁體中文冷硬短句，古代底層市井，無神怪、高武、現代物品。
-只以「你」寫旁白。玩家名號只可在 NPC 對白出現。原地行動不重複描寫環境。
+只以「你」寫旁白。玩家名號只可在 NPC 對白出現。原地行動不重複描寫環境。開局第一段須依出身與特質，用一兩個動作或身體細節寫出玩家人物輪廓，勿只說「打量你的出身」。
 只回 JSON：{"narrative":"..."}。narrative 須 80 至 120 字，嚴格兩段，以 \\n\\n 分隔；第二段的 NPC 對白另起一行。
 只敘述提供的確定事件，不增減金錢、道具、氣血、內力或地點，不讓玩家離開城西七據點。`;
 
@@ -27,7 +27,7 @@ function fallbackNarrative(event: string, state: GameState): string {
     "怡紅院": ["你聽著樓裡閒話，暗記可疑客人的口音。", "你留心席間眼色，不急著露出底牌。"],
   };
   const detail: Record<GameState["questStep"], string[]> = {
-    prologue_briefing: ["你掂量眼前差事，先記住救人的藥，再記住屠戶欠下的錢。", "你不敢耽誤，知道兩件事都要辦妥。"],
+    prologue_briefing: ["你攥緊藥包，沒有應聲。", "你看見何仔的手壓著帳簿，知道五十文也要帶回。"],
     yung_tea_stall: ["你護住懷裡的草藥，將容姐的警訊記在心裡。", "你聽見街口腳步，又把袖口攏緊。"],
     market_collection: ["你按住藥包，沒有忘記肉檔欠下的規費。", "你留意巷口動靜，準備先救人再收錢。"],
     huizhi_ambush: ["你收緊刀柄，將身邊同門護在側後。", "你聽見巷尾腳步，知道眼前再無退路。"],
@@ -79,14 +79,18 @@ function azureUrl(endpoint: string, deployment: string) {
 
 async function narrate(state: GameState, action: string, event: string, moneyChanged: boolean) {
   const fallback = fallbackNarrative(event, state);
+  const useFallback = (reason: string) => ({ text: fallback, source: "fallback" as const, reason });
   // The deterministic account already contains the exact transaction.
-  if (moneyChanged) return fallback;
+  if (moneyChanged) return useFallback("money_change");
   const key = process.env.AZURE_OPENAI_API_KEY || process.env.AZURE_API_KEY;
   const endpoint = (process.env.AZURE_OPENAI_ENDPOINT || process.env.AZURE_ENDPOINT || "").trim();
-  if (!key || !endpoint) return fallback;
+  if (!key || !endpoint) return useFallback("missing_azure_config");
 
   const deployment = (process.env.AZURE_OPENAI_DEPLOYMENT_NAME || process.env.AZURE_OPENAI_DEPLOYMENT || "gpt-4o").trim();
-  const prompt = `地點：${state.currentLocation}；階段：${state.questStep}；你做了：${action.slice(0, 180)}。\n確定事件：${event}\n已記因果：${state.worldFlags.join("、") || "無"}。只寫確定事件；所有收支金額須明說。`;
+  const openingInstruction = state.questStep === "prologue_briefing"
+    ? `開局人物：出身「${state.background}」，特質「${state.trait}」。第一段寫出與兩者相符的短肖像；可改寫事件中的人物細節，不能只重述出身名稱。\n`
+    : "";
+  const prompt = `地點：${state.currentLocation}；階段：${state.questStep}；你做了：${action.slice(0, 180)}。\n${openingInstruction}確定事件：${event}\n已記因果：${state.worldFlags.join("、") || "無"}。只寫確定事件；所有收支金額須明說。`;
   try {
     const response = await fetch(azureUrl(endpoint, deployment), {
       method: "POST",
@@ -94,12 +98,14 @@ async function narrate(state: GameState, action: string, event: string, moneyCha
       body: JSON.stringify({ model: deployment, messages: [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: prompt }], temperature: 0.3, response_format: { type: "json_object" } }),
       signal: AbortSignal.timeout(15000),
     });
-    if (!response.ok) return fallback;
+    if (!response.ok) return useFallback(`azure_http_${response.status}`);
     const data = await response.json();
     const parsed = JSON.parse(data.choices?.[0]?.message?.content || "{}");
-    return validNarrative(parsed.narrative) ? parsed.narrative : fallback;
+    return validNarrative(parsed.narrative)
+      ? { text: parsed.narrative, source: "azure" as const }
+      : useFallback("invalid_narrative");
   } catch {
-    return fallback;
+    return useFallback("azure_request_or_parse_error");
   }
 }
 
@@ -116,6 +122,10 @@ export async function POST(req: NextRequest) {
   }
   const opening = payload.action.startsWith("[初入堂口]") && state.questStep === "prologue_briefing" && state.turn === 1;
   const turn = resolveTurn(state, payload.action, opening);
-  const narrative = await narrate(turn.state, payload.action, turn.event, Boolean(turn.moneyNote));
-  return NextResponse.json({ narrative, options: turn.options, state: turn.state });
+  const narration = await narrate(turn.state, payload.action, turn.event, Boolean(turn.moneyNote));
+  return NextResponse.json({
+    narrative: narration.text, options: turn.options, state: turn.state,
+    narrativeSource: narration.source,
+    ...("reason" in narration ? { narrativeFallbackReason: narration.reason } : {}),
+  });
 }
