@@ -241,9 +241,9 @@ ${cityMap}
 
     if (consumedItem && consumedItem.trim() !== "" && Array.isArray(updatedState.inventory)) {
       const target = consumedItem.trim();
-      const idx = updatedState.inventory.findIndex(item => 
-        item && item.trim() !== "" && (item.includes(target) || target.includes(item))
-      );
+      const idx = updatedState.inventory.findIndex((item: string) => 
+  item && item.trim() !== "" && (item.includes(target) || target.includes(item))
+);
       if (idx !== -1) {
         updatedState.inventory[idx] = ''; 
       }
