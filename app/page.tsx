@@ -165,16 +165,23 @@ export default function GamePage() {
         }),
       });
 
-      if (!res.ok) throw new Error(`回合推進失敗 (Status: ${res.status})`);
-      const data: ApiResponse = await res.json();
-      if (data.error) throw new Error(data.error);
+      let data: ApiResponse;
+      try {
+        data = await res.json();
+      } catch (err) {
+        throw new Error(`伺服器無回應 (HTTP ${res.status})`);
+      }
+
+      if (!res.ok || data.error) {
+        throw new Error(data.error || `伺服器拒絕請求 (HTTP ${res.status})`);
+      }
 
       setGameState(data.state);
       setNarrative(data.narrative);
       setOptions(data.options || []);
       setCustomInput("");
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "行動處理錯誤";
+      const msg = err instanceof Error ? err.message : "行動處理發生未知錯誤";
       setErrorMsg(msg);
     } finally {
       setLoading(false);
