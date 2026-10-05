@@ -17,6 +17,7 @@ export interface GameState {
   silver: number;
   factionFunds: number;
   hozaiDefense: number;
+  worldFlags: string[];
   questStep: "prologue_briefing" | "yung_tea_stall" | "market_collection" | "huizhi_ambush" | "sandbox";
   flags: {
     tookHerbs: boolean;
@@ -92,15 +93,12 @@ const BACKGROUNDS = [
 export default function GamePage() {
   const [view, setView] = useState<"creation" | "game">("creation");
 
-  // 本地存檔狀態
   const [savedGame, setSavedGame] = useState<SavedGameData | null>(null);
 
-  // 創角欄位
   const [playerName, setPlayerName] = useState<string>("阿七");
   const [selectedBgId, setSelectedBgId] = useState<string>("debt_collector");
   const [customTrait, setCustomTrait] = useState<string>("見風使舵");
 
-  // 遊戲當前狀態
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [narrative, setNarrative] = useState<string>("");
   const [options, setOptions] = useState<string[]>([]);
@@ -110,7 +108,6 @@ export default function GamePage() {
 
   const narrativeEndRef = useRef<HTMLDivElement>(null);
 
-  // 網頁載入時偵測 LocalStorage 舊進度
   useEffect(() => {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
@@ -125,12 +122,10 @@ export default function GamePage() {
     }
   }, []);
 
-  // 劇情更新時自動滾動至底部
   useEffect(() => {
     narrativeEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [narrative, loading]);
 
-  // 寫入本地存檔
   const saveToLocalStorage = (state: GameState, narr: string, opts: string[]) => {
     try {
       const payload: SavedGameData = { state, narrative: narr, options: opts };
@@ -141,7 +136,6 @@ export default function GamePage() {
     }
   };
 
-  // 讀取舊存檔
   const handleLoadSavedGame = () => {
     if (!savedGame) return;
     setGameState(savedGame.state);
@@ -150,7 +144,6 @@ export default function GamePage() {
     setView("game");
   };
 
-  // 抹除進度重頭嚟過
   const handleRestartGame = () => {
     if (window.confirm("確定要重頭嚟過？當前所有江湖進度與存檔將會抹除！")) {
       try {
@@ -168,7 +161,6 @@ export default function GamePage() {
     }
   };
 
-  // 創角完成：即時連線 AI 生成貼合背景的開場劇情
   const handleStartGame = async () => {
     if (!playerName.trim()) {
       setErrorMsg("請先輸入江湖名號");
@@ -194,6 +186,7 @@ export default function GamePage() {
       silver: 0,
       factionFunds: 10,
       hozaiDefense: 60,
+      worldFlags: [],
       questStep: "prologue_briefing",
       flags: {
         tookHerbs: false,
@@ -242,7 +235,6 @@ export default function GamePage() {
     }
   };
 
-  // 提交玩家行動
   const handleAction = async (actionText: string) => {
     if (!actionText.trim() || loading || !gameState) return;
     setLoading(true);
@@ -278,7 +270,6 @@ export default function GamePage() {
       setOptions(nextOptions);
       setCustomInput("");
 
-      // 每回合自動存檔
       saveToLocalStorage(nextState, nextNarrative, nextOptions);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "行動處理發生未知錯誤";
@@ -288,14 +279,12 @@ export default function GamePage() {
     }
   };
 
-  // 提交 F 自定義破局行動
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!customInput.trim()) return;
     handleAction(`F. [自訂手段] ${customInput.trim()}`);
   };
 
-  // ---------------- 1. 創角介面 ----------------
   if (view === "creation") {
     const curBg = BACKGROUNDS.find((b) => b.id === selectedBgId) || BACKGROUNDS[0];
 
@@ -307,7 +296,6 @@ export default function GamePage() {
             <p className="text-xs text-stone-400">大雨滂沱，刀鋒未冷。在城西這片泥濘死地，立下你的身家姓名。</p>
           </div>
 
-          {/* 舊存檔讀取提示 */}
           {savedGame && (
             <div className="p-3.5 bg-amber-950/30 border border-amber-700/60 rounded-lg flex items-center justify-between gap-3">
               <div className="text-xs text-amber-200/90">
@@ -406,7 +394,6 @@ export default function GamePage() {
     );
   }
 
-  // ---------------- 2. 主遊戲介面 ----------------
   return (
     <div className="min-h-screen bg-stone-950 text-stone-200 flex flex-col font-sans">
       <header className="border-b border-stone-800 bg-stone-900/80 backdrop-blur px-4 py-3 sticky top-0 z-20">
@@ -507,7 +494,6 @@ export default function GamePage() {
               ))}
             </div>
 
-            {/* F 選項：自定義輸入出招破局 */}
             <form onSubmit={handleCustomSubmit} className="mt-2 pt-3 border-t border-stone-800 flex flex-col gap-1.5">
               <div className="text-xs font-semibold text-amber-400/90 tracking-wider flex items-center gap-1.5">
                 <span>F. [自訂手段]</span>
@@ -574,6 +560,26 @@ export default function GamePage() {
               </div>
             </div>
           </div>
+
+          {/* 江湖因果標籤面板 */}
+          {gameState?.worldFlags && gameState.worldFlags.length > 0 && (
+            <div className="bg-stone-900/80 border border-amber-900/40 rounded-lg p-4 space-y-2">
+              <div className="flex justify-between items-center text-xs">
+                <span className="font-semibold text-amber-400">江湖因果事跡</span>
+                <span className="text-stone-500 font-mono text-[10px]">{gameState.worldFlags.length} 樁</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {gameState.worldFlags.map((flag, idx) => (
+                  <span
+                    key={idx}
+                    className="bg-amber-950/50 border border-amber-800/60 text-amber-200 px-2 py-0.5 rounded text-[11px] leading-tight"
+                  >
+                    {flag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="bg-stone-900/80 border border-stone-800 rounded-lg p-4 space-y-2">
             <div className="flex justify-between items-center text-xs">
