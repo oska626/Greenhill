@@ -132,75 +132,110 @@ export async function POST(req: NextRequest) {
     };
 
     // ========================================================
-    // 狀態機與時空鎖（由代碼硬性控制，徹底解決瞬移與搶跑問題）
+    // 狀態機：前 4 幕選項由代碼鎖死，AI 僅負責劇情潤色
     // ========================================================
     let contextGuidance = "";
+    let fixedOptions: string[] | null = null;
 
-        // 1. 第一幕：總壇領命
+    // 1. 第一幕：總壇領命
     if (updatedState.questStep === "prologue_briefing") {
-      updatedState.currentLocation = "明心閣總壇"; // 強制鎖死地標，第一回合絕不允許跳到茶檔
+      updatedState.currentLocation = "明心閣總壇";
 
-      const isLeaving = actionText.includes("容姐茶檔") || actionText.includes("動身") || actionText.includes("領命");
+      const isLeaving = actionText.includes("容姐茶檔") || actionText.includes("動身") || actionText.includes("啟程") || actionText.startsWith("A.");
       if (!isPrologue && isLeaving) {
         updatedState.currentLocation = "容姐茶檔";
         updatedState.questStep = "yung_tea_stall";
         if (!updatedState.inventory.includes("【生草藥包】") && updatedState.inventory.length < updatedState.maxInventory) {
           updatedState.inventory.push("【生草藥包】");
         }
-        contextGuidance = "玩家接過草藥包，走出總壇，剛來到容姐茶檔。容姐正用破布擦拭油膩木桌。";
+        contextGuidance = "玩家抵達容姐茶檔。容姐正用油布抹桌。";
+        fixedOptions = [
+          "A. [交付藥包] 將生草藥包遞給容姐，換取苦涼茶。",
+          "B. [試探口風] 向容姐打聽最近城西有何風吹草動。",
+          "C. [查看四周] 觀察茶檔周遭是否有可疑眼線。",
+          "D. [歇息喝茶] 討碗粗茶潤喉，稍作調息。",
+          "E. [轉身離去] 不多廢話，辦完事即刻動身前往泥濘市集。"
+        ];
       } else {
-        if (isPrologue) {
-          // 開局第 1 回合：強制何仔按玩家出身與特質開口敲打
-          contextGuidance = `開局第 1 回合。何仔打量剛入堂口的你，必須根據你的出身背景「${updatedState.background}」與特質「${updatedState.trait}」，開口譏諷敲打一兩句，再把生草藥包推到案前交代差事。`;
-        } else {
-          contextGuidance = "玩家身處明心閣總壇，何仔端坐案前，催促你盡快啟程前往容姐茶檔。";
-        }
+        contextGuidance = `開局第 1 回合。何仔上下打量剛入堂口的你，必須根據你的出身背景「${updatedState.background}」與特質「${updatedState.trait}」，開口譏諷敲打一句，隨即把生草藥包推到案前命令送去容姐茶檔。`;
+        fixedOptions = [
+          "A. [領命啟程] 接過生草藥包，立即動身前往容姐茶檔。",
+          "B. [反唇相譏] 嘲諷何仔的眼光與用人之道。",
+          "C. [追問底細] 詢問這包生草藥到底有何名堂。",
+          "D. [暗中查看] 趁接過藥包時，掂量其分量與暗記。",
+          "E. [虛與委蛇] 躬身稱是，暗中打量總壇四周退路。"
+        ];
       }
     }
-
     // 2. 第二幕：容姐茶檔
     else if (updatedState.questStep === "yung_tea_stall") {
       updatedState.currentLocation = "容姐茶檔";
 
-      const isLeavingToMarket = actionText.includes("泥濘市集") || actionText.includes("市集") || actionText.includes("出發");
+      const isLeavingToMarket = actionText.includes("泥濘市集") || actionText.includes("市集") || actionText.startsWith("E.") || (actionText.startsWith("A.") && updatedState.inventory.includes("【一壺苦涼茶】"));
       if (isLeavingToMarket) {
         updatedState.currentLocation = "泥濘市集";
         updatedState.questStep = "market_collection";
-        // 交付草藥，換取苦茶
+        contextGuidance = "玩家來到泥濘市集肉檔前。同門域卡度已在等候，張屠戶按著剁骨刀拖欠 50 文規費。";
+        fixedOptions = [
+          "A. [正面逼索] 亮出明心閣腰牌，要張屠戶立刻交出 50 文規費。",
+          "B. [泥漿陰招] 抓起肉攤碎骨或爛泥，冷不防朝張屠戶面門招呼。",
+          "C. [言語恐嚇] 搬出何仔手段，威嚇張屠戶後果自負。",
+          "D. [審視攤檔] 尋找肉檔錢匣位置，伺機強取。",
+          "E. [交由域卡度] 退後一步，示意域卡度拔刀動手。"
+        ];
+      } else {
+        // 交付藥包，換取苦茶
         const herbIdx = updatedState.inventory.indexOf("【生草藥包】");
         if (herbIdx !== -1) updatedState.inventory.splice(herbIdx, 1);
         if (!updatedState.inventory.includes("【一壺苦涼茶】") && updatedState.inventory.length < updatedState.maxInventory) {
           updatedState.inventory.push("【一壺苦涼茶】");
         }
-        contextGuidance = "玩家來到泥濘市集，域卡度已在肉檔前等候，張屠戶按著剁骨刀態度蠻橫，拖欠 50 文規費。";
-      } else {
-        contextGuidance = "玩家在容姐茶檔。容姐接下草藥包，遞出一壺苦涼茶，低聲提醒市集最近有匯智樓的人探頭探腦。";
+        contextGuidance = "容姐收下藥包，遞出一壺苦涼茶，低聲警告最近匯智樓的人在市集盯得很緊。";
+        fixedOptions = [
+          "A. [動身啟程] 提起苦涼茶，動身前往泥濘市集與域卡度會合。",
+          "B. [追問匯智樓] 問清匯智樓到底派了多少刀手在市集。",
+          "C. [仰頭飲茶] 喝下一口苦涼茶，平復內息。",
+          "D. [冷眼旁觀] 站在茶棚角落，審視街面動靜。",
+          "E. [告辭隱忍] 拱手不語，默默收起涼茶準備出發。"
+        ];
       }
     }
     // 3. 第三幕：市集收規
     else if (updatedState.questStep === "market_collection") {
       updatedState.currentLocation = "泥濘市集";
 
-      const feeHandled = actionText.includes("收") || actionText.includes("打") || actionText.includes("規費") || actionText.includes("逼") || actionText.startsWith("A.") || actionText.startsWith("B.");
+      const feeHandled = actionText.includes("收") || actionText.includes("打") || actionText.includes("規費") || actionText.includes("逼") || actionText.startsWith("A.") || actionText.startsWith("B.") || actionText.startsWith("E.");
       if (feeHandled && !updatedState.flags.collectedMarketFee) {
         updatedState.flags.collectedMarketFee = true;
-        updatedState.factionFunds += 50; // 代碼確定性結算公款
+        updatedState.factionFunds += 50;
         updatedState.questStep = "huizhi_ambush";
-        contextGuidance = "50 文規費剛落袋，巷尾驟然傳來拔刀聲。數名匯智樓刀手手持精鐵短刃，堵死市集兩頭！";
+        contextGuidance = "50 文規費剛落袋，巷尾驟然傳來拔刀聲。數名匯智樓刀手堵死市集兩頭！";
+        fixedOptions = [
+          "A. [正面迎敵] 拔出隨身短刀，迎向領頭的匯智樓刀手。",
+          "B. [市井爛招] 踢翻旁邊菜筐肉案阻擋刀手，就地抓爛泥撒眼。",
+          "C. [呼應同門] 與域卡度背靠背結陣，死守市集狹道。",
+          "D. [棄陣突圍] 借屋簷與窄巷地形，施展身法強行破圍。",
+          "E. [交由域卡度] 讓域卡度在前頂住刀陣，自己伺機背後突襲。"
+        ];
       } else {
-        contextGuidance = "泥濘市集肉檔前。張屠戶滿臉橫肉，域卡度站在一旁抱胸冷笑，逼問 50 文規費。";
+        contextGuidance = "泥濘市集張屠戶肉檔前。張屠戶態度蠻橫，域卡度按刀待發。";
+        fixedOptions = [
+          "A. [強行拔刀] 砍在肉案上，限張屠戶三息內交出 50 文。",
+          "B. [市井陰招] 撩陰腿偷襲張屠戶下盤。",
+          "C. [談判分肥] 假意寬限兩日，暗中試探張屠戶有何底牌。",
+          "D. [搜尋破綻] 觀察張屠戶握刀架勢與周遭逃生路線。",
+          "E. [交由域卡度] 讓域卡度上前動粗索款。"
+        ];
       }
     }
-    // 4. 第四幕：匯智樓伏擊戰
+    // 4. 第四幕：匯智樓伏擊
     else if (updatedState.questStep === "huizhi_ambush") {
       updatedState.currentLocation = "泥濘市集";
-      contextGuidance = "匯智樓刀手圍攻逼近。短兵相接，泥水飛濺。戰況激烈。";
-      // 戰鬥產生具體動作後，推進至沙盒
-      if (actionText.startsWith("A.") || actionText.startsWith("B.") || actionText.startsWith("F.")) {
-        updatedState.questStep = "sandbox";
-      }
+      contextGuidance = "市集血戰。短兵相接，刀光混著泥水。此回合戰鬥結束後進入自由江湖。";
+      updatedState.questStep = "sandbox"; // 戰鬥結算後直接進入 Sandbox
+      fixedOptions = null; // 伏擊戰打完，正式將選項權限交還 AI
     }
-    // 5. 第五幕：城西自由江湖沙盒
+    // 5. 第五幕：開放江湖沙盒
     else {
       const LANDMARKS = ["明心閣總壇", "容姐茶檔", "泥濘市集", "聚財坊", "黑市武館", "仙館", "怡紅院"];
       for (const loc of LANDMARKS) {
@@ -209,8 +244,10 @@ export async function POST(req: NextRequest) {
           break;
         }
       }
-      contextGuidance = `開放沙盒階段。玩家身處「${updatedState.currentLocation}」。請依據何仔防線(${updatedState.hozaiDefense}/100)與已記因果，生成該地標專屬的市井突發事件與 A-E 抉擇。`;
+      contextGuidance = `城西自由沙盒。玩家身處「${updatedState.currentLocation}」。何仔防線: ${updatedState.hozaiDefense}/100。請生成該地標事件與 A-E 抉擇。`;
+      fixedOptions = null; // 沙盒由 AI 動態生成
     }
+
 
     const apiKey =
       process.env.AZURE_OPENAI_API_KEY ||
@@ -383,7 +420,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       narrative: parsed.narrative,
-      options: parsed.options,
+      options: fixedOptions || parsed.options, // 前 4 幕強制使用代碼固定選項，徹底杜絕 AI 幻覺
       state: updatedState,
     });
   } catch (err: unknown) {
