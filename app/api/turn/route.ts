@@ -107,6 +107,20 @@ const SYSTEM_PROMPT = `
   "hozaiDefenseDelta": 0,
   "nextQuestStep": "prologue_briefing" | "yung_tea_stall" | "market_collection" | "huizhi_ambush" | "sandbox"
 }
+
+==============================
+五、經濟與銀兩規範（嚴禁暗中收支）
+==============================
+1. 資金劃分：
+   - 個人銀兩 (silver)：玩家私有財物。用於買藥、飲茶、行賄、聚財坊賭博、黑市消費。
+   - 門派流動金 (factionFunds)：明心閣堂口公款。用於總壇修繕、防線加固、兄弟月餉。
+2. 嚴禁幽靈變更：
+   - 凡有 silverDelta 或 factionFundsDelta 變動，【必須在 narrative 明文交代】！
+   - 嚴禁不寫文字卻暗中扣減/增加銀兩。
+   - 第一幕何仔交代任務時，若未明確給予盤纏，兩者 Delta 必須為 0！
+3. 收規歸屬：
+   - 第三幕向張屠戶收回 50 文規費，正常應繳納堂口（factionFundsDelta: 50）。
+   - 只有玩家明確選擇「私吞/中飽私囊」時，方可轉為個人銀兩（silverDelta: 50），並必須回傳 addWorldFlag: "私吞堂口規費"。
 `;
 
 export async function POST(req: NextRequest) {
@@ -280,8 +294,20 @@ export async function POST(req: NextRequest) {
     // 結算常規數值增減
     if (parsed.hpDelta) updatedState.playerHp = Math.max(0, Math.min(updatedState.maxHp, updatedState.playerHp + parsed.hpDelta));
     if (parsed.mpDelta) updatedState.playerMp = Math.max(0, Math.min(updatedState.maxMp, updatedState.playerMp + parsed.mpDelta));
-    if (parsed.silverDelta) updatedState.silver = Math.max(0, updatedState.silver + parsed.silverDelta);
-    if (parsed.factionFundsDelta) updatedState.factionFunds = Math.max(0, updatedState.factionFunds + parsed.factionFundsDelta);
+    // 安全結算個人銀兩（防止字串拼接或 NaN）
+    if (parsed.silverDelta !== undefined && parsed.silverDelta !== null) {
+      const sDelta = Number(parsed.silverDelta);
+      if (!isNaN(sDelta)) {
+        updatedState.silver = Math.max(0, updatedState.silver + sDelta);
+      }
+    }
+    // 安全結算門派流動金（防止字串拼接或 NaN）
+    if (parsed.factionFundsDelta !== undefined && parsed.factionFundsDelta !== null) {
+      const fDelta = Number(parsed.factionFundsDelta);
+      if (!isNaN(fDelta)) {
+        updatedState.factionFunds = Math.max(0, updatedState.factionFunds + fDelta);
+      }
+    }
     if (parsed.hozaiDefenseDelta) updatedState.hozaiDefense = Math.max(0, Math.min(100, updatedState.hozaiDefense + parsed.hozaiDefenseDelta));
 
     if (parsed.locationUpdate && parsed.locationUpdate.trim() !== "") {
