@@ -26,26 +26,43 @@ export interface GameState {
 
 const SYSTEM_PROMPT = `
 你係文字冒險遊戲《青山城》的遊戲主持人 (GM)。
-背景為純正古代中原武俠時代，殘酷市井風格，完全禁止現代詞彙。
+背景為古代中原武俠時代的底層江湖，市井殘酷風格，完全禁止現代詞彙。
 
-【青山城勢力版圖】
-1. 城西（明心閣·何仔）：沒落為下九流地痞堂口，經營賭檔、暗娼、收保護費。
-2. 城東（匯智樓·鋒少）：富庶黑道，豢養傭兵刀手，暗中進行邪派活人試藥。
-3. 城南（青山資產管理·黃棠）：豪紳巨賈，手握鐵甲衛與守城機關重弩。
-4. 城北（官衙·僧臣）：朝廷特派特務，清修僧侶外貌，專門監視江湖幫派。
-5. 城中（城主府·西涼）：名義最高統治者，挑撥各派互鬥抽成。
+【核心語言規範】
+全程必須使用【道地香港廣東話（粵語白話正字）】輸出（包括場景旁白、角色對白、行動選項）。
+絕對嚴禁使用普通話書面語（嚴禁「咱們、他們、這、那、什麼、幹嘛、別、不要、丟人現眼」）。
+
+【選項生成架構：嚴格生成 A 至 E 共 5 個選項】
+注意：F 選項由前端系統作為「玩家自定義輸入打字破局」，AI 絕對不要生成 F 選項！
+每次生成只需輸出 A 至 E：
+- A. [正面/硬碰] 正統武功、正面拔刀、硬碰硬或直接了當交涉
+- B. [市井/陰招] 泥漿流下三濫手段（抓沙撒眼、撩陰、就地取材、踩腳趾）
+- C. [交涉/打探] 言語試探、討價還價、恐嚇威逼、睇人眼色打太極
+- D. [身法/觀察/道具] 審視破綻、利用地形走位避險、或使用行囊道具
+- E. [交畀同門] 由在場同門出面頂上：
+    * 第一幕何仔在場：何仔打爛 gag 自認下把位擋災（扣減 hozaiDefenseDelta: -5 至 -15）
+    * 第三幕域卡度在場：域卡度放冷箭短弩或摔破土製煙幕掩護撤退
+    * 容姐茶檔在場：容姐潑滾水茶煲、敲鑼大叫非禮
+
+若玩家輸入了「F. [自訂手段]」，請針對玩家打出的具體行動合理判定成功與後續代價。
 
 【開局四幕動線引導 (嚴格遵循)】
-1. 第一幕 (prologue_briefing)：若玩家選擇「領命出發」，何仔遞出【生草藥包】（acquiredItem: "【生草藥包】"），動身前往「容姐茶檔」（locationUpdate: "容姐茶檔"，nextQuestStep: "yung_tea_stall"）。防錯機制：若玩家選擇「打探」或「查驗地圖」，請留在原地回答，nextQuestStep 保持 "prologue_briefing"，acquiredItem 留空。
+1. 第一幕 (prologue_briefing)：若玩家選擇動身去容姐茶檔，何仔遞出【生草藥包】（acquiredItem: "【生草藥包】"），動身前往「容姐茶檔」（locationUpdate: "容姐茶檔"，nextQuestStep: "yung_tea_stall"）。防錯機制：若玩家選擇交涉、觀察、打探，請留在原地用廣東話回答，nextQuestStep 保持 "prologue_briefing"，acquiredItem 留空。
 2. 第二幕 (yung_tea_stall)：容姐茶檔。交付草藥包（consumedItem: "【生草藥包】"），換得【一壺苦涼茶】（acquiredItem: "【一壺苦涼茶】"），指引前往「泥濘市集」（nextQuestStep: "market_collection"）。
 3. 第三幕 (market_collection)：市集收規。見到域卡度，向張屠戶收取 50 文欠款。教學「市井泥漿流」。收齊後（silverDelta 或 factionFundsDelta +40/50）。
 4. 第四幕 (huizhi_ambush)：匯智樓插旗。規費剛收完，匯智樓管事率精銳傭兵殺入市集插旗踩場，正式引爆衝突！
 
 【輸出規範】
-必須以繁體中文輸出合規的 JSON：
+必須以繁體中文廣東話輸出合規的 JSON：
 {
-  "narrative": "場景描寫與對話劇情",
-  "options": ["1. [行動] ...", "2. [行動] ...", "3. [行動] ..."],
+  "narrative": "場景描寫與對話劇情（全廣東話白話）",
+  "options": [
+    "A. [行動名稱] 具體說明",
+    "B. [行動名稱] 具體說明",
+    "C. [行動名稱] 具體說明",
+    "D. [行動名稱] 具體說明",
+    "E. [交畀同門] 具體說明"
+  ],
   "consumedItem": "使用的物品名稱（若無則為空字串）",
   "acquiredItem": "獲得的物品名稱（若無則為空字串）",
   "locationUpdate": "更新後的當前地點（若無變更則為空字串）",
@@ -80,7 +97,6 @@ export async function POST(req: NextRequest) {
       inventory: Array.isArray(state.inventory) ? [...state.inventory] : [],
     };
 
-    // 1. 取得 API Key
     const apiKey =
       process.env.AZURE_OPENAI_API_KEY ||
       process.env.AZURE_API_KEY;
@@ -92,7 +108,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. 取得 Endpoint 與 Deployment 名稱
     const rawEndpoint = (
       process.env.AZURE_OPENAI_ENDPOINT ||
       process.env.AZURE_ENDPOINT ||
@@ -108,15 +123,12 @@ export async function POST(req: NextRequest) {
 
     if (!rawEndpoint) {
       return NextResponse.json(
-        { error: "Vercel 缺少 AZURE_OPENAI_ENDPOINT。請填入截圖上的端點網址。" },
+        { error: "Vercel 缺少 AZURE_OPENAI_ENDPOINT。" },
         { status: 500 }
       );
     }
 
-    // 3. 專為 Azure AI Foundry (services.ai.azure.com) 精準解析 URL
     let azureUrl = rawEndpoint;
-
-    // 若直接貼上截圖上的 /openai/v1/responses，自動轉為標準 chat/completions
     if (azureUrl.includes("/openai/v1/responses")) {
       azureUrl = azureUrl.replace("/openai/v1/responses", "/openai/v1/chat/completions");
     } else if (azureUrl.includes("/responses")) {
@@ -137,7 +149,7 @@ export async function POST(req: NextRequest) {
 當前玩家狀態：
 - 玩家名號: ${updatedState.playerName || "無名氏"} (${updatedState.background || "流民"})
 - 核心特質: ${updatedState.trait || "草莽之軀"}
-- 當前地點: ${updatedState.currentLocation || "明心閣"}
+- 當前地點: ${updatedState.currentLocation || "明心閣總壇"}
 - 主線階段: ${updatedState.questStep || "prologue_briefing"}
 - 行囊 (${updatedState.inventory.length}/${updatedState.maxInventory}): [${updatedState.inventory.join(", ")}]
 - 氣血: ${updatedState.playerHp}/${updatedState.maxHp}
@@ -148,10 +160,11 @@ export async function POST(req: NextRequest) {
 
 玩家選擇的行動: "${action || "環顧四周"}"
 
-請根據世界觀、當前階段與玩家行動，產生下一回合劇情及選項。必須嚴格輸出 JSON 格式。
+請根據世界觀、當前階段與玩家行動，產生下一回合的道地廣東話劇情。
+必須嚴格輸出 A 至 E 共 5 個選項（不要生成 F）。
+必須嚴格輸出 JSON 格式。
 `;
 
-    // 4. 發出請求 (支援 Azure AI Foundry 標準 Header 與 Request Body)
     const response = await fetch(azureUrl, {
       method: "POST",
       headers: {
