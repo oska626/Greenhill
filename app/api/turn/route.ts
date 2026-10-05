@@ -126,9 +126,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "遺失遊戲狀態 (State is required)" }, { status: 400 });
     }
 
+        const isPrologue = action?.includes("[初入堂口]");
+
     const updatedState: GameState = {
       ...state,
-      turn: (state.turn || 1) + 1,
+      turn: isPrologue ? (state.turn || 1) : (state.turn || 1) + 1,
       flags: state.flags ? { ...state.flags } : { tookHerbs: false, visitedYung: false, collectedMarketFee: false, marketAmbushTriggered: false },
       inventory: Array.isArray(state.inventory) ? [...state.inventory] : [],
       worldFlags: Array.isArray(state.worldFlags) ? [...state.worldFlags] : [],
