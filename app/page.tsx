@@ -92,15 +92,15 @@ const BACKGROUNDS = [
 export default function GamePage() {
   const [view, setView] = useState<"creation" | "game">("creation");
 
-  // 存檔狀態
+  // 本地存檔狀態
   const [savedGame, setSavedGame] = useState<SavedGameData | null>(null);
 
-  // 創角表單狀態
+  // 創角欄位
   const [playerName, setPlayerName] = useState<string>("阿七");
   const [selectedBgId, setSelectedBgId] = useState<string>("debt_collector");
   const [customTrait, setCustomTrait] = useState<string>("見風使舵");
 
-  // 遊戲進行狀態
+  // 遊戲當前狀態
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [narrative, setNarrative] = useState<string>("");
   const [options, setOptions] = useState<string[]>([]);
@@ -110,7 +110,7 @@ export default function GamePage() {
 
   const narrativeEndRef = useRef<HTMLDivElement>(null);
 
-  // 初始化時讀取 LocalStorage 存檔
+  // 網頁載入時偵測 LocalStorage 舊進度
   useEffect(() => {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
@@ -125,7 +125,7 @@ export default function GamePage() {
     }
   }, []);
 
-  // 滾動至最新劇情
+  // 劇情更新時自動滾動至底部
   useEffect(() => {
     narrativeEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [narrative, loading]);
@@ -141,7 +141,7 @@ export default function GamePage() {
     }
   };
 
-  // 載入舊存檔
+  // 讀取舊存檔
   const handleLoadSavedGame = () => {
     if (!savedGame) return;
     setGameState(savedGame.state);
@@ -150,7 +150,7 @@ export default function GamePage() {
     setView("game");
   };
 
-  // 重新開始機制（清空存檔）
+  // 抹除進度重頭嚟過
   const handleRestartGame = () => {
     if (window.confirm("確定要重頭嚟過？當前所有江湖進度與存檔將會抹除！")) {
       try {
@@ -168,8 +168,8 @@ export default function GamePage() {
     }
   };
 
-  // 建立新角色並進入遊戲
-  const handleStartGame = () => {
+  // 創角完成：即時連線 AI 生成貼合背景的開場劇情
+  const handleStartGame = async () => {
     if (!playerName.trim()) {
       setErrorMsg("請先輸入江湖名號");
       return;
@@ -203,28 +203,43 @@ export default function GamePage() {
       },
     };
 
-    const initialNarrative =
-      `青山城連日暴雨初歇，簷前濁水滴瀝未止。\n\n` +
-      `明心閣青瓦古堂內，正廳中央座巨型鑄劍爐早已經冷透積灰。閣主何仔對眼黑眼圈重過撞鬼，坐喺張缺角長凳度捽住個太陽穴，順手將一包用粗麻布紮實嘅生草藥「啪」一聲掟喺張油漬茶几度。\n\n` +
-      `「${trimmedName}，天光喇，雨一停班刀手就出嚟搵食。新入堂口咪成碌木咁企喺度。」何仔擘大個口打哈欠，斜眼睥住你：\n` +
-      `「同我拎呢包草藥去巷仔交畀容姐煲苦茶，順手去泥濘市集搵域卡度。市集欠咗成三日規費未交，今次收唔齊返嚟，今晚成個閣嘅兄弟一齊食西北風。」`;
-
-    const initialOptions = [
-      "A. [領命辦事] 擸起几上包草藥，扯低破斗笠：「得，我依家過去容姐度。」",
-      "B. [市井陰招] 側側膊陰陰笑：「何仔，張屠戶條契弟如果賴皮，係咪照舊撩陰踩腳、撒石灰招呼佢？」",
-      "C. [套探虛實] 壓低把聲問：「城東匯智樓班刀手最近咁踩界，鋒少條粉腸背後邊個照緊？」",
-      "D. [睇定退路] 睄實牆上張爛羊皮圖，暗自記熟去茶檔同市集嘅後巷生路死路。",
-      "E. [推畀何仔] 「何仔，你身為阿頭，唔係縮喺堂口推個新仔出去送死呀化？一齊行啦。」",
-    ];
-
     setGameState(initialCharacterState);
-    setNarrative(initialNarrative);
-    setOptions(initialOptions);
-
-    // 儲存至 LocalStorage
-    saveToLocalStorage(initialCharacterState, initialNarrative, initialOptions);
-
+    setNarrative("青山城連日暴雨初歇，簷前濁水滴瀝未止。\n\n何仔坐喺正廳長凳度，正瞇起對黑眼圈打量緊你嘅底細……");
+    setOptions([]);
     setView("game");
+    setLoading(true);
+
+    try {
+      const res = await fetch("/api/turn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: `[初入堂口] ${trimmedName}（出身：${bg.name}，特質：${initialTrait}）踏入明心閣總壇，向何仔領命。`,
+          state: initialCharacterState,
+        }),
+      });
+
+      let data: ApiResponse;
+      try {
+        data = await res.json();
+      } catch (err) {
+        throw new Error(`伺服器無回應 (HTTP ${res.status})`);
+      }
+
+      if (!res.ok || data.error) {
+        throw new Error(data.error || `開局生成失敗 (HTTP ${res.status})`);
+      }
+
+      setGameState(data.state);
+      setNarrative(data.narrative);
+      setOptions(data.options || []);
+      saveToLocalStorage(data.state, data.narrative, data.options || []);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "開局連線失敗";
+      setErrorMsg(msg);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // 提交玩家行動
@@ -273,13 +288,14 @@ export default function GamePage() {
     }
   };
 
+  // 提交 F 自定義破局行動
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!customInput.trim()) return;
     handleAction(`F. [自訂手段] ${customInput.trim()}`);
   };
 
-  // ---------------- 創角頁面 ----------------
+  // ---------------- 1. 創角介面 ----------------
   if (view === "creation") {
     const curBg = BACKGROUNDS.find((b) => b.id === selectedBgId) || BACKGROUNDS[0];
 
@@ -291,7 +307,7 @@ export default function GamePage() {
             <p className="text-xs text-stone-400">大雨滂沱，刀鋒未冷。在城西這片泥濘死地，立下你的身家姓名。</p>
           </div>
 
-          {/* 舊存檔載入按鈕 */}
+          {/* 舊存檔讀取提示 */}
           {savedGame && (
             <div className="p-3.5 bg-amber-950/30 border border-amber-700/60 rounded-lg flex items-center justify-between gap-3">
               <div className="text-xs text-amber-200/90">
@@ -390,7 +406,7 @@ export default function GamePage() {
     );
   }
 
-  // ---------------- 主遊戲頁面 ----------------
+  // ---------------- 2. 主遊戲介面 ----------------
   return (
     <div className="min-h-screen bg-stone-950 text-stone-200 flex flex-col font-sans">
       <header className="border-b border-stone-800 bg-stone-900/80 backdrop-blur px-4 py-3 sticky top-0 z-20">
@@ -432,7 +448,6 @@ export default function GamePage() {
               </span>
             </div>
 
-            {/* 重新開始按鈕 */}
             <button
               type="button"
               onClick={handleRestartGame}
@@ -492,6 +507,7 @@ export default function GamePage() {
               ))}
             </div>
 
+            {/* F 選項：自定義輸入出招破局 */}
             <form onSubmit={handleCustomSubmit} className="mt-2 pt-3 border-t border-stone-800 flex flex-col gap-1.5">
               <div className="text-xs font-semibold text-amber-400/90 tracking-wider flex items-center gap-1.5">
                 <span>F. [自訂手段]</span>
