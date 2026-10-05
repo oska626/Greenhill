@@ -161,7 +161,7 @@ export function aptitude(name: string, background: string, trait: string) {
 
 function openingPortrait(background: string, trait: string) {
   if (background === "爛賭收數佬") return "你指腹有骰繭，進門先看何仔的手。";
-  if (background === "城西街童扒手") return "你進門先看退路，兩指慣常貼著袖口。";
+  if (background === "城西街童扒手") return "你先看退路，兩指慣常貼著袖口。";
   if (background === "濕鳩武館棄徒") return "你肩背繃緊，舊傷牽住半邊步子。";
   if (background === "黑市醫道學徒") return "你指甲縫帶著藥色，先聞草藥包。";
   if (/醫|毒|藥/.test(trait)) return "你指甲縫帶著藥色，先聞草藥包。";
@@ -169,6 +169,18 @@ function openingPortrait(background: string, trait: string) {
   if (/拳|壯|狠|勇/.test(trait)) return "你拳骨有舊繭，站著不肯彎背。";
   if (/見風|察言|口才|機靈/.test(trait)) return "你進門先看人臉色，話留在齒間。";
   return "你鞋底沾著城西的泥，站定先看退路。";
+}
+
+function openingAssessment(background: string, trait: string) {
+  if (background === "爛賭收數佬") return "你手上骰繭未退，收數該拿手";
+  if (background === "城西街童扒手") return "你先看退路，倒有點眼力";
+  if (background === "濕鳩武館棄徒") return "你肩上舊傷未好，骨頭倒硬";
+  if (background === "黑市醫道學徒") return "你認得藥，也認得刀傷";
+  if (/醫|毒|藥/.test(trait)) return "你聞藥比聞人快，還算有用";
+  if (/偷|巧|快|扒/.test(trait)) return "你眼先掃退路，手也夠快";
+  if (/拳|壯|狠|勇/.test(trait)) return "你拳骨有繭，挨打也不退";
+  if (/見風|察言|口才|機靈/.test(trait)) return "你先看人臉色，倒懂活命";
+  return "你一身城西泥，倒還站得穩";
 }
 
 export function normalizeState(raw: unknown): GameState | null {
@@ -228,7 +240,13 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
       const stats = aptitude(state.playerName, state.background, state.trait);
       state.maxHp = stats.hp; state.playerHp = stats.hp;
       state.maxMp = stats.mp; state.playerMp = stats.mp;
-      event = `${openingPortrait(state.background, state.trait)}你接過何仔推來的草藥包。你得去容姐茶檔換金創散，救市集的域卡度，再向張屠戶收五十文規費。`;
+      const cleanName = state.playerName.replace(/[「」\r\n]/g, "").trim();
+      const address = cleanName && Array.from(cleanName).length <= 8 ? cleanName : "小子";
+      event = `你跨進明心閣。${openingPortrait(state.background, state.trait)}你見何仔把草藥包推到你面前。`;
+      npcReply = {
+        speaker: "何仔",
+        line: `${address}，${openingAssessment(state.background, state.trait)}。域卡度昨夜挨了匯智樓一刀。去容姐處換金創散，送去市集；張屠戶欠的五十文也收回。`,
+      };
     } else {
       event += flavor("prologue_briefing");
       state.questStep = "yung_tea_stall";
