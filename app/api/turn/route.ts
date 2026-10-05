@@ -1,267 +1,216 @@
-import OpenAI from 'openai';
-import { NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
+import { NextRequest, NextResponse } from "next/server";
 
-export const dynamic = 'force-dynamic';
-
-function getOpenAIClient() {
-  const endpoint = (process.env.AZURE_OPENAI_ENDPOINT || '').replace(/\/+$/, '');
-  const apiKey = process.env.AZURE_OPENAI_API_KEY || 'build-phase-dummy-key';
-
-  return new OpenAI({
-    baseURL: endpoint,
-    apiKey: apiKey,
-    defaultHeaders: {
-      'api-key': apiKey,
-    },
-  });
+// 遊戲狀態型態定義
+export interface GameState {
+  turn: number;
+  currentLocation: string;
+  inventory: string[];
+  maxInventory: number;
+  playerHp: number;
+  maxHp: number;
+  playerMp: number;
+  maxMp: number;
+  silver: number; // 單位：文 (1兩 = 1000文)
+  factionFunds: number; // 門派流動金 (文)
+  hozaiDefense: number; // 何仔防線 (0-100)
+  questStep: "prologue_briefing" | "yung_tea_stall" | "market_collection" | "huizhi_ambush" | "sandbox";
+  flags: {
+    tookHerbs: boolean;
+    visitedYung: boolean;
+    collectedMarketFee: boolean;
+    marketAmbushTriggered: boolean;
+  };
 }
 
-function getMarkdownContext(filename: string) {
-  try {
-    const filePath = path.join(process.cwd(), 'game-data', filename);
-    return fs.readFileSync(filePath, 'utf-8');
-  } catch (error) {
-    console.warn(`[Warning] 找不到設定檔: ${filename}`);
-    return '';
-  }
-}
-
-export async function POST(req: Request) {
-  try {
-    const client = getOpenAIClient();
-    const { playerState, action, chatHistory } = await req.json();
-
-    let updatedState = { ...playerState };
-    const rawAction = (typeof action === 'string' ? action : '').trim();
-
-    // -------------------------------------------------------------
-    // 【特殊指令：除錯模式 (DEBUG MODE)】
-    // -------------------------------------------------------------
-    if (rawAction.includes('30624700')) {
-      const isEntering = !updatedState.debug_mode;
-      updatedState.debug_mode = isEntering;
-
-      if (isEntering) {
-        const debugReport = `[DEBUG MODE: ON — 劇情推演已凍結]
-
-【後台全量結構化數值清單】
-- 玩家稱號：${updatedState.identity}
-- 氣血：${updatedState.qi_hp} /${updatedState.max_qi_hp} ｜ 內力：${updatedState.neili} /${updatedState.max_neili}
-- 機變點數：${updatedState.wit_points} / 2 ｜ 戰鬥輪數：${updatedState.combat_rounds}
-- 銅錢：${updatedState.copper} 文 ｜ 碎銀：${updatedState.silver} 兩
-- 隨身裝備：${updatedState.weapon}
-- 隨身行囊：${JSON.stringify(updatedState.inventory)}
-- 何仔防線：${updatedState.ho_defense} / 100
-- 轄下街區：${updatedState.controlled_streets} 條
-
-再次輸入「30624700」即可關閉除錯並恢復遊戲。`;
-
-        return NextResponse.json({
-          success: true,
-          updatedState: updatedState,
-          text: debugReport,
-          actions: ['A. [除錯] 關閉除錯模式並恢復遊戲 (輸入 30624700)'],
-        });
-      } else {
-        return NextResponse.json({
-          success: true,
-          updatedState: updatedState,
-          text: '[DEBUG MODE: OFF — 遊戲恢復運行]\n\n江湖風雲再起，請下達下一個行動指令。',
-          actions: [
-            'A. [前往城西街市] 探索周邊環境',
-            'B. [打探風聲] 向在場NPC套料',
-            'C. [檢視物資] 整理行囊與裝備',
-            'D. [交畀同伴] 詢問同門意見',
-            'E. [修煉武學] 靜心調息',
-            'F. [其他] 自定義行動',
-          ],
-        });
-      }
-    }
-
-    // -------------------------------------------------------------
-    // 1. 創角數值與自定義物品初始化攔截 (強制進入安全探索期)
-    // -------------------------------------------------------------
-    let isInitialCreation = false;
-    if (rawAction.includes('城西街童扒手')) {
-      isInitialCreation = true;
-      updatedState = { ...updatedState, identity: '城西街童扒手', qi_hp: 40, max_qi_hp: 40, neili: 5, max_neili: 10, copper: 25, weapon: '磨尖鐵生鏽短錐 (耐久 15)', inventory: ['磨尖鐵生鏽短錐 (耐久 15)', '', '', ''], in_respite: true, combat_rounds: 0 };
-    } else if (rawAction.includes('濕鳩武館棄徒')) {
-      isInitialCreation = true;
-      updatedState = { ...updatedState, identity: '濕鳩武館棄徒', qi_hp: 55, max_qi_hp: 55, neili: 8, max_neili: 15, copper: 0, weapon: '裹布爛鐵條 (耐久 20)', inventory: ['裹布爛鐵條 (耐久 20)', '跌打草藥包', '', ''], in_respite: true, combat_rounds: 0 };
-    } else if (rawAction.includes('爛賭收數佬')) {
-      isInitialCreation = true;
-      updatedState = { ...updatedState, identity: '爛賭收數佬', qi_hp: 45, max_qi_hp: 45, neili: 4, max_neili: 10, copper: 10, weapon: '生鏽碎肉剪刀 (耐久 10)', inventory: ['生鏽碎肉剪刀 (耐久 10)', '灌鉛假骰子', '', ''], in_respite: true, combat_rounds: 0 };
-    } else if (rawAction.includes('黑市醫生助手')) {
-      isInitialCreation = true;
-      updatedState = { ...updatedState, identity: '黑市醫生助手', qi_hp: 42, max_qi_hp: 42, neili: 6, max_neili: 12, copper: 0, weapon: '生鏽放血薄刃 (耐久 12)', inventory: ['生鏽放血薄刃 (耐久 12)', '烈酒半竹筒', '', ''], in_respite: true, combat_rounds: 0 };
-    } else if (rawAction.includes('自定義') || rawAction.includes('江湖人')) {
-      isInitialCreation = true;
-      const rawContent = rawAction.replace(/^[A-Z]\.\s*\[.*?\]\s*/, '').trim();
-      const extractedTitle = rawContent.slice(0, 10).split(/[，,。\s]/)[0] || '市井散人';
-      const customWeapon = rawContent.includes('刀') ? '生鏽斬骨刀' : rawContent.includes('棍') ? '防身木棍' : '隨身破爛物品';
-      updatedState = { ...updatedState, identity: extractedTitle, qi_hp: 45, max_qi_hp: 45, neili: 5, max_neili: 10, copper: 10, weapon: customWeapon, inventory: [customWeapon, '', '', ''], in_respite: true, combat_rounds: 0 };
-    }
-
-    // -------------------------------------------------------------
-    // 2. 玩家行動機變消耗
-    // -------------------------------------------------------------
-    if (rawAction.startsWith('F')) updatedState.wit_points = Math.max(0, (updatedState.wit_points ?? 2) - 1);
-    if (rawAction.startsWith('B')) updatedState.wit_points = Math.min(2, (updatedState.wit_points ?? 0) + 1);
-
-    // -------------------------------------------------------------
-    // 3. 戰鬥與探索循環控制 (放寬探索期限制)
-    // -------------------------------------------------------------
-    if (!isInitialCreation) {
-      if (!updatedState.in_respite) {
-        // 戰鬥中：4 回合強制脫險
-        updatedState.combat_rounds = (updatedState.combat_rounds ?? 0) + 1;
-        if (updatedState.combat_rounds >= 4) {
-          updatedState.in_respite = true;
-          updatedState.combat_rounds = 0;
-          updatedState.wit_points = Math.min(2, (updatedState.wit_points ?? 0) + 1);
-        }
-      } else {
-        // 探索期：不再硬性 2 回合切入戰鬥，改由玩家行為或極端情況觸發
-        updatedState.combat_rounds = (updatedState.combat_rounds ?? 0) + 1;
-        const isAggressive = rawAction.includes('打') || rawAction.includes('搶') || rawAction.includes('殺') || rawAction.includes('激進');
-        if (updatedState.combat_rounds >= 4 && isAggressive) {
-          updatedState.in_respite = false;
-          updatedState.combat_rounds = 0;
-        }
-      }
-    }
-
-    // -------------------------------------------------------------
-    // 4. 動態讀取 4 個 MD 設定檔
-    // -------------------------------------------------------------
-    const worldLore = getMarkdownContext('01_world_lore.md');
-    const characters = getMarkdownContext('02_characters.md');
-    const storylines = getMarkdownContext('03_storyline_flags.md');
-    const cityMap = getMarkdownContext('04_city_map.md');
-
-    // -------------------------------------------------------------
-    // 5. System Prompt (引入城西導覽機制)
-    // -------------------------------------------------------------
-    const systemPrompt = `你係硬派文字TRPG《明心閣》嘅掌故人（GM）。
-
-【知識庫】
-(世界觀)
-${worldLore}
-(人物群像)
-${characters}
-(主線進度)
-${storylines}
-(全城區域)
-${cityMap}
-
-【運作原則】
-- 100% 香港市井粵語對白，旁白用純白話書面語，零廢話。
-- Fail-Forward：玩家動作失敗必須以「局勢惡化、扣減氣血、耗損物資或同門代價」推動劇情。
-- 狀態：${updatedState.in_respite ? '【安全探索期】' : `【戰鬥中·第 ${updatedState.combat_rounds} 回合】`}
-
-【探索與導覽機制 (重要！)】
-若處於【安全探索期】（特別是剛完成創角）：
-1. 何仔必須先點評玩家出身，然後帶領玩家踏出明心閣，走入城西街頭。
-2. 透過 NPC 對話與沿路白描，向玩家介紹城西地標（如容姐流動茶檔、通義當、地下拳館、爛尾樓），讓玩家了解青山城運作及各功能區（買賣、補血、接任等）。
-3. 嚴禁立刻觸發大規模戰鬥。讓玩家先自由探索、打探情報或與 NPC 建立關係。後續再慢慢引導前往城東/南/北。
-
-【強制輸出格式：JSON】
-你必須嚴格以 JSON 格式回覆，絕對不能包含任何 Markdown backticks (\`\`\`)。格式如下：
-{
-  "narration": "正文白描（120-180字），嚴禁提及具體扣血或扣錢數字，亦嚴禁包含選項文字。",
-  "environment": "暗記：(現場環境標註、地標功能提示或潛伏危險)",
-  "state_changes": {
-    "hp_change": <整數，受傷填負數，包紮/飲茶回血填正數，無變化填 0>,
-    "ho_defense_change": <整數，何仔防線變化，無變化填 0>,
-    "copper_change": <整數，花錢買茶/情報填負數，搜刮獲利填正數，無變化填 0>,
-    "item_consumed": "<若消耗了草藥/烈酒等物品，填寫名稱，否則留空>"
+// 初始遊戲狀態（連日暴雨初歇，身處明心閣總壇）
+const INITIAL_STATE: GameState = {
+  turn: 1,
+  currentLocation: "明心閣總壇",
+  inventory: ["【生草藥包】"],
+  maxInventory: 4,
+  playerHp: 100,
+  maxHp: 100,
+  playerMp: 50,
+  maxMp: 50,
+  silver: 0,
+  factionFunds: 10,
+  hozaiDefense: 60,
+  questStep: "prologue_briefing",
+  flags: {
+    tookHerbs: true,
+    visitedYung: false,
+    collectedMarketFee: false,
+    marketAmbushTriggered: false,
   },
+};
+
+// 武俠世界觀與系統指令 (System Prompt)
+const SYSTEM_PROMPT = `
+你係文字冒險遊戲《青山城》的遊戲主持人 (GM)。
+背景為純正古代中原武俠時代，殘酷市井風格，完全禁止現代詞彙（如唐樓、電線、火器、摩天樓、科技）。
+
+【青山城勢力版圖】
+1. 城西（明心閣·何仔）：昔日以鑄神鋒聞名，如今沒落淪為下九流地痞堂口，經營賭檔、暗娼、高利貸、煙館、黑拳與收保護費。
+2. 城東（匯智樓·鋒少）：富庶黑道，豢養精銳傭兵刀手，暗中進行人口販賣與邪派活人試藥。
+3. 城南（青山資產管理·黃棠）：豪紳巨賈，城主西涼的經濟白手套，手握鐵甲衛與守城機關重弩，以官印地契兼併產業。
+4. 城北（官衙·僧臣）：朝廷特派特務，清修僧侶外貌，專門監視西涼與江湖幫派，違者以叛逆罪抄家滅門。
+5. 城中（城主府·西涼）：名義最高統治者，挑撥各派互鬥抽成。
+
+【城西七大地標與駐守 NPC】
+- 明心閣總壇：何仔（閣主/肉盾打太極，負責主線、休整回血回內）
+- 怡紅院：玉樺（青樓管事/武學奇人，打探情報、聽曲留宿、傳授身法暗器）
+- 聚財坊：奇仕（地下賭檔/毒舌帳房，博彩借貸、追數捉老千、傳授指法）
+- 仙館：佚名（黑市煙檔/禁藥怪醫，黑市毒物交易、護送私貨）
+- 武館：衛林 / 阿黃（黑市地下擂台，打黑拳、傳授外門剛猛拳腳硬氣功）
+- 泥濘市集：域卡度（巡街壓場、強收保護費/例錢、黑市走私改裝）
+- 容姐茶檔：容姐（街角茶檔，平價粗茶草藥補給、打聽市井瑣事八卦）
+
+【開局四幕動線引導 (嚴格遵循)】
+1. 第一幕 (prologue_briefing)：何仔派差。暴雨剛停，何仔在古堂將草藥包交給玩家，命令送往「容姐茶檔」，並叮囑之後去「市集」找域卡度收規費。
+2. 第二幕 (yung_tea_stall)：容姐茶檔。交付草藥包，換得【一壺苦涼茶】（行囊上限4格），提示市集東邊有匯智樓生面孔出沒。
+3. 第三幕 (market_collection)：市集收規。見到域卡度，向張屠戶收取 50 文欠款。教學「市井泥漿流」（抓灰撒眼、撩陰踩腳）。
+4. 第四幕 (huizhi_ambush)：匯智樓插旗。規費剛收完，匯智樓管事率精銳傭兵殺入市集插旗踩場，正式引爆衝突！
+
+【輸出規範】
+你必須以繁體中文（可帶道地港式江湖市井對白）輸出合規的 JSON，格式如下：
+{
+  "narrative": "場景描寫與對話劇情",
   "options": [
-    "A. [探索地標] 前往通義當/茶檔/拳館...",
-    "B. [打探風聲] 向NPC詢問江湖規矩...",
-    "C. [市井互動] 買賣物品或結交勢力...",
-    "D. [交畀同伴] 詢問何仔下一步行動...",
-    "E. [跨區移動] 嘗試前往城東/城南(高風險)...",
-    "F. [其他] 玩家自定義探索行動..."
-  ]
+    "1. [行動名稱] 具體行動說明",
+    "2. [行動名稱] 具體行動說明",
+    "3. [行動名稱] 具體行動說明"
+  ],
+  "consumedItem": "使用的物品名稱（若無則為空字串）",
+  "acquiredItem": "獲得的物品名稱（若無則為空字串）",
+  "locationUpdate": "更新後的當前地點（若無變更則為空字串）",
+  "hpDelta": 0,
+  "mpDelta": 0,
+  "silverDelta": 0,
+  "factionFundsDelta": 0,
+  "hozaiDefenseDelta": 0,
+  "nextQuestStep": "prologue_briefing" | "yung_tea_stall" | "market_collection" | "huizhi_ambush" | "sandbox"
 }
+`;
 
-【當前數值參考 (供 GM 結算用)】
-- 玩家：${updatedState.identity} ｜ 氣血：${updatedState.qi_hp}/${updatedState.max_qi_hp} ｜ 銅錢：${updatedState.copper}文
-- 何仔防線：${updatedState.ho_defense}/100 
-- 行囊：${JSON.stringify(updatedState.inventory)}
-- 玩家最新動作：${rawAction}`;
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { action, state }: { action?: string; state?: GameState } = body;
 
-    const formattedHistory = (Array.isArray(chatHistory) ? chatHistory : []).slice(-3).map((item: any) => ({
-      role: (item.role === 'gm' || item.role === 'assistant') ? 'assistant' : 'user',
-      content: typeof item === 'string' ? item : item.content || JSON.stringify(item),
-    }));
+    // 若為無狀態的初次載入，直接回傳第一幕開場
+    if (!state) {
+      return NextResponse.json({
+        narrative:
+          "青山城連日暴雨初歇，簷前濁水滴瀝未止。\n\n" +
+          "明心閣青瓦古堂內，正廳中央的昔日鑄劍巨爐早已冷透，積滿塵灰。閣主何仔眼圈烏黑，正坐在缺角長木凳上揉著太陽穴，順手將一包粗布紮緊的生草藥拍在滿是茶漬的木几上。\n\n" +
+          "「天光喇，雨停咗班刀手就該出動。你新入堂口，咪成日企喺度似碌木。」何仔打了個哈欠，指了指桌上的草藥包：\n" +
+          "「拎呢包草藥去巷口交畀容姐煲茶，順便去市集搵域卡度。市集欠咗三日規費，收唔齊返嚟，今晚成個閣嘅手足都要捱餓。」",
+        options: [
+          "1. [領命出發] 拿起桌上的生草藥包，戴上破斗笠動身前往容姐茶檔。",
+          "2. [打探門路] 追問何仔：「如果市集有人耍賴唔交規費，我應該點應付？」",
+          "3. [查驗地圖] 掃視堂內牆上的城西羊皮舊圖，確認容姐茶檔與市集的位置。",
+        ],
+        state: INITIAL_STATE,
+      });
+    }
 
-    const response = await client.chat.completions.create({
-      model: process.env.AZURE_OPENAI_DEPLOYMENT_NAME || 'gpt-4o',
-      messages: [{ role: 'system', content: systemPrompt }, ...formattedHistory] as any,
-      temperature: 0.6,
-      max_tokens: 800,
-      response_format: { type: 'json_object' },
+    // 複製並推進狀態
+    const updatedState: GameState = {
+      ...state,
+      turn: state.turn + 1,
+      flags: { ...state.flags },
+      inventory: [...state.inventory],
+    };
+
+    // 呼叫 LLM 處理邏輯
+    const apiKey = process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ error: "API Key not configured" }, { status: 500 });
+    }
+
+    const prompt = `
+當前玩家狀態：
+- 當前地點: ${updatedState.currentLocation}
+- 主線階段: ${updatedState.questStep}
+- 行囊 (${updatedState.inventory.length}/${updatedState.maxInventory}): [${updatedState.inventory.join(", ")}]
+- 氣血: ${updatedState.playerHp}/${updatedState.maxHp}
+- 內力: ${updatedState.playerMp}/${updatedState.maxMp}
+- 個人銀兩: ${updatedState.silver} 文
+- 門派流動金: ${updatedState.factionFunds} 文
+- 何仔防線: ${updatedState.hozaiDefense}/100
+
+玩家選擇的行動: "${action || "環顧四周"}"
+
+請根據世界觀、當前階段與玩家行動，產生下一回合的劇情、3-4個選項及數值變更。嚴格遵守 JSON 格式輸出。
+`;
+
+    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + apiKey, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [
+          { role: "user", parts: [{ text: SYSTEM_PROMPT }, { text: prompt }] },
+        ],
+        generationConfig: {
+          responseMimeType: "application/json",
+          temperature: 0.7,
+        },
+      }),
     });
 
-    const rawText = response.choices[0].message?.content || '{}';
-    
-    // -------------------------------------------------------------
-    // 6. 處理 AI 的 JSON 輸出與數值結算
-    // -------------------------------------------------------------
-    let aiResponse;
-    const FALLBACK_ACTIONS = updatedState.in_respite
-      ? ['A. [探索地標] 喺城西四處巡視', 'B. [打探風聲] 搵街坊索取情報', 'C. [市井互動] 檢視攤檔物資', 'D. [交畀同伴] 問何仔青山城規矩', 'E. [跨區移動] 望向城東方向', 'F. [其他] 自定義行動']
-      : ['A. [激進介入]', 'B. [息事寧人]', 'C. [市井下三濫]', 'D. [交畀同伴]', 'E. [修煉武學]', 'F. [其他]'];
-    
-    try {
-      aiResponse = JSON.parse(rawText.replace(/```json/g, '').replace(/```/g, '').trim());
-    } catch (e) {
-      console.error("JSON 解析失敗", rawText);
-      aiResponse = {
-        narration: "（江湖大霧，局勢一片混沌，請再試一次。）",
-        environment: "",
-        state_changes: { hp_change: 0, ho_defense_change: 0, copper_change: 0, item_consumed: "" },
-        options: FALLBACK_ACTIONS
-      };
+    if (!response.ok) {
+      throw new Error(`LLM request failed with status ${response.status}`);
     }
 
-    const hpChange = aiResponse.state_changes?.hp_change || 0;
-    const defenseChange = aiResponse.state_changes?.ho_defense_change || 0;
-    const copperChange = aiResponse.state_changes?.copper_change || 0;
-    const consumedItem = aiResponse.state_changes?.item_consumed || "";
+    const data = await response.json();
+    const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const parsed = JSON.parse(resultText);
 
-    updatedState.qi_hp = Math.min(updatedState.max_qi_hp, Math.max(0, (updatedState.qi_hp || 0) + hpChange));
-    updatedState.ho_defense = Math.max(0, Math.min(100, (updatedState.ho_defense || 60) + defenseChange));
-    updatedState.copper = Math.max(0, (updatedState.copper || 0) + copperChange);
+    // 處理數值變更
+    if (parsed.hpDelta) updatedState.playerHp = Math.max(0, Math.min(updatedState.maxHp, updatedState.playerHp + parsed.hpDelta));
+    if (parsed.mpDelta) updatedState.playerMp = Math.max(0, Math.min(updatedState.maxMp, updatedState.playerMp + parsed.mpDelta));
+    if (parsed.silverDelta) updatedState.silver = Math.max(0, updatedState.silver + parsed.silverDelta);
+    if (parsed.factionFundsDelta) updatedState.factionFunds = Math.max(0, updatedState.factionFunds + parsed.factionFundsDelta);
+    if (parsed.hozaiDefenseDelta) updatedState.hozaiDefense = Math.max(0, Math.min(100, updatedState.hozaiDefense + parsed.hozaiDefenseDelta));
 
-    if (consumedItem && consumedItem.trim() !== "" && Array.isArray(updatedState.inventory)) {
+    // 處理地點更新
+    if (parsed.locationUpdate && parsed.locationUpdate.trim() !== "") {
+      updatedState.currentLocation = parsed.locationUpdate.trim();
+    }
+
+    // 處理主線階段推進
+    if (parsed.nextQuestStep) {
+      updatedState.questStep = parsed.nextQuestStep;
+    }
+
+    // 處理物品消耗 (修正 item 型態以符合 TypeScript 嚴格檢查)
+    const consumedItem = parsed.consumedItem;
+    if (consumedItem && typeof consumedItem === "string" && consumedItem.trim() !== "" && Array.isArray(updatedState.inventory)) {
       const target = consumedItem.trim();
-      const idx = updatedState.inventory.findIndex((item: string) => 
-  item && item.trim() !== "" && (item.includes(target) || target.includes(item))
-);
+      const idx = updatedState.inventory.findIndex((item: string) =>
+        item && item.trim() !== "" && (item.includes(target) || target.includes(item))
+      );
       if (idx !== -1) {
-        updatedState.inventory[idx] = ''; 
+        updatedState.inventory.splice(idx, 1);
       }
     }
 
-    const finalText = aiResponse.environment ? `${aiResponse.narration}\n\n${aiResponse.environment}` : aiResponse.narration;
-    const finalActions = Array.isArray(aiResponse.options) && aiResponse.options.length >= 6 
-      ? aiResponse.options.slice(0, 6) 
-      : FALLBACK_ACTIONS;
+    // 處理物品獲得 (遵守 4 格上限)
+    const acquiredItem = parsed.acquiredItem;
+    if (acquiredItem && typeof acquiredItem === "string" && acquiredItem.trim() !== "") {
+      if (updatedState.inventory.length < updatedState.maxInventory) {
+        updatedState.inventory.push(acquiredItem.trim());
+      }
+    }
 
     return NextResponse.json({
-      success: true,
-      updatedState: updatedState,
-      text: finalText,
-      actions: finalActions,
+      narrative: parsed.narrative,
+      options: parsed.options,
+      state: updatedState,
     });
-  } catch (error: any) {
-    console.error('API Error:', error);
-    return NextResponse.json({ error: `[${error.status || 500}] ${error.message}` }, { status: 500 });
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : "Internal Server Error";
+    console.error("Turn processing error:", errorMessage);
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
