@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { aptitude, LANDMARKS, normalizeState, resolveTurn } from "../lib/game-engine.ts";
+import { NPC_VOICES, npcVoiceGuide, repeatedNpcLine } from "../lib/npc-voices.ts";
 
 function newGame() {
   const stats = aptitude("阿七", "爛賭收數佬", "察言觀色");
@@ -32,6 +33,30 @@ test("opening gives each created background a concrete character detail", () => 
     assert.ok(opening.npcReply.line.includes("五十文"));
     assert.ok(!opening.event.includes("打量你的出身"));
   }
+});
+
+test("custom creation keeps gender, skill and personality in Ho Zai's first-turn assessment", () => {
+  const profiles = [
+    { gender: "女子", skill: "辨藥", personality: "嘴硬心軟", judgement: "救人歸救人，帳也得收齊" },
+    { gender: "男子", skill: "使短刀", personality: "脾氣暴躁", judgement: "火氣收住" },
+    { gender: "非二元", skill: "摸鎖", personality: "遇事多疑", judgement: "看清退路" },
+  ];
+  for (const profile of profiles) {
+    const state = normalizeState({ ...newGame(), background: "自定義市井流民", trait: profile.skill, ...profile });
+    const opening = resolveTurn(state, "[初入堂口] 阿七", true);
+    assert.equal(opening.state.gender, profile.gender);
+    assert.equal(opening.state.skill, profile.skill);
+    assert.equal(opening.state.personality, profile.personality);
+    assert.ok(opening.npcReply.line.includes(profile.gender));
+    assert.ok(opening.npcReply.line.includes(profile.skill));
+    assert.ok(opening.npcReply.line.includes(profile.personality));
+    assert.ok(opening.npcReply.line.includes(profile.judgement));
+    assert.ok(opening.npcReply.line.includes("域卡度"));
+    assert.ok(opening.npcReply.line.includes("五十文"));
+    assert.equal(opening.state.maxHp, aptitude("阿七", "自定義市井流民", profile.skill).hp);
+  }
+  assert.ok(aptitude("阿七", "自定義市井流民", "辨藥").hp < aptitude("阿七", "自定義市井流民", "摸鎖").hp);
+  assert.ok(aptitude("阿七", "自定義市井流民", "摸鎖").hp < aptitude("阿七", "自定義市井流民", "使短刀").hp);
 });
 
 test("every sandbox choice has a distinct event and NPC reply", () => {
@@ -120,9 +145,11 @@ test("sandbox travel stays inside seven landmarks and resources have a ledger", 
   assert.equal(turn.state.silver, 10);
   assert.ok(turn.moneyNote.includes("私銀減少10文"));
   for (const place of LANDMARKS) {
+    if (turn.state.flags.pendingIncident) turn = resolveTurn(turn.state, turn.options[0], false);
     turn = resolveTurn(turn.state, `F. [前往] ${place}`, false);
     assert.equal(turn.state.currentLocation, place);
   }
+  if (turn.state.flags.pendingIncident) turn = resolveTurn(turn.state, turn.options[0], false);
   const rejected = resolveTurn(turn.state, "F. [自訂手段] 前往城東匯智樓總壇", false);
   assert.equal(rejected.state.currentLocation, turn.state.currentLocation);
   const question = resolveTurn(turn.state, "F. [自訂手段] 問何仔官府近況", false);
@@ -139,4 +166,71 @@ test("absurd custom actions lose health and malformed numeric state is normalize
   assert.equal(state.playerHp, state.maxHp);
   const turn = resolveTurn(state, "F. [自訂手段] 拿機關槍射擊", false);
   assert.equal(turn.state.playerHp, state.maxHp - 15);
+});
+
+test("turn eight interrupts the sandbox with a new choice and resolves its consequence", () => {
+  let turn = resolveTurn(newGame(), "[初入堂口] 阿七", true);
+  for (let index = 0; index < 4; index++) turn = resolveTurn(turn.state, turn.options[0], false);
+  assert.equal(turn.state.turn, 5);
+  for (let index = 0; index < 3; index++) turn = resolveTurn(turn.state, turn.options[2], false);
+  assert.equal(turn.state.turn, 8);
+  assert.equal(turn.state.flags.pendingIncident, "market_raid");
+  assert.match(turn.event, /插旗/);
+  assert.match(turn.options[0], /護住攤販/);
+  const settled = resolveTurn(normalizeState(turn.state), turn.options[0], false);
+  assert.equal(settled.state.flags.pendingIncident, undefined);
+  assert.ok(settled.state.worldFlags.includes("市集守住"));
+  assert.match(settled.event, /街坊守住肉檔/);
+  assert.match(settled.options[0], /巡街收規/);
+});
+
+test("later incidents change options and preserve resource consequences", () => {
+  let state = { ...newGame(), turn: 12, questStep: "sandbox", silver: 20, factionFunds: 30 };
+  state.flags = { ...state.flags, incidentCount: 1, lastIncidentTurn: 8 };
+  let turn = resolveTurn(state, "C. [盤點] 清點堂口帳目。", false);
+  assert.equal(turn.state.flags.pendingIncident, "missing_ledger");
+  assert.match(turn.options[0], /查賭檔/);
+  turn = resolveTurn(turn.state, turn.options[3], false);
+  assert.equal(turn.state.factionFunds, 20);
+  assert.ok(turn.moneyNote.includes("公款減少10文"));
+  state = { ...turn.state, turn: 17 };
+  turn = resolveTurn(state, "F. [前往] 容姐茶檔", false);
+  assert.equal(turn.state.flags.pendingIncident, "tainted_medicine");
+  assert.match(turn.options[0], /封存藥包/);
+  turn = resolveTurn(turn.state, turn.options[3], false);
+  assert.equal(turn.state.silver, 10);
+  assert.ok(turn.state.worldFlags.includes("可疑傷藥已處置"));
+});
+
+test("repeated inquiries acknowledge that no new lead was found", () => {
+  let turn = resolveTurn({ ...newGame(), questStep: "sandbox", currentLocation: "容姐茶檔", turn: 5 }, "B. [打探] 問容姐城西傳聞。", false);
+  const firstReply = turn.npcReply.line;
+  turn = resolveTurn(turn.state, "B. [打探] 問容姐城西傳聞。", false);
+  assert.match(turn.event, /沒有新的線索/);
+  assert.notEqual(turn.npcReply.line, firstReply);
+  assert.equal(turn.state.flags.repeatedActionCount, 1);
+});
+
+test("an older sandbox save past turn eight receives the first incident on its next turn", () => {
+  const oldSave = { ...newGame(), turn: 9, questStep: "sandbox" };
+  const restored = normalizeState(oldSave);
+  const turn = resolveTurn(restored, "C. [盤點] 清點堂口帳目。", false);
+  assert.equal(turn.state.flags.pendingIncident, "market_raid");
+  assert.match(turn.options[0], /護住攤販/);
+});
+
+test("named NPCs have distinct guidance and repeat replies", () => {
+  const names = ["何仔", "容姐", "域卡度", "奇仕", "衛林", "佚名", "玉樺", "阿黃", "張屠戶"];
+  assert.deepEqual(Object.keys(NPC_VOICES), names);
+  assert.equal(new Set(names.map((name) => npcVoiceGuide(name))).size, names.length);
+  assert.equal(new Set(names.map((name) => repeatedNpcLine(name, 1))).size, names.length);
+  assert.match(npcVoiceGuide("衛林"), /短句/);
+  assert.match(npcVoiceGuide("奇仕"), /帳房/);
+});
+
+test("incident replies use the speaker involved in each branch", () => {
+  const state = { ...newGame(), questStep: "sandbox", turn: 13, flags: { ...newGame().flags, pendingIncident: "missing_ledger" } };
+  assert.equal(resolveTurn(state, "A. [查賭檔] 到聚財坊核對缺失的規費帳。", false).npcReply.speaker, "奇仕");
+  assert.equal(resolveTurn(state, "B. [問容姐] 問容姐誰曾帶走帳簿。", false).npcReply.speaker, "容姐");
+  assert.equal(resolveTurn(state, "E. [告知何仔] 把帳目破綻交給何仔處置。", false).npcReply.speaker, "何仔");
 });

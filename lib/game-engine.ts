@@ -1,15 +1,21 @@
+import { repeatedNpcLine } from "./npc-voices.ts";
+
 export const LANDMARKS = [
   "明心閣總壇", "容姐茶檔", "泥濘市集", "聚財坊", "黑市武館", "仙館", "怡紅院",
 ] as const;
 
 export type Landmark = typeof LANDMARKS[number];
 export type QuestStep = "prologue_briefing" | "yung_tea_stall" | "market_collection" | "huizhi_ambush" | "sandbox";
+export type Incident = "market_raid" | "missing_ledger" | "tainted_medicine";
 
 export interface GameState {
   turn: number;
   playerName: string;
   background: string;
   trait: string;
+  gender?: string;
+  skill?: string;
+  personality?: string;
   currentLocation: Landmark;
   inventory: string[];
   maxInventory: number;
@@ -28,6 +34,11 @@ export interface GameState {
     collectedMarketFee: boolean;
     marketAmbushTriggered: boolean;
     lastMarketDuesTurn?: number;
+    pendingIncident?: Incident;
+    incidentCount?: number;
+    lastIncidentTurn?: number;
+    lastSandboxTag?: string;
+    repeatedActionCount?: number;
   };
 }
 
@@ -93,57 +104,88 @@ const SANDBOX_OPTIONS: Record<Landmark, string[]> = {
   "怡紅院": ["A. [問玉樺] 問玉樺城西消息。", "B. [聽曲] 聽一曲，稍作調息。", "C. [查客] 留意陌生客人。", "D. [問路] 問清附近暗巷。", "E. [離席] 離開席位。"],
 };
 
+const INCIDENTS: Incident[] = ["market_raid", "missing_ledger", "tainted_medicine"];
+const INCIDENT_OPTIONS: Record<Incident, string[]> = {
+  market_raid: [
+    "A. [護住攤販] 召集街坊，擋住匯智樓插旗。",
+    "B. [暗巷截路] 繞到刀手後方，斷其退路。",
+    "C. [設局取證] 記下刀手勒索攤販的證詞。",
+    "D. [付錢息事] 撥二十文公款安頓攤販。",
+    "E. [撤守保人] 先護傷者撤到明心閣。",
+  ],
+  missing_ledger: [
+    "A. [查賭檔] 到聚財坊核對缺失的規費帳。",
+    "B. [問容姐] 問容姐誰曾帶走帳簿。",
+    "C. [追腳印] 沿市集泥印追查偷帳的人。",
+    "D. [補帳] 撥十文公款填補眼前缺口。",
+    "E. [告知何仔] 把帳目破綻交給何仔處置。",
+  ],
+  tainted_medicine: [
+    "A. [封存藥包] 封住來歷不明的傷藥。",
+    "B. [請佚名驗藥] 帶藥去仙館查驗。",
+    "C. [追查送藥人] 查問茶檔附近的送藥腳夫。",
+    "D. [救治傷者] 花十文私銀替傷者換乾淨藥。",
+    "E. [公開警訊] 告訴七處據點暫停用這批藥。",
+  ],
+};
+
+const INCIDENT_REPORTS: Record<Incident, string> = {
+  market_raid: "你收到市集急報：匯智樓刀手在肉檔插旗，攤販被逼交兩份規費。此刻須決定如何保住城西的人。",
+  missing_ledger: "你見堂口規費帳少了一頁，聚財坊與市集的數目對不上。何仔限你先查清帳，再碰公款。",
+  tainted_medicine: "你見茶檔送來的傷藥封口被換過，已有傷者用了藥。城西七處據點都等你拿主意。",
+};
+
 type Reaction = { event: string; line: string; speaker?: string };
 const SANDBOX_REACTIONS: Record<Landmark, Record<string, Reaction>> = {
   "明心閣總壇": {
-    "休整": { event: "", line: "先把氣養回來，門還得守。" },
-    "固防": { event: "", line: "帳記清楚，牆也補結實。" },
-    "盤點": { event: "你翻開堂口帳簿，逐筆核對公款，沒有漏下一文。", line: "少一文，你先來答。" },
-    "問何仔": { event: "你問何仔匯智樓近況，聽見城西幾處路口都添了眼線。", line: "人還沒到，眼睛先到了。" },
-    "巡視": { event: "你巡過總壇門口與後巷，記住兩處鬆動的門閂。", line: "今夜把門看緊。" },
+    "休整": { event: "", line: "坐吧。等你喘勻了，這道門還得有人替我守。" },
+    "固防": { event: "", line: "先記帳，後補牆。少一文，我替你挨罵？" },
+    "盤點": { event: "你翻開堂口帳簿，逐筆核對公款，沒有漏下一文。", line: "帳你看，我去擋人。可別讓我白擋。" },
+    "問何仔": { event: "你問何仔匯智樓近況，聽見城西幾處路口都添了眼線。", line: "路口多了眼線。我這張老臉擋得住一時，你得找條路。" },
+    "巡視": { event: "你巡過總壇門口與後巷，記住兩處鬆動的門閂。", line: "門閂鬆了？記下。今晚我守前門，你看後巷。" },
   },
   "容姐茶檔": {
-    "買藥": { event: "", line: "藥敷緊，傷口別再沾泥。" },
-    "打探": { event: "你問容姐城西傳聞，聽見匯智樓又在街口認人。", line: "有人認你的臉，少走明路。" },
-    "喝茶": { event: "你端起苦茶，熱氣壓住喉頭的乾澀。", line: "茶喝完就走，別坐成靶子。" },
-    "辨藥": { event: "你攤開藥包，請容姐辨過草藥氣味與碎屑。", line: "認準藥味，別吞錯東西。" },
-    "看街": { event: "你從茶檔望向街口，記下兩條能退回市集的窄巷。", line: "看夠了就收眼，別叫人看回來。" },
+    "買藥": { event: "", line: "錢放桌上。藥敷厚點，別叫泥水鑽進傷口。" },
+    "打探": { event: "你問容姐城西傳聞，聽見匯智樓又在街口認人。", line: "茶還沒涼，街口就有人認你的臉。走後巷。" },
+    "喝茶": { event: "你端起苦茶，熱氣壓住喉頭的乾澀。", line: "慢點喝，燙。喝完從側巷走。" },
+    "辨藥": { event: "你攤開藥包，請容姐辨過草藥氣味與碎屑。", line: "這味能止血。先聞清楚，別拿錯包。" },
+    "看街": { event: "你從茶檔望向街口，記下兩條能退回市集的窄巷，也察覺對面有人盯著你。", line: "碗擋著臉。對面那人盯你半天了。" },
   },
   "泥濘市集": {
-    "巡街收規": { event: "", line: "規費歸堂口，別叫人說閒話。" },
+    "巡街收規": { event: "", line: "錢你收，我看著後頭。別說我沒出力。" },
     "問價": { event: "你問過兩家藥攤，聽見同一味傷藥報出兩個價。", line: "急著買，價就由人開。" },
-    "找域卡度": { event: "你問域卡度肋下刀傷。你見他按住舊布條，呼吸仍穩，刀口卻未合。", line: "還撐得住。你盯住巷口。" },
-    "盯梢": { event: "你退到肉檔陰影，盯住巷口來往的灰衣人。", line: "那兩個步子太齊，當心。", speaker: "域卡度" },
-    "歇腳": { event: "你靠著肉檔外牆歇腳，耳朵仍朝巷口張著。", line: "歇夠就走，這裏不養閒人。" },
-    "查眼線": { event: "你沿肉檔外圍查眼線，發現有人見你便轉入窄巷。", line: "你還敢在這條街露面？", speaker: "張屠戶" },
+    "找域卡度": { event: "你問域卡度肋下刀傷。你見他按住舊布條，呼吸仍穩，刀口卻未合。", line: "小傷，走得動。你先看巷口，別讓人抄後路。" },
+    "盯梢": { event: "你退到肉檔陰影，盯住巷口來往的灰衣人。", line: "那兩個人走得太齊。我往左，你替我看右邊。", speaker: "域卡度" },
+    "歇腳": { event: "你靠著肉檔外牆歇腳，耳朵仍朝巷口張著。", line: "要歇去別處，別擋我肉檔生意。", speaker: "張屠戶" },
+    "查眼線": { event: "你沿肉檔外圍查眼線，發現有人見你便轉入窄巷。", line: "還敢在我攤前晃？那筆帳我記著。", speaker: "張屠戶" },
   },
   "聚財坊": {
-    "押小": { event: "", line: "骰盅一開，輸贏自己認。" },
-    "看盤": { event: "你盯住骰盅落桌，記下莊家收手時的停頓。", line: "看得久，也未必看得透。" },
-    "問奇仕": { event: "你問奇仕堂口欠帳，聽見他只肯談帳面，不肯報人名。", line: "帳在這裏，人你自己找。" },
-    "查老千": { event: "你盯住桌邊換籌碼的手，見有人袖口藏得太緊。", line: "抓賊要抓手，別只抓影。" },
-    "離桌": { event: "你離開賭桌，先把自己的錢袋按緊。", line: "走得了，算你有本事。" },
+    "押小": { event: "", line: "十文押下去，輸贏記你名下。別找帳房哭。" },
+    "看盤": { event: "你盯住骰盅落桌，記下莊家左手收回時的停頓。", line: "看見他左手沒有？那一下值十文。" },
+    "問奇仕": { event: "你問奇仕堂口欠帳，聽見他只肯談帳面，不肯報人名。", line: "欠帳兩頁，嘴倒是乾淨。名字自己去問。" },
+    "查老千": { event: "你盯住桌邊換籌碼的手，見有人袖口藏得太緊。", line: "盯袖口。抓到手，這桌輸的才算得清。" },
+    "離桌": { event: "你離開賭桌，先把自己的錢袋按緊。", line: "肯起身，算你還會算帳。" },
   },
   "黑市武館": {
-    "打黑拳": { event: "", line: "錢拿穩，傷自己養。" },
-    "練拳": { event: "你照衛林指點收緊肘線，連打三記短拳。", line: "拳別伸盡，留手護肋。" },
-    "觀擂": { event: "你看完一場擂台，記下對手換步時露出的空門。", line: "看見空門，也要打得到。" },
-    "問阿黃": { event: "你問阿黃拳館近況，聽見近來上擂的人多，能走下來的少。", line: "今早又抬走一個。", speaker: "阿黃" },
-    "歇息": { event: "你在武館角落歇息，聽見擂台上拳肉相撞。", line: "歇夠就起來，別擋路。" },
+    "打黑拳": { event: "", line: "傷口自己按住。錢拿走。" },
+    "練拳": { event: "你照衛林指點收緊肘線，連打三記短拳。", line: "肘收回來。護肋。" },
+    "觀擂": { event: "你看完一場擂台，記下對手換步時露出的空門。", line: "空門在左肋。打得到再說。" },
+    "問阿黃": { event: "你問阿黃拳館近況，聽見近來上擂的人多，能走下來的少。", line: "今早抬走一個。誰下的手？我正找他。", speaker: "阿黃" },
+    "歇息": { event: "你在武館角落歇息，聽見擂台上拳肉相撞。", line: "歇夠，起身。" },
   },
   "仙館": {
-    "問藥": { event: "你問止血藥價，先看清封口，再掂藥包分量。", line: "價在牌上，成色自己驗。" },
-    "看人": { event: "你掃過館內客人，見有人只看藥，不肯露手。", line: "看人別看太久。" },
-    "問佚名": { event: "你問佚名黑市傳聞，聽見近來有人暗收傷藥。", line: "問得多，價也跟著漲。" },
-    "拒藥": { event: "你推開來歷不明的丹藥，沒有讓藥粉沾手。", line: "不要便罷，命是你的。" },
-    "離席": { event: "你離開藥桌，把袖口收緊，沒碰旁邊的藥瓶。", line: "走時看路。" },
+    "問藥": { event: "你問止血藥價，先看清封口，再掂藥包分量。", line: "價寫著。先看封口，再看自己的傷。" },
+    "看人": { event: "你掃過館內客人，見有人只看藥，不肯露手。", line: "手藏著的人，未必是怕冷。" },
+    "問佚名": { event: "你問佚名黑市傳聞，聽見近來有人暗收傷藥。", line: "有人收傷藥。死人多了，價自然漲。" },
+    "拒藥": { event: "你推開來歷不明的丹藥，沒有讓藥粉沾手。", line: "不吃也好。這包連我都不聞。" },
+    "離席": { event: "你離開藥桌，把袖口收緊，沒碰旁邊的藥瓶。", line: "旁邊那瓶，別碰。" },
   },
   "怡紅院": {
-    "問玉樺": { event: "你問玉樺城西消息，聽見有人在樓裏打聽明心閣。", line: "人未露面，話已傳開。" },
-    "聽曲": { event: "你聽完一曲，指尖仍按著錢袋。", line: "曲盡了，該醒了。" },
-    "查客": { event: "你留意席間陌生客，記下兩人同時望向門口。", line: "有些客，只等別人先走。" },
-    "問路": { event: "你問清附近暗巷的出口，記住轉角那道窄門。", line: "認路可以，別把人帶來。" },
-    "離席": { event: "你起身離席，從側門繞開樓前人群。", line: "下回來，記得先敲門。" },
+    "問玉樺": { event: "你問玉樺城西消息，聽見有人在樓裏打聽明心閣，連茶都沒碰。", line: "那客人問明心閣，卻連茶都沒碰。你猜他等誰？" },
+    "聽曲": { event: "你聽完一曲，指尖仍按著錢袋。", line: "曲聽完了。你的手還按著錢袋呢。" },
+    "查客": { event: "你留意席間陌生客，記下兩人同時望向門口，腳尖卻朝後巷。", line: "兩個人都看門，腳尖卻朝後巷。" },
+    "問路": { event: "你問清附近暗巷的出口，記住轉角那道窄門。", line: "側門借你走。別把尾巴也帶進來。" },
+    "離席": { event: "你起身離席，從側門繞開樓前人群。", line: "慢走。既然選了側門，就別回頭看正門。" },
   },
 };
 
@@ -154,8 +196,8 @@ export function aptitude(name: string, background: string, trait: string) {
   const text = `${name} ${background} ${trait}`;
   const variation = Array.from(name).reduce((sum, char) => sum + (char.codePointAt(0) || 0), 0) % 5 - 2;
   if (/醫|毒|藥|術|病/.test(text)) return { hp: 80 + variation, mp: 75 - variation };
-  if (/扒|偷|身法|靈巧|眼快|輕功/.test(text)) return { hp: 90 + variation, mp: 60 - variation };
-  if (/武|拳|皮厚|命硬|神力|壯/.test(text)) return { hp: 125 + variation, mp: 30 - variation };
+  if (/扒|偷|摸鎖|開鎖|身法|靈巧|眼快|輕功/.test(text)) return { hp: 90 + variation, mp: 60 - variation };
+  if (/刀|劍|棍|武|拳|皮厚|命硬|神力|壯/.test(text)) return { hp: 125 + variation, mp: 30 - variation };
   return { hp: 100 + variation, mp: 50 - variation };
 }
 
@@ -183,6 +225,19 @@ function openingAssessment(background: string, trait: string) {
   return "你腳下站得穩，別叫我失望";
 }
 
+function customOpeningAssessment(state: GameState, address: string): string {
+  const gender = state.gender || "不願透露";
+  const skill = state.skill || state.trait;
+  const personality = state.personality || "寡言";
+  const genderPhrase = /不願|保密|未定|未知/.test(gender) ? "性別你不願多說" : `你是${gender}`;
+  const challenge = /心軟|善良|重情|仁慈/.test(personality) ? "救人歸救人，帳也得收齊。"
+    : /衝動|暴躁|急性|莽撞/.test(personality) ? "火氣收住，先把人救回來。"
+    : /多疑|謹慎|膽小|怕事/.test(personality) ? "看清退路，別忘了先救人。"
+    : /冷酷|無情|冷漠|狠/.test(personality) ? "下得了狠手，也別把同門丟下。"
+    : "我看你做事有沒有分寸。";
+  return `${address}，${genderPhrase}，靠${skill}吃飯，性子${personality}。${challenge}去容姐換藥救域卡度，再收張屠戶五十文。`;
+}
+
 export function normalizeState(raw: unknown): GameState | null {
   if (!raw || typeof raw !== "object") return null;
   const value = raw as Partial<GameState>;
@@ -193,9 +248,13 @@ export function normalizeState(raw: unknown): GameState | null {
   const maxHp = finite(value.maxHp, stats.hp, 1, 170);
   const maxMp = finite(value.maxMp, stats.mp, 1, 170);
   const flags = value.flags || { tookHerbs: false, visitedYung: false, collectedMarketFee: false, marketAmbushTriggered: false };
+  const pendingIncident = INCIDENTS.includes(flags.pendingIncident as Incident) ? flags.pendingIncident as Incident : undefined;
   return {
     turn: finite(value.turn, 1, 1, 100000),
     playerName: value.playerName.slice(0, 30), background: value.background.slice(0, 60), trait: value.trait.slice(0, 60),
+    gender: typeof value.gender === "string" ? value.gender.replace(/[\r\n「」]/g, "").trim().slice(0, 8) : undefined,
+    skill: typeof value.skill === "string" ? value.skill.replace(/[\r\n「」]/g, "").trim().slice(0, 12) : undefined,
+    personality: typeof value.personality === "string" ? value.personality.replace(/[\r\n「」]/g, "").trim().slice(0, 12) : undefined,
     currentLocation: LANDMARKS.includes(value.currentLocation as Landmark) ? value.currentLocation as Landmark : "明心閣總壇",
     inventory: Array.isArray(value.inventory) ? value.inventory.filter((item): item is string => typeof item === "string").slice(0, 4).map((item) => item.slice(0, 30)) : [],
     maxInventory: 4,
@@ -209,6 +268,11 @@ export function normalizeState(raw: unknown): GameState | null {
       tookHerbs: flags.tookHerbs === true, visitedYung: flags.visitedYung === true,
       collectedMarketFee: flags.collectedMarketFee === true, marketAmbushTriggered: flags.marketAmbushTriggered === true,
       lastMarketDuesTurn: finite(flags.lastMarketDuesTurn, 0, 0, 100000),
+      pendingIncident,
+      incidentCount: finite(flags.incidentCount, 0, 0, 100000),
+      lastIncidentTurn: finite(flags.lastIncidentTurn, 0, 0, 100000),
+      lastSandboxTag: typeof flags.lastSandboxTag === "string" ? flags.lastSandboxTag.slice(0, 40) : undefined,
+      repeatedActionCount: finite(flags.repeatedActionCount, 0, 0, 100000),
     },
   };
 }
@@ -218,6 +282,46 @@ function remember(state: GameState, flag: string) {
 }
 
 function customAction(action: string) { return action.startsWith("F. [自訂手段]"); }
+
+function resolveIncident(state: GameState, incident: Incident, choice: number): { event: string; reply: TurnResult["npcReply"] } {
+  const index = choice >= 0 ? choice : 4;
+  const lead = `你處置${incident === "market_raid" ? "市集插旗" : incident === "missing_ledger" ? "失蹤帳頁" : "可疑傷藥"}。`;
+  let event = "";
+  let reply: TurnResult["npcReply"];
+  if (incident === "market_raid") {
+    if (index === 0) { state.playerHp = Math.max(0, state.playerHp - 6); state.hozaiDefense = Math.min(100, state.hozaiDefense + 8); event = "你擋在攤販前挨了一刀，氣血減六；街坊守住肉檔，何仔防線升八。"; }
+    if (index === 1) { state.playerMp = Math.max(0, state.playerMp - 5); state.hozaiDefense = Math.min(100, state.hozaiDefense + 6); event = "你從暗巷截住刀手退路，內力減五；對方拔旗撤走，何仔防線升六。"; }
+    if (index === 2) { state.hozaiDefense = Math.min(100, state.hozaiDefense + 4); event = "你記下三名攤販的證詞，逼刀手收旗，何仔防線升四。"; }
+    if (index === 3) { if (state.factionFunds >= 20) { state.factionFunds -= 20; state.hozaiDefense = Math.min(100, state.hozaiDefense + 3); event = "你撥二十文公款安頓攤販，刀手暫退，何仔防線升三。"; } else event = "公款不足二十文，你只能護攤販退入窄巷，刀手仍在肉檔。"; }
+    if (index === 4) event = "你先護傷者撤走，肉檔失去半日生意，刀手把旗插在路口。";
+    remember(state, index === 4 ? "市集暫失" : "市集守住");
+    reply = { speaker: "域卡度", line: index === 4 ? "人先撤了。我記著那面旗，遲早拔回來。" : "肉檔先守住了。我去看巷口，你別再替我挨刀。" };
+  } else if (incident === "missing_ledger") {
+    if (index === 0) { state.currentLocation = "聚財坊"; event = "你到聚財坊對帳，查出缺頁記著一筆假規費，奇仕把原本鎖起來。"; }
+    if (index === 1) { state.currentLocation = "容姐茶檔"; event = "你問容姐，得知一個灰衣客昨夜沒喝茶，從總壇帶走帳頁。"; }
+    if (index === 2) { state.currentLocation = "泥濘市集"; state.playerMp = Math.max(0, state.playerMp - 4); event = "你沿泥印追到市集後巷，找回濕透的帳頁，內力減四。"; }
+    if (index === 3) { if (state.factionFunds >= 10) { state.factionFunds -= 10; event = "你撥十文公款補帳，何仔看出缺頁仍在，叫你把支出記明。"; } else event = "公款不足十文，缺帳未補，你把破綻先記在紙上。"; }
+    if (index === 4) event = "你把缺頁之事告知何仔；他封住帳櫃，派人逐筆重查。";
+    remember(state, "規費帳失頁已查");
+    reply = index === 0
+      ? { speaker: "奇仕", line: "假規費寫得真工整。可惜少算了一筆。" }
+      : index === 1
+        ? { speaker: "容姐", line: "灰衣客沒喝茶，手倒一直按著袖口。" }
+        : { speaker: "何仔", line: index === 3 ? "十文我記下了。缺的那頁，還得替我找。" : "帳先收好。你查到哪一步，我替你擋到哪一步。" };
+  } else {
+    if (index === 0) event = "你封存可疑藥包，茶檔暫停出藥，傷者改用乾淨布條止血。";
+    if (index === 1) { state.currentLocation = "仙館"; event = "你把藥帶到仙館，佚名驗出封口混了苦麻粉，寫下辨認記號。"; }
+    if (index === 2) { state.currentLocation = "容姐茶檔"; event = "你追問送藥腳夫，查到他在茶檔外替灰衣客轉過手。"; }
+    if (index === 3) { if (state.silver >= 10) { state.silver -= 10; state.playerHp = Math.min(state.maxHp, state.playerHp + 5); event = "你花十文私銀買乾淨傷藥救人，餘藥敷在自己傷口，氣血回復五。"; } else event = "你拿不出十文私銀，便用乾淨布條替傷者止血。"; }
+    if (index === 4) event = "你派人告知城西七處據點停用這批藥，藥包逐一收回封存。";
+    remember(state, "可疑傷藥已處置");
+    reply = index === 1
+      ? { speaker: "佚名", line: "苦麻粉。藥還沒入口，人先被它放倒。" }
+      : { speaker: "容姐", line: "封口換過。往後收藥，先讓我看繩結。" };
+  }
+  state.flags.pendingIncident = undefined;
+  return { event: lead + event, reply };
+}
 
 export function resolveTurn(rawState: GameState, action: string, opening: boolean): TurnResult {
   const state: GameState = { ...rawState, flags: { ...rawState.flags }, inventory: [...rawState.inventory], worldFlags: [...rawState.worldFlags] };
@@ -242,10 +346,15 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
       state.maxMp = stats.mp; state.playerMp = stats.mp;
       const cleanName = state.playerName.replace(/[「」\r\n]/g, "").trim();
       const address = cleanName && Array.from(cleanName).length <= 8 ? cleanName : "小子";
-      event = `你踩過城西泥巷。你聽茶檔搗藥、肉檔拍案討數。${openingPortrait(state.background, state.trait)}你見何仔推來藥包。`;
+      const customProfile = state.background === "自定義市井流民" && Boolean(state.gender && state.skill && state.personality);
+      event = customProfile
+        ? "你踩過城西泥巷。茶檔傳來搗藥聲；何仔把藥包推到你面前。"
+        : `你踩過城西泥巷。你聽茶檔搗藥、肉檔拍案討數。${openingPortrait(state.background, state.trait)}你見何仔推來藥包。`;
       npcReply = {
         speaker: "何仔",
-        line: `${address}，${openingAssessment(state.background, state.trait)}。域卡度是自家人，挨了匯智樓一刀。去容姐茶檔換金創散。救他；再收張屠戶五十文。`,
+        line: customProfile
+          ? customOpeningAssessment(state, address)
+          : `${address}，${openingAssessment(state.background, state.trait)}。域卡度是自家人，挨了匯智樓一刀。去容姐茶檔換金創散。救他；再收張屠戶五十文。`,
       };
     } else {
       event += flavor("prologue_briefing");
@@ -305,6 +414,12 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
       ? "你獨自避開刀手，突圍留在城西市集。你氣血減八，內力減五。你如今可探索城西七處據點。"
       : "你與域卡度擊退匯智樓刀手，突圍留在城西市集。你氣血減八，內力減五。你如今可探索城西七處據點。";
   } else {
+    const pendingIncident = state.flags.pendingIncident;
+    if (pendingIncident) {
+      const resolved = resolveIncident(state, pendingIncident, choice);
+      event += resolved.event;
+      npcReply = resolved.reply;
+    } else {
     const travel = /^F\. \[前往\] (.+)$/.exec(action);
     const movement = customAction(action) && /前往|走去|走到|抵達|潛入|闖入|進入/.test(action);
     const destination = travel?.[1] || (movement ? LANDMARKS.find((place) => action.includes(place)) : undefined);
@@ -320,6 +435,10 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
     } else {
       const tag = /^\w\. \[([^\]]+)\]/.exec(action)?.[1] || "";
       const reaction = SANDBOX_REACTIONS[state.currentLocation][tag];
+      const sandboxTag = `${state.currentLocation}:${tag}`;
+      const repeatedAction = Boolean(reaction?.event) && state.flags.lastSandboxTag === sandboxTag;
+      state.flags.repeatedActionCount = repeatedAction ? (state.flags.repeatedActionCount || 0) + 1 : 0;
+      state.flags.lastSandboxTag = sandboxTag;
       if (reaction) npcReply = { speaker: reaction.speaker || ({
         "明心閣總壇": "何仔", "容姐茶檔": "容姐", "泥濘市集": "域卡度",
         "聚財坊": "奇仕", "黑市武館": "衛林", "仙館": "佚名", "怡紅院": "玉樺",
@@ -351,7 +470,11 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
           state.silver += won ? 10 : -10;
           event += won ? "你押十文私銀，骰子落小，贏回十文淨利。" : "你押十文私銀，骰子落大，輸掉十文。";
         } else event += "你掏不出十文私銀，奇仕不讓你下注。";
+      } else if (repeatedAction) {
+        event += `你再次查問${tag}，眼前沒有新的線索。`;
+        if (npcReply) npcReply.line = repeatedNpcLine(npcReply.speaker, state.flags.repeatedActionCount || 1);
       } else event += reaction?.event || `你在${state.currentLocation}照自己的意思行事，留意四下動靜。`;
+    }
     }
     state.hozaiDefense = Math.max(0, state.hozaiDefense - 2);
     event += "你感到匯智樓施壓，何仔防線減二。";
@@ -364,6 +487,18 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
       remember(state, "何仔防線崩潰");
       event += "你聽見何仔防線崩潰，堂口人心潰散。";
     }
+    if (!pendingIncident && state.turn >= 8 && state.turn - (state.flags.lastIncidentTurn || 0) >= 5) {
+      const incident = INCIDENTS[(state.flags.incidentCount || 0) % INCIDENTS.length];
+      state.flags.pendingIncident = incident;
+      state.flags.lastIncidentTurn = state.turn;
+      state.flags.incidentCount = (state.flags.incidentCount || 0) + 1;
+      event = INCIDENT_REPORTS[incident] + event;
+      npcReply = incident === "missing_ledger"
+        ? { speaker: "何仔", line: "少一頁帳，我替你擋不了多久。先查誰摸過。" }
+        : incident === "tainted_medicine"
+          ? { speaker: "容姐", line: "封口給人動過。快叫各處先別用藥。" }
+          : { speaker: "域卡度", line: "刀手又來插旗。我守肉檔，你拿主意。" };
+    }
   }
 
   const changes: string[] = [];
@@ -373,6 +508,7 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
     : state.questStep === "yung_tea_stall" ? TEA_OPTIONS
     : state.questStep === "market_collection" ? MARKET_OPTIONS
     : state.questStep === "huizhi_ambush" ? (state.worldFlags.includes("出賣域卡度") ? SOLO_AMBUSH_OPTIONS : AMBUSH_OPTIONS)
+    : state.flags.pendingIncident ? INCIDENT_OPTIONS[state.flags.pendingIncident]
     : state.currentLocation === "泥濘市集" && state.worldFlags.includes("出賣域卡度")
       ? SANDBOX_OPTIONS["泥濘市集"].map((option) => option.startsWith("C.") ? "C. [查眼線] 留意匯智樓眼線。" : option)
       : SANDBOX_OPTIONS[state.currentLocation];

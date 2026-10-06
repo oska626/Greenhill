@@ -73,7 +73,9 @@ export default function GamePage() {
 
   const [playerName, setPlayerName] = useState<string>("阿七");
   const [selectedBgId, setSelectedBgId] = useState<string>("debt_collector");
-  const [customTrait, setCustomTrait] = useState<string>("見風使舵");
+  const [customGender, setCustomGender] = useState<string>("");
+  const [customSkill, setCustomSkill] = useState<string>("");
+  const [customPersonality, setCustomPersonality] = useState<string>("");
 
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [narrative, setNarrative] = useState<string>("");
@@ -144,10 +146,14 @@ export default function GamePage() {
       setErrorMsg("請先輸入江湖名號");
       return;
     }
+    if (selectedBgId === "custom" && (!customGender.trim() || !customSkill.trim() || !customPersonality.trim())) {
+      setErrorMsg("請填妥性別、技能同埋性格，何仔先可以認識你。");
+      return;
+    }
     setErrorMsg("");
     const trimmedName = playerName.trim();
     const bg = BACKGROUNDS.find((b) => b.id === selectedBgId) || BACKGROUNDS[0];
-    const initialTrait = selectedBgId === "custom" ? customTrait.trim() || "草莽之軀" : bg.trait;
+    const initialTrait = selectedBgId === "custom" ? customSkill.trim() : bg.trait;
     const stats = aptitude(trimmedName, bg.name, initialTrait);
 
     const initialCharacterState: GameState = {
@@ -155,6 +161,9 @@ export default function GamePage() {
       playerName: trimmedName,
       background: bg.name,
       trait: initialTrait,
+      ...(selectedBgId === "custom" ? {
+        gender: customGender.trim(), skill: customSkill.trim(), personality: customPersonality.trim(),
+      } : {}),
       currentLocation: "明心閣總壇",
       inventory: [...bg.startingItems],
       maxInventory: 4,
@@ -180,7 +189,7 @@ export default function GamePage() {
     setOptions([]);
     setView("game");
     setLoading(true);
-    lastActionRef.current = `[初入堂口] ${trimmedName}（出身：${bg.name}，特質：${initialTrait}）踏入明心閣總壇，向何仔領命。`;
+    lastActionRef.current = `[初入堂口] ${trimmedName}（出身：${bg.name}，${selectedBgId === "custom" ? `性別：${customGender.trim()}，技能：${customSkill.trim()}，性格：${customPersonality.trim()}` : `特質：${initialTrait}`}）踏入明心閣總壇，向何仔領命。`;
 
     try {
       const res = await fetch("/api/turn", {
@@ -228,6 +237,7 @@ export default function GamePage() {
         body: JSON.stringify({
           action: actionText,
           state: gameState,
+          previousNarrative: narrative,
         }),
       });
 
@@ -262,13 +272,13 @@ export default function GamePage() {
 
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customInput.trim()) return;
+    if (!customInput.trim() || gameState?.flags.pendingIncident) return;
     handleAction(`F. [自訂手段] ${customInput.trim()}`);
   };
 
   if (view === "creation") {
     const curBg = BACKGROUNDS.find((b) => b.id === selectedBgId) || BACKGROUNDS[0];
-    const curStats = aptitude(playerName.trim(), curBg.name, selectedBgId === "custom" ? customTrait : curBg.trait);
+    const curStats = aptitude(playerName.trim(), curBg.name, selectedBgId === "custom" ? customSkill.trim() || curBg.trait : curBg.trait);
 
     return (
       <div className="min-h-screen bg-stone-950 text-stone-200 flex flex-col justify-center items-center p-4">
@@ -336,15 +346,23 @@ export default function GamePage() {
           </div>
 
           {selectedBgId === "custom" && (
-            <div className="space-y-2 pt-1">
-              <label className="text-xs font-semibold text-stone-400 tracking-wider">自訂核心特質</label>
-              <input
-                type="text"
-                value={customTrait}
-                onChange={(e) => setCustomTrait(e.target.value)}
-                placeholder="輸入特質（例：命硬、裝聾作啞、生石灰專家）"
-                className="w-full bg-stone-950 border border-stone-700 rounded px-3 py-2 text-sm text-stone-100 focus:outline-none focus:border-amber-600"
-              />
+            <div className="space-y-3 pt-1">
+              <p className="text-xs text-stone-400">用短句寫下角色，何仔會喺開局聽你親口講。</p>
+              <div className="space-y-1.5">
+                <label htmlFor="custom-gender" className="text-xs font-semibold text-stone-400 tracking-wider">性別（8 字內）</label>
+                <input id="custom-gender" type="text" maxLength={8} value={customGender} onChange={(e) => setCustomGender(e.target.value)}
+                  placeholder="例：女子、男子、非二元" className="w-full bg-stone-950 border border-stone-700 rounded px-3 py-2 text-sm text-stone-100 focus:outline-none focus:border-amber-600" />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="custom-skill" className="text-xs font-semibold text-stone-400 tracking-wider">技能（12 字內）</label>
+                <input id="custom-skill" type="text" maxLength={12} value={customSkill} onChange={(e) => setCustomSkill(e.target.value)}
+                  placeholder="例：辨藥、摸鎖、使短刀" className="w-full bg-stone-950 border border-stone-700 rounded px-3 py-2 text-sm text-stone-100 focus:outline-none focus:border-amber-600" />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="custom-personality" className="text-xs font-semibold text-stone-400 tracking-wider">性格（12 字內）</label>
+                <input id="custom-personality" type="text" maxLength={12} value={customPersonality} onChange={(e) => setCustomPersonality(e.target.value)}
+                  placeholder="例：嘴硬心軟、遇事多疑" className="w-full bg-stone-950 border border-stone-700 rounded px-3 py-2 text-sm text-stone-100 focus:outline-none focus:border-amber-600" />
+              </div>
             </div>
           )}
 
@@ -357,8 +375,9 @@ export default function GamePage() {
               <div>初期銀兩: <span className="font-mono text-amber-400">0 文</span></div>
             </div>
             <div className="text-stone-400 pt-1">
-              天賦特質: <span className="text-amber-300 font-medium">{selectedBgId === "custom" ? customTrait || "草莽之軀" : curBg.trait}</span>
+              {selectedBgId === "custom" ? "擅長技能" : "天賦特質"}: <span className="text-amber-300 font-medium">{selectedBgId === "custom" ? customSkill || "待填" : curBg.trait}</span>
             </div>
+            {selectedBgId === "custom" && <div className="text-stone-400">性別：{customGender || "待填"} · 性格：{customPersonality || "待填"}</div>}
             <div className="text-stone-400">
               隨身攜帶: <span className="text-stone-300 font-mono">{curBg.startingItems.length > 0 ? curBg.startingItems.join("、 ") : "身無長物"} ({curBg.startingItems.length}/4 格)</span>
             </div>
@@ -384,7 +403,7 @@ export default function GamePage() {
             <span className="font-bold text-amber-600 tracking-wider">青山城</span>
             <span className="text-stone-500">|</span>
             <span className="text-stone-100 font-medium">{gameState?.playerName || "無名氏"}</span>
-            <span className="text-stone-500 text-[11px]">({gameState?.background})</span>
+            <span className="text-stone-500 text-[11px]">({gameState?.background}{gameState?.gender ? ` · ${gameState.gender}` : ""})</span>
             <span className="text-stone-500">|</span>
             <span className="text-stone-400">當前地標:</span>
             <span className="text-stone-100 font-semibold">{gameState?.currentLocation}</span>
@@ -476,7 +495,7 @@ export default function GamePage() {
               ))}
             </div>
 
-            <form onSubmit={handleCustomSubmit} className="mt-2 pt-3 border-t border-stone-800 flex flex-col gap-1.5">
+            {!gameState?.flags.pendingIncident && <form onSubmit={handleCustomSubmit} className="mt-2 pt-3 border-t border-stone-800 flex flex-col gap-1.5">
               <div className="text-xs font-semibold text-amber-400/90 tracking-wider flex items-center gap-1.5">
                 <span>F. [自訂手段]</span>
                 <span className="text-[11px] text-stone-500 font-normal">自行輸入下三濫招式或突發行動破局</span>
@@ -498,7 +517,7 @@ export default function GamePage() {
                   出招
                 </button>
               </div>
-            </form>
+            </form>}
           </div>
         </section>
 
@@ -506,8 +525,9 @@ export default function GamePage() {
           <div className="bg-stone-900/80 border border-stone-800 rounded-lg p-4 space-y-3">
             <div className="flex justify-between items-center">
               <span className="text-xs font-semibold text-stone-400">身體狀況</span>
-              <span className="text-[10px] text-amber-300/80">{gameState?.trait}</span>
+              <span className="text-[10px] text-amber-300/80">{gameState?.skill || gameState?.trait}</span>
             </div>
+            {gameState?.personality && <div className="text-xs text-stone-400">性格：<span className="text-stone-200">{gameState.personality}</span></div>}
             <div>
               <div className="flex justify-between text-xs mb-1">
                 <span className="text-stone-400">氣血</span>
@@ -594,7 +614,7 @@ export default function GamePage() {
                 <button
                   key={location}
                   type="button"
-                  disabled={loading || gameState?.questStep !== "sandbox"}
+                  disabled={loading || gameState?.questStep !== "sandbox" || Boolean(gameState?.flags.pendingIncident)}
                   onClick={() => handleAction(`F. [前往] ${location}`)}
                   className={`block w-full text-left py-1 px-2 rounded disabled:opacity-45 ${gameState?.currentLocation === location ? "text-amber-300 bg-stone-800" : "hover:bg-stone-800 hover:text-stone-200"}`}
                 >

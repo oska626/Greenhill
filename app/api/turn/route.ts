@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeState, resolveTurn, type GameState, type Landmark } from "@/lib/game-engine";
+import { npcVoiceGuide } from "@/lib/npc-voices";
 
 const SYSTEM_PROMPT = `你是青山城城西的文字冒險主持人。古代底層幫派江湖；同門情分、血債與規費牽動人心。只寫繁體中文冷硬短句，無神怪、高武、現代物品。
-只以「你」寫旁白。玩家名號只可在 NPC 對白出現。原地行動不重複描寫環境。少形容詞；用動作、傷口、器物和欠帳成畫面。長短句交錯，句號斷氣、分號轉折。何仔話裡有同門情分與壓力，勿平鋪任務。
+只以「你」寫旁白。玩家名號只可在 NPC 對白出現。原地行動不重複描寫環境。少形容詞；用動作、傷口、器物和欠帳成畫面。長短句交錯，句號斷氣、分號轉折。
+NPC 說話須符合指定人物的利益與習慣，讓用字和句長顯出性格。用自然繁體中文；只有自然順口時才用少量廣東話，不逐字把普通話轉成粵語，也不靠語氣助詞堆出口吻。若已提供確定對白，只保留該句，不另加 NPC 發言。
 只回 JSON：{"narrative":"..."}。narrative 須 80 至 120 字，嚴格兩段，以 \\n\\n 分隔；第二段的 NPC 對白另起一行。
 只敘述提供的確定事件，不增減金錢、道具、氣血、內力或地點，不讓玩家離開城西七據點。`;
 
@@ -36,18 +38,26 @@ function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker
     huizhi_ambush: ["你收緊刀柄，將身邊同門護在側後。", "你聽見巷尾腳步，知道眼前再無退路。"],
     sandbox: sandboxDetail[state.currentLocation],
   };
-  const speech: Record<GameState["questStep"], string> = {
-    prologue_briefing: "藥先送到，錢再帶回來。",
-    yung_tea_stall: "刀手今早走過，先把藥換妥。",
-    market_collection: "先敷藥，巷口也要盯住。",
-    huizhi_ambush: "刀手來了，當心左右。",
-    sandbox: "城西的事，還得一步一步辦。",
+  const speech: Record<Exclude<GameState["questStep"], "sandbox">, string> = {
+    prologue_briefing: "藥先送到。五十文的帳，我替你看著。",
+    yung_tea_stall: "藥拿穩。市集那邊，少走明路。",
+    market_collection: "我這傷還撐得住。你先看巷口。",
+    huizhi_ambush: "我往左。你別讓他們抄後路。",
+  };
+  const sandboxSpeech: Record<Landmark, string> = {
+    "明心閣總壇": "這道門我先守著。你去看街上的事。",
+    "容姐茶檔": "茶給你留著。傷口先別沾水。",
+    "泥濘市集": "我看巷口。你先把腳下踩穩。",
+    "聚財坊": "進門先數錢，出門再數一遍。",
+    "黑市武館": "站穩。肘收回來。",
+    "仙館": "先聞藥味。別急著入口。",
+    "怡紅院": "那人只看門口。你也該看一眼。",
   };
   const companionBetrayed = state.currentLocation === "泥濘市集" && state.worldFlags.includes("出賣域卡度");
   const speaker = npcReply?.speaker || (companionBetrayed ? "張屠戶" : SPEAKER[state.currentLocation]);
   const line = npcReply?.line || (companionBetrayed
     ? state.questStep === "huizhi_ambush" ? "你一個也走不掉。" : "這條街的賬，我還記著。"
-    : speech[state.questStep]);
+    : state.questStep === "sandbox" ? sandboxSpeech[state.currentLocation] : speech[state.questStep]);
   const dialogue = `\n${speaker}：「${line}」`;
   const additions = detail[state.questStep];
   if (state.questStep === "sandbox" && state.turn % 2 === 0) additions.reverse();
@@ -61,16 +71,27 @@ function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker
   return `${first}\n\n${second}${dialogue}`;
 }
 
-function validNarrative(value: unknown, npcReply?: { speaker: string; line: string }): value is string {
+function validNarrative(value: unknown, npcReply?: { speaker: string; line: string }, previousNarrative = "", customOpening?: GameState): value is string {
   if (typeof value !== "string") return false;
   const parts = value.split("\n\n");
   const length = Array.from(value.replace(/\s/g, "")).length;
   const narrationOnly = value.replace(/^[^\n：]+：[「『].*$/gm, "");
+  const dialogueLines = parts[1]?.match(/\n[^：\n]+：[「『]/g) || [];
+  const hoLine = parts[1]?.match(/\n何仔：「([^」]*)」/)?.[1] || "";
+  const genderMentioned = !customOpening || Boolean(customOpening.gender && (
+    /不願|保密|未定|未知/.test(customOpening.gender)
+      ? /性別|不願|保密|未定|未知/.test(hoLine)
+      : hoLine.includes(customOpening.gender)
+  ));
   return parts.length === 2 && parts.every(Boolean) && length >= 80 && length <= 120
     && !/[他她它]/.test(narrationOnly)
     && !/手機|電腦|槍械|超人|修仙|法術/.test(value)
-    && /\n[^：\n]+：[「『]/.test(parts[1])
-    && (!npcReply || parts[1].includes(`${npcReply.speaker}：「${npcReply.line}」`));
+    && dialogueLines.length === 1
+    && (!npcReply || Boolean(customOpening) || parts[1].includes(`${npcReply.speaker}：「${npcReply.line}」`))
+    && (!customOpening || (Boolean(hoLine) && genderMentioned
+      && [customOpening.skill, customOpening.personality].every((detail) => detail && hoLine.includes(detail))
+      && hoLine.includes("域卡度") && hoLine.includes("五十文")))
+    && value.replace(/\s/g, "") !== previousNarrative.replace(/\s/g, "");
 }
 
 function azureUrl(endpoint: string, deployment: string) {
@@ -83,7 +104,7 @@ function azureUrl(endpoint: string, deployment: string) {
   return `${base}/openai/deployments/${deployment}/chat/completions?api-version=${version}`;
 }
 
-async function narrate(state: GameState, action: string, event: string, moneyChanged: boolean, npcReply?: { speaker: string; line: string }) {
+async function narrate(state: GameState, action: string, event: string, moneyChanged: boolean, npcReply?: { speaker: string; line: string }, previousNarrative = "") {
   const fallback = fallbackNarrative(event, state, npcReply);
   const fallbackResult = (reason: string) => ({ text: fallback, source: "fallback" as const, reason });
   // The deterministic account already contains the exact transaction.
@@ -93,11 +114,19 @@ async function narrate(state: GameState, action: string, event: string, moneyCha
   if (!key || !endpoint) return fallbackResult("missing_azure_config");
 
   const deployment = (process.env.AZURE_OPENAI_DEPLOYMENT_NAME || process.env.AZURE_OPENAI_DEPLOYMENT || "gpt-4o").trim();
+  const customOpening = state.questStep === "prologue_briefing" && state.turn === 1
+    && state.background === "自定義市井流民" && Boolean(state.gender && state.skill && state.personality);
   const openingInstruction = state.questStep === "prologue_briefing"
-    ? `開局人物：出身「${state.background}」，特質「${state.trait}」。第一段用城西泥、搗藥聲、肉檔討數帶你入堂；第二段何仔當面評你，先露同門情分再壓五十文。短句有停頓。\n`
+    ? customOpening
+      ? `自訂人物：性別「${state.gender}」、技能「${state.skill}」、性格「${state.personality}」。何仔要親口提到三項，評斷這門本事和性子會怎樣影響救域卡度、收五十文；性別只作稱呼與身份資訊，不據此推斷能力。對白自然，避免逐欄念資料。\n`
+      : `開局人物：出身「${state.background}」，特質「${state.trait}」。第一段用城西泥、搗藥聲、肉檔討數帶你入堂；第二段何仔當面評你，先露同門情分再壓五十文。短句有停頓。\n`
     : "";
-  const replyInstruction = npcReply ? `確定對白：${npcReply.speaker}：「${npcReply.line}」。第二段原句保留。\n` : "";
-  const prompt = `地點：${state.currentLocation}；階段：${state.questStep}；你做了：${action.slice(0, 180)}。\n${openingInstruction}確定事件：${event}\n${replyInstruction}已記因果：${state.worldFlags.join("、") || "無"}。只寫確定事件；所有收支金額須明說。`;
+  const replyInstruction = customOpening
+    ? "第二段由何仔說話，保留名號、三項人物資料及救域卡度與五十文規費，措辭可自行組織。\n"
+    : npcReply ? `確定對白：${npcReply.speaker}：「${npcReply.line}」。第二段原句保留。\n` : "";
+  const speaker = npcReply?.speaker || (state.currentLocation === "泥濘市集" && state.worldFlags.includes("出賣域卡度")
+    ? "張屠戶" : SPEAKER[state.currentLocation]);
+  const prompt = `第 ${state.turn} 回合。地點：${state.currentLocation}；階段：${state.questStep}；你做了：${action.slice(0, 180)}。\n${openingInstruction}確定事件：${event}\n本回合 NPC：${speaker}。聲線：${npcVoiceGuide(speaker)}\n${replyInstruction}已記因果：${state.worldFlags.join("、") || "無"}。${previousNarrative ? `上一回合敘事：${previousNarrative.slice(0, 180)}。避免重複句式和對白，只描寫今回合新事件。` : ""}只寫確定事件；所有收支金額須明說。`;
   try {
     const response = await fetch(azureUrl(endpoint, deployment), {
       method: "POST",
@@ -108,7 +137,7 @@ async function narrate(state: GameState, action: string, event: string, moneyCha
     if (!response.ok) return fallbackResult(`azure_http_${response.status}`);
     const data = await response.json();
     const parsed = JSON.parse(data.choices?.[0]?.message?.content || "{}");
-    return validNarrative(parsed.narrative, npcReply)
+    return validNarrative(parsed.narrative, npcReply, previousNarrative, customOpening ? state : undefined)
       ? { text: parsed.narrative, source: "azure" as const }
       : fallbackResult("invalid_narrative");
   } catch {
@@ -122,14 +151,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
   }
   if (!body || typeof body !== "object") return NextResponse.json({ error: "請求格式錯誤" }, { status: 400 });
-  const payload = body as { action?: unknown; state?: unknown };
+  const payload = body as { action?: unknown; state?: unknown; previousNarrative?: unknown };
   const state = normalizeState(payload.state);
   if (!state || typeof payload.action !== "string" || payload.action.length > 500) {
     return NextResponse.json({ error: "遊戲狀態或行動無效" }, { status: 400 });
   }
   const opening = payload.action.startsWith("[初入堂口]") && state.questStep === "prologue_briefing" && state.turn === 1;
   const turn = resolveTurn(state, payload.action, opening);
-  const narration = await narrate(turn.state, payload.action, turn.event, Boolean(turn.moneyNote), turn.npcReply);
+  const previousNarrative = typeof payload.previousNarrative === "string" ? payload.previousNarrative.slice(0, 500) : "";
+  const narration = await narrate(turn.state, payload.action, turn.event, Boolean(turn.moneyNote), turn.npcReply, previousNarrative);
   return NextResponse.json({
     narrative: narration.text, options: turn.options, state: turn.state,
     narrativeSource: narration.source,
