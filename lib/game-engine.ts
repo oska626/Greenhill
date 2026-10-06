@@ -51,57 +51,57 @@ export interface TurnResult {
 }
 
 const PROLOGUE_OPTIONS = [
-  "A. [領命] 接下差事，帶藥去晚秋茶寮。",
-  "B. [反譏後領命] 冷言反譏何不歸，仍帶藥上路。",
-  "C. [問清後領命] 問清玄武樓動靜，再帶藥上路。",
-  "D. [驗藥後領命] 查驗草藥成色，再帶藥上路。",
-  "E. [默然領命] 觀察堂口退路，帶藥離開。",
+  "A. [即刻領命] 不再耽擱，帶藥趕往晚秋茶寮；何不歸得以留下固防。",
+  "B. [索取盤纏] 向何不歸領十文路費；私銀增加，堂口公款減少。",
+  "C. [問清敵情] 問出玄武樓刀手的兵刃與路線，再帶藥上路。",
+  "D. [驗清草藥] 仔細驗藥，免得傷藥有誤，再帶藥上路。",
+  "E. [記住暗巷] 先認清往市集的退路，再帶藥上路。",
 ];
 const TEA_OPTIONS = [
-  "A. [換藥] 交出草藥，收下金創散，趕往市集。",
-  "B. [問刀手並換藥] 問清伏擊線索，換藥後趕往市集。",
-  "C. [喝茶並換藥] 喝碗苦茶，換藥後趕往市集。",
-  "D. [探路並換藥] 審視街面，換藥後趕往市集。",
-  "E. [催藥] 催容晚秋配藥，收好後趕往市集。",
+  "A. [急取傷藥] 請容晚秋先配藥，趁刀手未到趕往市集。",
+  "B. [追問刀手] 問清刀手的裝束，換藥後趕往市集。",
+  "C. [飲茶調息] 借一碗熱茶養足氣力，換藥後再走。",
+  "D. [辨認傷藥] 請容晚秋教你辨別藥封，換藥後再走。",
+  "E. [託人傳信] 請容晚秋通知堂口接應，換藥後趕往市集。",
 ];
 const MARKET_OPTIONS = [
-  "A. [救人收規] 把金創散交給陸千帆，逼張斷骨交出五十文。",
-  "B. [按刀收規] 先逼張斷骨交錢，再把藥交給陸千帆。",
-  "C. [陰招收規] 撒泥嚇退屠戶，取規費並交藥。",
-  "D. [戒備收規] 盯緊巷口，取規費並交藥。",
-  "E. [同門收規] 與陸千帆並肩逼索，交藥後取規費。",
+  "A. [先救同門] 先替陸千帆敷藥，再收足五十文規費。",
+  "B. [先收規費] 先逼張斷骨交足五十文；陸千帆須再忍片刻。",
+  "C. [暗查巷口] 先辨刀手去向，救人後只來得及收三十文。",
+  "D. [容許緩交] 先救人，收二十文，准張斷骨餘下三十文日後補交。",
+  "E. [護人撤離] 先帶陸千帆離開肉檔；五十文規費暫時收不到。",
 ];
 const AMBUSH_OPTIONS = [
-  "A. [迎敵突圍] 護住陸千帆，擋開刀手突圍。",
-  "B. [掀案突圍] 掀翻肉案阻敵，帶陸千帆突圍。",
-  "C. [結陣突圍] 與陸千帆背靠背，尋隙突圍。",
-  "D. [借勢突圍] 踩柱登簷，牽制刀手後突圍。",
-  "E. [側翼突圍] 低身擊敵下盤，帶陸千帆突圍。",
+  "A. [正面護人] 替陸千帆擋刀；少耗氣力，難免多受傷。",
+  "B. [掀案阻敵] 掀翻肉案擋住刀手；傷勢與氣力各有耗損。",
+  "C. [背靠背守] 與陸千帆結陣；多耗氣力，少受刀傷。",
+  "D. [登簷引敵] 踩柱登簷引開刀手；耗力最重，傷勢最輕。",
+  "E. [側翼擊敵] 擊向刀手下盤；冒險受傷，留下擊退敵人的名聲。",
 ];
 const SOLO_AMBUSH_OPTIONS = [
-  "A. [迎敵突圍] 獨自擋開刀手突圍。",
-  "B. [掀案突圍] 掀翻肉案阻敵，趁亂突圍。",
-  "C. [守巷突圍] 靠住牆角，尋隙突圍。",
-  "D. [借勢突圍] 踩柱登簷，牽制刀手突圍。",
-  "E. [側翼突圍] 低身擊敵下盤，衝開缺口。",
+  "A. [正面迎敵] 獨自擋刀；少耗氣力，難免多受傷。",
+  "B. [掀案阻敵] 掀翻肉案，趁亂突圍。",
+  "C. [守住牆角] 倚牆尋隙；多耗氣力，少受刀傷。",
+  "D. [登簷引敵] 踩柱登簷；耗力最重，傷勢最輕。",
+  "E. [側翼擊敵] 擊向刀手下盤；冒險受傷，留下擊退敵人的名聲。",
 ];
 const SOLO_AMBUSH_FLAVOR = ["你獨自正面擋刀。", "你獨自掀翻肉案擋敵。", "你靠牆守住巷口。", "你踩柱登簷尋隙。", "你低身擊向刀手下盤。"];
 
 const TUTORIAL_FLAVOR: Record<Exclude<QuestStep, "sandbox">, string[]> = {
-  prologue_briefing: ["你接過何不歸差事。", "你冷言反譏，仍接下差事。", "你問清敵情，再接下差事。", "你驗過草藥，再接下差事。", "你記住堂口退路，接下差事。"],
-  yung_tea_stall: ["你催容晚秋換藥。", "你先問刀手兵刃，再請容晚秋換藥。", "你喝過苦茶，再請容晚秋換藥。", "你探過街面，再請容晚秋換藥。", "你催緊容晚秋手腳，等藥配成。"],
-  market_collection: ["你先救陸千帆，再逼索規費。", "你按刀逼索，隨即交藥救人。", "你撒泥嚇退屠戶，取錢救人。", "你盯住巷口，邊戒備邊取錢救人。", "你與陸千帆並肩逼索，交藥救人。"],
+  prologue_briefing: ["你接過藥包，立即動身。", "你向何不歸討路費，才接過藥包。", "你問清刀手路線，記住他們慣用的兵刃。", "你拆開藥包，驗過草藥才領命。", "你認清通往市集的暗巷，再帶藥離開。"],
+  yung_tea_stall: ["你請容晚秋先配傷藥，趕在刀手前動身。", "你問清刀手裝束，請容晚秋換藥。", "你飲過熱茶，調勻氣息才換藥。", "你跟容晚秋認清藥封，再收下金創散。", "你託容晚秋向堂口傳信，換藥後趕往市集。"],
+  market_collection: ["你先救陸千帆，再逼張斷骨交錢。", "你先向張斷骨索錢，讓陸千帆帶傷等候。", "你先查巷口刀手，回頭救人時已收不齊規費。", "你先救人，允張斷骨緩交餘款。", "你護陸千帆離開肉檔，暫且放下規費。"],
   huizhi_ambush: ["你護住陸千帆，正面擋刀。", "你掀翻肉案擋住刀手。", "你與陸千帆背靠背結陣。", "你踩柱登簷，尋隙突圍。", "你低身擊向刀手下盤。"],
 };
 
 const SANDBOX_OPTIONS: Record<Landmark, string[]> = {
   "青鋒堂總壇": ["A. [休整] 靜坐調息，回復氣血與內力。", "B. [固防] 撥二十文公款修補堂口防線。", "C. [盤點] 清點堂口帳目。", "D. [問何不歸] 問何不歸近日玄武樓動靜。", "E. [巡視] 巡視總壇守備。"],
   "晚秋茶寮": ["A. [買藥] 花十文私銀買金創散並敷藥。", "B. [打探] 問容晚秋城西傳聞。", "C. [喝茶] 喝茶歇腳。", "D. [辨藥] 請容晚秋辨認草藥。", "E. [看街] 留意茶檔外動靜。"],
-  "黑泥街": ["A. [巡街收規] 催收十文規費，記入公款。", "B. [問價] 打聽市集藥價。", "C. [找陸千帆] 問陸千帆傷勢。", "D. [盯梢] 留意玄武樓眼線。", "E. [歇腳] 在肉檔旁歇腳。"],
-  "鬼骰坊": ["A. [押小] 押十文私銀賭一局。", "B. [看盤] 觀察骰盤。", "C. [問祁觀衡] 問祁觀衡堂口欠帳。", "D. [查老千] 留意賭客手法。", "E. [離桌] 離開賭桌。"],
+  "黑泥街": ["A. [巡街收規] 催收十文規費，記入公款。", "B. [問價] 打聽市集藥價。", "C. [找陸千帆] 問陸千帆傷勢。", "D. [盯梢] 留意玄武樓眼線。", "E. [歇腳] 在肉檔旁歇腳，回復少許內力。"],
+  "鬼骰坊": ["A. [押小] 押十文私銀賭一局。", "B. [看盤] 觀察骰盤，尋找莊家的破綻。", "C. [問祁觀衡] 問祁觀衡堂口欠帳。", "D. [查老千] 查出藏籌碼的賭客，替堂口追回銀錢。", "E. [核暗帳] 核對賭坊暗帳，替堂口追回錯漏。"],
   "裂石擂": ["A. [打黑拳] 挨一場黑拳，賺二十文私銀。", "B. [練拳] 向衛沉岳請教拳腳。", "C. [觀擂] 觀察擂台對手。", "D. [問霍破陣] 問霍破陣拳館近況。", "E. [歇息] 在拳館歇腳。"],
-  "苦煙館": ["A. [問藥] 打聽止血藥價。", "B. [看人] 觀察館內客人。", "C. [問顧忘生] 問顧忘生黑市傳聞。", "D. [拒藥] 拒絕來路不明的丹藥。", "E. [離席] 離開藥桌。"],
-  "夜雨樓": ["A. [問柳照霜] 問柳照霜城西消息。", "B. [聽曲] 聽一曲，稍作調息。", "C. [查客] 留意陌生客人。", "D. [問路] 問清附近暗巷。", "E. [離席] 離開席位。"],
+  "苦煙館": ["A. [問藥] 打聽止血藥價。", "B. [看人] 觀察館內客人。", "C. [問顧忘生] 問顧忘生黑市傳聞。", "D. [拒藥] 拒絕來路不明的丹藥。", "E. [調製敷藥] 耗費內力調藥，替自己止傷。"],
+  "夜雨樓": ["A. [問柳照霜] 問柳照霜城西消息。", "B. [聽曲] 聽一曲，稍作調息。", "C. [查客] 留意陌生客人。", "D. [問路] 問清附近暗巷。", "E. [斷開跟梢] 費些氣力甩開盯梢的人。"],
 };
 
 const INCIDENTS: Incident[] = ["market_raid", "missing_ledger", "tainted_medicine"];
@@ -164,7 +164,7 @@ const SANDBOX_REACTIONS: Record<Landmark, Record<string, Reaction>> = {
     "看盤": { event: "你盯住骰盅落桌，記下莊家左手收回時的停頓。", line: "莊家的左手收得太快。那一下，少說值十文。" },
     "問祁觀衡": { event: "你問祁觀衡堂口欠帳，聽見他只肯談帳面，不肯報人名。", line: "欠帳的有兩頁，肯認帳的一個也沒有。名字自己去查。" },
     "查老千": { event: "你盯住桌邊換籌碼的手，見有人袖口藏得太緊。", line: "抓住那隻藏在袖裏的手，這桌輸掉的錢才有處討。" },
-    "離桌": { event: "你離開賭桌，先把自己的錢袋按緊。", line: "肯收手也算一種本事。把錢袋繫緊，別讓人替你結帳。" },
+    "核暗帳": { event: "你陪祁觀衡核對賭坊暗帳，查出一筆被人壓住的舊款。", line: "帳藏得再深，數目總有對不上的一天。這筆錢記回堂口。" },
   },
   "裂石擂": {
     "打黑拳": { event: "", line: "錢在那裏。傷口先按住，別讓血滴到擂台外。" },
@@ -178,15 +178,25 @@ const SANDBOX_REACTIONS: Record<Landmark, Record<string, Reaction>> = {
     "看人": { event: "你掃過館內客人，見有人只看藥，不肯露手。", line: "手藏著的人，未必是怕冷。" },
     "問顧忘生": { event: "你問顧忘生黑市傳聞，聽見近來有人暗收傷藥。", line: "有人在暗收傷藥。傷的人一多，價便由他們說了算。" },
     "拒藥": { event: "你推開來歷不明的丹藥，沒有讓藥粉沾手。", line: "你不碰是對的。這包藥，連我都不願打開。" },
-    "離席": { event: "你離開藥桌，把袖口收緊，沒碰旁邊的藥瓶。", line: "旁邊那瓶，別碰。" },
+    "調製敷藥": { event: "你照顧忘生指點磨開藥末，敷在自己的傷處。", line: "藥先敷薄些。若還滲血，再添第二層。" },
   },
   "夜雨樓": {
     "問柳照霜": { event: "你問柳照霜城西消息，聽見有人在樓裏打聽青鋒堂，連茶都沒碰。", line: "那客人問青鋒堂，卻連茶都沒碰。你猜他等誰？" },
     "聽曲": { event: "你聽完一曲，指尖仍按著錢袋。", line: "曲已聽完，你的手卻始終壓著錢袋。你是在等人，還是在防人？" },
     "查客": { event: "你留意席間陌生客，記下兩人同時望向門口，腳尖卻朝後巷。", line: "兩個人都看門，腳尖卻朝後巷。" },
     "問路": { event: "你問清附近暗巷的出口，記住轉角那道窄門。", line: "側門可以借你走。只是身後那條尾巴，別帶進夜雨樓。" },
-    "離席": { event: "你起身離席，從側門繞開樓前人群。", line: "慢走。既然選了側門，就別回頭看正門。" },
+    "斷開跟梢": { event: "你借夜雨樓的側門甩開身後尾巴，繞回城西街面。", line: "側門借你走。下一次，別把人帶到我樓前。" },
   },
+};
+
+const SANDBOX_CLUES: Record<string, string> = {
+  "青鋒堂總壇:盤點": "帳目有據", "青鋒堂總壇:問何不歸": "街面有備", "青鋒堂總壇:巡視": "街面有備",
+  "晚秋茶寮:打探": "街面有備", "晚秋茶寮:辨藥": "傷藥有據", "晚秋茶寮:看街": "街面有備",
+  "黑泥街:問價": "傷藥有據", "黑泥街:找陸千帆": "街面有備", "黑泥街:盯梢": "街面有備", "黑泥街:查眼線": "街面有備",
+  "鬼骰坊:看盤": "已看透骰局", "鬼骰坊:問祁觀衡": "帳目有據", "鬼骰坊:查老千": "帳目有據", "鬼骰坊:核暗帳": "帳目有據",
+  "裂石擂:觀擂": "街面有備", "裂石擂:問霍破陣": "街面有備",
+  "苦煙館:問藥": "傷藥有據", "苦煙館:看人": "街面有備", "苦煙館:問顧忘生": "傷藥有據", "苦煙館:拒藥": "傷藥有據",
+  "夜雨樓:問柳照霜": "街面有備", "夜雨樓:查客": "街面有備", "夜雨樓:問路": "街面有備",
 };
 
 const finite = (value: unknown, fallback: number, min: number, max: number) =>
@@ -308,15 +318,32 @@ function resolveIncident(state: GameState, incident: Incident, choice: number): 
     if (index === 1) { state.playerMp = Math.max(0, state.playerMp - 5); state.hozaiDefense = Math.min(100, state.hozaiDefense + 6); event = "你從暗巷截住刀手退路，內力減五；對方拔旗撤走，何不歸防線升六。"; }
     if (index === 2) { state.hozaiDefense = Math.min(100, state.hozaiDefense + 4); event = "你記下三名攤販的證詞，逼刀手收旗，何不歸防線升四。"; }
     if (index === 3) { if (state.factionFunds >= 20) { state.factionFunds -= 20; state.hozaiDefense = Math.min(100, state.hozaiDefense + 3); event = "你撥二十文公款安頓攤販，刀手暫退，何不歸防線升三。"; } else event = "公款不足二十文，你只能護攤販退入窄巷，刀手仍在肉檔。"; }
-    if (index === 4) event = "你先護傷者撤走，肉檔失去半日生意，刀手把旗插在路口。";
+    if (index === 4) { state.hozaiDefense = Math.max(0, state.hozaiDefense - 8); event = "你先護傷者撤走，肉檔失去半日生意，刀手把旗插在路口；何不歸防線減八。"; }
+    if (index < 4 && state.worldFlags.includes("街面有備")) {
+      state.hozaiDefense = Math.min(100, state.hozaiDefense + 2);
+      event += "先前記下的街面異動讓眾人及早應對，何不歸防線再升二。";
+    }
+    if (index < 4 && state.worldFlags.includes("擊退伏擊刀手")) {
+      state.hozaiDefense = Math.min(100, state.hozaiDefense + 2);
+      event += "刀手認出你曾在肉檔擊退同夥，攻勢一滯，何不歸防線再升二。";
+    }
+    if (index <= 1 && state.worldFlags.includes("裂石擂練拳")) {
+      const restored = Math.min(2, state.maxHp - state.playerHp);
+      state.playerHp += restored;
+      event += `你憑練過的拳路卸去一部分刀勢，氣血回復${restored}。`;
+    }
     remember(state, index === 4 ? "市集暫失" : "市集守住");
     reply = { speaker: "陸千帆", line: index === 4 ? "人先撤了。我記著那面旗，遲早拔回來。" : "肉檔先守住了。我去看巷口，你別再替我挨刀。" };
   } else if (incident === "missing_ledger") {
-    if (index === 0) { state.currentLocation = "鬼骰坊"; event = "你到鬼骰坊對帳，查出缺頁記著一筆假規費，祁觀衡把原本鎖起來。"; }
-    if (index === 1) { state.currentLocation = "晚秋茶寮"; event = "你問容晚秋，得知一個灰衣客昨夜沒喝茶，從總壇帶走帳頁。"; }
-    if (index === 2) { state.currentLocation = "黑泥街"; state.playerMp = Math.max(0, state.playerMp - 4); event = "你沿泥印追到市集後巷，找回濕透的帳頁，內力減四。"; }
-    if (index === 3) { if (state.factionFunds >= 10) { state.factionFunds -= 10; event = "你撥十文公款補帳，何不歸看出缺頁仍在，叫你把支出記明。"; } else event = "公款不足十文，缺帳未補，你把破綻先記在紙上。"; }
-    if (index === 4) event = "你把缺頁之事告知何不歸；他封住帳櫃，派人逐筆重查。";
+    if (index === 0) { state.currentLocation = "鬼骰坊"; state.hozaiDefense = Math.min(100, state.hozaiDefense + 3); event = "你到鬼骰坊對帳，查出缺頁記著一筆假規費。祁觀衡鎖好原本，何不歸防線升三。"; }
+    if (index === 1) { state.currentLocation = "晚秋茶寮"; state.hozaiDefense = Math.min(100, state.hozaiDefense + 2); event = "你問容晚秋，得知灰衣客昨夜從總壇帶走帳頁；何不歸防線升二。"; }
+    if (index === 2) { state.currentLocation = "黑泥街"; state.playerMp = Math.max(0, state.playerMp - 4); state.hozaiDefense = Math.min(100, state.hozaiDefense + 4); event = "你沿泥印追到市集後巷，找回濕透的帳頁；內力減四，何不歸防線升四。"; }
+    if (index === 3) { if (state.factionFunds >= 10) { state.factionFunds -= 10; state.hozaiDefense = Math.min(100, state.hozaiDefense + 1); event = "你撥十文公款補帳，暫且穩住人心，何不歸防線升一；缺的那頁仍得追查。"; } else event = "公款不足十文，缺帳未補，你把破綻先記在紙上。"; }
+    if (index === 4) { state.hozaiDefense = Math.min(100, state.hozaiDefense + 1); event = "你把缺頁之事告知何不歸；他封住帳櫃，派人逐筆重查，何不歸防線升一。"; }
+    if (index <= 2 && state.worldFlags.includes("帳目有據")) {
+      state.factionFunds += 10;
+      event += "你憑先前留下的帳目對出被藏的十文規費，追回公款。";
+    }
     remember(state, "規費帳失頁已查");
     reply = index === 0
       ? { speaker: "祁觀衡", line: "假規費寫得真工整。可惜少算了一筆。" }
@@ -324,11 +351,19 @@ function resolveIncident(state: GameState, incident: Incident, choice: number): 
         ? { speaker: "容晚秋", line: "灰衣客沒喝茶，手倒一直按著袖口。" }
         : { speaker: "何不歸", line: index === 3 ? "十文我記下了。缺的那頁，還得替我找。" : "帳先收好。你查到哪一步，我替你擋到哪一步。" };
   } else {
-    if (index === 0) event = "你封存可疑藥包，茶檔暫停出藥，傷者改用乾淨布條止血。";
-    if (index === 1) { state.currentLocation = "苦煙館"; event = "你把藥帶到苦煙館，顧忘生驗出封口混了苦麻粉，寫下辨認記號。"; }
-    if (index === 2) { state.currentLocation = "晚秋茶寮"; event = "你追問送藥腳夫，查到他在茶檔外替灰衣客轉過手。"; }
+    if (index === 0) { state.hozaiDefense = Math.min(100, state.hozaiDefense + 2); event = "你封存可疑藥包，茶檔暫停出藥，傷者改用乾淨布條止血；何不歸防線升二。"; }
+    if (index === 1) { state.currentLocation = "苦煙館"; state.hozaiDefense = Math.min(100, state.hozaiDefense + 3); event = "你把藥帶到苦煙館，顧忘生驗出封口混了苦麻粉；何不歸防線升三。"; }
+    if (index === 2) { state.currentLocation = "晚秋茶寮"; state.hozaiDefense = Math.min(100, state.hozaiDefense + 2); event = "你追問送藥腳夫，查到他替灰衣客轉過手；何不歸防線升二。"; }
     if (index === 3) { if (state.silver >= 10) { state.silver -= 10; state.playerHp = Math.min(state.maxHp, state.playerHp + 5); event = "你花十文私銀買乾淨傷藥救人，餘藥敷在自己傷口，氣血回復五。"; } else event = "你拿不出十文私銀，便用乾淨布條替傷者止血。"; }
-    if (index === 4) event = "你派人告知城西七處據點停用這批藥，藥包逐一收回封存。";
+    if (index === 4) { state.hozaiDefense = Math.min(100, state.hozaiDefense + 4); event = "你派人告知城西七處據點停用這批藥，逐一收回藥包；何不歸防線升四。"; }
+    if (index !== 3 && state.worldFlags.includes("傷藥有據")) {
+      state.hozaiDefense = Math.min(100, state.hozaiDefense + 2);
+      event += "先前認清的藥封讓眾人及早分出可疑傷藥，何不歸防線再升二。";
+    }
+    if (index !== 3 && state.worldFlags.includes("辨清傷藥封口")) {
+      state.hozaiDefense = Math.min(100, state.hozaiDefense + 2);
+      event += "容晚秋教過你的繩結仍記得清楚，你當場挑出換過封口的藥，何不歸防線再升二。";
+    }
     remember(state, "可疑傷藥已處置");
     reply = index === 1
       ? { speaker: "顧忘生", line: "苦麻粉。藥還沒入口，人先被它放倒。" }
@@ -373,6 +408,17 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
       };
     } else {
       event += flavor("prologue_briefing");
+      if (choice === 0) {
+        state.hozaiDefense = Math.min(100, state.hozaiDefense + 4);
+        event += "何不歸得以留下補強守備，防線升四。";
+      } else if (choice === 1) {
+        if (state.factionFunds >= 10) {
+          state.factionFunds -= 10; state.silver += 10;
+          event += "他從公款撥十文給你作路費；公款減少十文，私銀增加十文。";
+        } else event += "堂口已拿不出十文路費，你只得空手上路。";
+      } else if (choice === 2) { remember(state, "問清刀手兵刃"); event += "你記住刀手慣用的短刀，往後交手便有了防備。"; }
+      else if (choice === 3) { remember(state, "驗過堂口草藥"); event += "草藥沒有受潮，葉脈也不見異色。"; }
+      else if (choice === 4) { remember(state, "熟記市集暗巷"); event += "你把退往巷口的路記在心裏。"; }
       state.questStep = "yung_tea_stall";
       state.currentLocation = "晚秋茶寮";
       if (!state.inventory.includes("【生草藥包】")) state.inventory.push("【生草藥包】");
@@ -381,6 +427,11 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
     }
   } else if (state.questStep === "yung_tea_stall") {
     event += flavor("yung_tea_stall");
+    if (choice === 0) { remember(state, "趕在刀手前到市集"); event += "你沒等茶涼，便先一步趕到市集。"; }
+    else if (choice === 1) { remember(state, "認清刀手裝束"); event += "容晚秋說刀手袖口繫著灰線，你把這個記號記下。"; }
+    else if (choice === 2) { remember(state, "茶寮調息"); event += "熱茶壓下疲乏，你把氣息調勻。"; }
+    else if (choice === 3) { remember(state, "辨清傷藥封口"); event += "容晚秋教你認清封口的繩結與藥味。"; }
+    else if (choice === 4) { remember(state, "茶寮傳信接應"); event += "容晚秋派人通知堂口，說市集恐有埋伏。"; }
     state.questStep = "market_collection";
     state.currentLocation = "黑泥街";
     const herb = state.inventory.indexOf("【生草藥包】");
@@ -389,7 +440,7 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
     state.flags.visitedYung = true;
     event += "你把草藥交給容晚秋，收下金創散與伏擊警訊，趕到市集肉檔。你見陸千帆仍帶傷，張斷骨卻拒交規費。";
   } else if (state.questStep === "market_collection") {
-    event += flavor("market_collection");
+    if (choice < 0) event += flavor("market_collection");
     state.questStep = "huizhi_ambush";
     state.currentLocation = "黑泥街";
     const betrayed = customAction(action) && /背叛|出賣陸千帆|不救陸千帆/.test(action);
@@ -407,27 +458,73 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
       remember(state, "打斷張斷骨右手");
       event += "你打斷張斷骨右手，肉檔眾人看在眼裡。";
     }
-    state.flags.collectedMarketFee = true;
     state.flags.marketAmbushTriggered = true;
     if (customAction(action) && /私吞|昧起|袋起|自己收/.test(action)) {
       state.silver += 50;
+      state.flags.collectedMarketFee = true;
       remember(state, "私吞五十文規費");
       state.hozaiDefense = Math.max(0, state.hozaiDefense - 10);
       event += `${betrayed ? "你逼" : "你交藥救人，又逼"}得張斷骨交出五十文，卻私吞入袋。你聽張斷骨吹響呼哨，玄武樓刀手隨即伏擊。`;
     } else {
-      state.factionFunds += 50;
-      event += `${betrayed ? "你逼" : "你交藥救人，又逼"}得張斷骨交出五十文規費，當場記入青鋒堂公款。你聽張斷骨吹響呼哨，玄武樓刀手隨即伏擊。`;
+      const fee = choice === 2 ? 30 : choice === 3 ? 20 : choice === 4 ? 0 : 50;
+      state.factionFunds += fee;
+      state.flags.collectedMarketFee = fee > 0;
+      if (choice === 0) {
+        remember(state, "先救陸千帆");
+        state.hozaiDefense = Math.min(100, state.hozaiDefense + 3);
+        event += "你替陸千帆敷上金創散，他扶著肉案重新站穩。張斷骨見你們不退，才交足五十文；你記入公款，同門也肯留下守街，何不歸防線升三。";
+      } else if (choice === 1) {
+        remember(state, "陸千帆傷勢加重");
+        state.hozaiDefense = Math.max(0, state.hozaiDefense - 3);
+        event += "你扣住藥包，先逼張斷骨交出五十文，逐文記入公款。等你回頭，陸千帆的衣襟已被血浸透；藥終究敷上了，何不歸防線卻減三。";
+      } else if (choice === 2) {
+        remember(state, "已察覺巷口伏兵");
+        remember(state, "張斷骨欠費二十文");
+        state.playerMp = Math.max(0, state.playerMp - 3);
+        event += "你先轉入巷口，認出刀手袖上那道灰線。回頭替陸千帆敷藥時，張斷骨只肯交三十文；你記入公款，餘下二十文留待追討，查探耗去三點內力。";
+      } else if (choice === 3) {
+        remember(state, "張斷骨欠費三十文");
+        event += "你先替陸千帆敷藥，張斷骨才從錢袋裏數出二十文。餘下三十文，他寫下欠條；你將現錢記入公款，把那張紙收進袖中。";
+      } else if (choice === 4) {
+        remember(state, "張斷骨規費未收");
+        state.hozaiDefense = Math.max(0, state.hozaiDefense - 6);
+        event += "你把藥敷在陸千帆傷處，扶他離開肉檔。五十文一文未收；街坊望著守街的人先退，何不歸防線減六。";
+      } else {
+        event += `${betrayed ? "你逼" : "你交藥救人，又逼"}得張斷骨交出五十文規費，當場記入青鋒堂公款。`;
+      }
+      event += choice === 4
+        ? "你們退到巷口，玄武樓刀手已封住去路。"
+        : "張斷骨吹響呼哨，玄武樓刀手隨即伏擊。";
     }
   } else if (state.questStep === "huizhi_ambush") {
     event += state.worldFlags.includes("出賣陸千帆") && choice >= 0 ? SOLO_AMBUSH_FLAVOR[choice] : flavor("huizhi_ambush");
     state.questStep = "sandbox";
     state.currentLocation = "黑泥街";
-    state.playerHp = Math.max(0, state.playerHp - 8);
-    state.playerMp = Math.max(0, state.playerMp - 5);
+    const tactic = choice >= 0 ? choice : 0;
+    const hpBefore = state.playerHp;
+    const mpBefore = state.playerMp;
+    let hpCost = [12, 8, 7, 4, 10][tactic];
+    let mpCost = [2, 5, 7, 11, 4][tactic];
+    if (state.worldFlags.includes("出賣陸千帆")) hpCost += 3;
+    if (state.worldFlags.includes("陸千帆傷勢加重")) hpCost += 3;
+    if (state.worldFlags.includes("問清刀手兵刃")) hpCost -= 2;
+    if (state.worldFlags.includes("驗過堂口草藥") && !state.worldFlags.includes("出賣陸千帆")) hpCost -= 2;
+    if (state.worldFlags.includes("趕在刀手前到市集")) hpCost -= 2;
+    if (state.worldFlags.includes("認清刀手裝束")) hpCost -= 2;
+    if (state.worldFlags.includes("已察覺巷口伏兵")) hpCost -= 3;
+    if (state.worldFlags.includes("熟記市集暗巷")) mpCost -= 2;
+    if (state.worldFlags.includes("茶寮調息")) mpCost -= 3;
+    state.playerHp = Math.max(0, state.playerHp - Math.max(1, hpCost));
+    state.playerMp = Math.max(0, state.playerMp - Math.max(1, mpCost));
+    if (state.worldFlags.includes("茶寮傳信接應")) {
+      state.hozaiDefense = Math.min(100, state.hozaiDefense + 4);
+      event += "茶寮傳信及時，堂口派人接應，何不歸防線升四。";
+    }
+    if (tactic === 4) remember(state, "擊退伏擊刀手");
     remember(state, "市集伏擊突圍");
     event += state.worldFlags.includes("出賣陸千帆")
-      ? "你獨自避開刀手，突圍留在城西市集。你氣血減八，內力減五。你如今可探索城西七處據點。"
-      : "你與陸千帆擊退玄武樓刀手，突圍留在城西市集。你氣血減八，內力減五。你如今可探索城西七處據點。";
+      ? `你獨自衝出包圍，氣血減${hpBefore - state.playerHp}，內力減${mpBefore - state.playerMp}。你仍留在城西市集，可以探索七處據點。`
+      : `你與陸千帆衝出包圍，氣血減${hpBefore - state.playerHp}，內力減${mpBefore - state.playerMp}。你仍留在城西市集，可以探索七處據點。`;
   } else {
     const pendingIncident = state.flags.pendingIncident;
     if (pendingIncident) {
@@ -451,7 +548,8 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
       const tag = /^\w\. \[([^\]]+)\]/.exec(action)?.[1] || "";
       const reaction = SANDBOX_REACTIONS[state.currentLocation][tag];
       const sandboxTag = `${state.currentLocation}:${tag}`;
-      const repeatedAction = Boolean(reaction?.event) && state.flags.lastSandboxTag === sandboxTag;
+      const repeatable = ["喝茶", "歇腳", "歇息", "聽曲", "調製敷藥", "練拳"].includes(tag);
+      const repeatedAction = Boolean(reaction?.event) && !repeatable && state.flags.lastSandboxTag === sandboxTag;
       state.flags.repeatedActionCount = repeatedAction ? (state.flags.repeatedActionCount || 0) + 1 : 0;
       state.flags.lastSandboxTag = sandboxTag;
       if (reaction) npcReply = { speaker: reaction.speaker || ({
@@ -471,26 +569,84 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
         if (state.factionFunds >= 20) { state.factionFunds -= 20; state.hozaiDefense = Math.min(100, state.hozaiDefense + 12); event += "你從青鋒堂公款撥出二十文，換上總壇鬆動的門閂。門能再擋一陣，何不歸防線升十二。"; }
         else event += "你清點公款，尚欠二十文，防線無法修補。";
       } else if (state.currentLocation === "青鋒堂總壇" && tag === "休整") {
+        const hpRestored = Math.min(12, state.maxHp - state.playerHp);
+        const mpRestored = Math.min(8, state.maxMp - state.playerMp);
         state.playerHp = Math.min(state.maxHp, state.playerHp + 12);
         state.playerMp = Math.min(state.maxMp, state.playerMp + 8);
-        event += "你在總壇靜坐調息，氣血回復十二，內力回復八。";
+        event += `你在總壇靜坐調息，氣血回復${hpRestored}，內力回復${mpRestored}。`;
       } else if (state.currentLocation === "黑泥街" && tag === "巡街收規") {
-        if (state.turn - (state.flags.lastMarketDuesTurn || 0) >= 3) {
+        const outstanding = state.worldFlags.includes("張斷骨規費未收") ? 50
+          : state.worldFlags.includes("張斷骨欠費三十文") ? 30
+            : state.worldFlags.includes("張斷骨欠費二十文") ? 20 : 0;
+        if (outstanding && !state.worldFlags.includes("張斷骨舊費已清")) {
+          state.factionFunds += outstanding;
+          state.flags.collectedMarketFee = true;
+          state.flags.lastMarketDuesTurn = state.turn;
+          remember(state, "張斷骨舊費已清");
+          event += `你持著舊帳回到肉檔，張斷骨終於交出所欠的${outstanding}文。你逐文數清，記入青鋒堂公款。`;
+        } else if (state.turn - (state.flags.lastMarketDuesTurn || 0) >= 3) {
           state.factionFunds += 10; state.flags.lastMarketDuesTurn = state.turn;
           event += "你沿黑泥街逐攤收規，十文錢在掌中數清，當場記入青鋒堂公款。";
         } else event += "你巡了一圈，今日規費早已收過，無人再交錢。";
       } else if (state.currentLocation === "鬼骰坊" && tag === "押小") {
         if (state.silver >= 10) {
-          const won = state.turn % 2 === 0;
+          const readTable = state.worldFlags.includes("已看透骰局");
+          const won = readTable || state.turn % 2 === 0;
+          if (readTable) state.worldFlags = state.worldFlags.filter((flag) => flag !== "已看透骰局");
           state.silver += won ? 10 : -10;
           event += won
-            ? "骰盅落桌，你押在小上的十文私銀贏了。祁觀衡把銅錢撥回你面前；這一局私銀淨增十文。"
+            ? `骰盅落桌，你押在小上的十文私銀贏了。${readTable ? "先前看出的手勢讓你避開了莊家的圈套；" : ""}祁觀衡把銅錢撥回你面前，這一局私銀淨增十文。`
             : "骰盅落桌，你押在小上的十文私銀卻開了大。祁觀衡把銅錢撥到莊家那邊；這一局私銀減少十文。";
         } else event += "你掏不出十文私銀，祁觀衡不讓你下注。";
+      } else if (state.currentLocation === "鬼骰坊" && (tag === "查老千" || tag === "核暗帳")) {
+        const recoveredFlag = tag === "查老千" ? "老千贓款已收" : "賭坊錯帳已收";
+        const recovered = tag === "查老千" ? 10 : 5;
+        event += reaction?.event || "";
+        if (!state.worldFlags.includes(recoveredFlag)) {
+          state.factionFunds += recovered;
+          remember(state, recoveredFlag);
+          event += `祁觀衡查實後收回${recovered}文，記入青鋒堂公款。`;
+        } else event += "這筆舊款已經收回，再查也變不出第二份。";
+        remember(state, "帳目有據");
+      } else if (state.currentLocation === "苦煙館" && tag === "調製敷藥") {
+        if (state.playerMp >= 4 && state.playerHp < state.maxHp) {
+          const healed = Math.min(12, state.maxHp - state.playerHp);
+          state.playerMp -= 4; state.playerHp += healed;
+          event += `你耗去四點內力調藥，敷在傷處，氣血回復${healed}。`;
+        } else event += "你傷勢已平，或氣力不足以調藥；顧忘生沒有讓你白耗藥材。";
+      } else if (state.currentLocation === "夜雨樓" && tag === "斷開跟梢") {
+        if (state.playerMp >= 4) {
+          state.playerMp -= 4;
+          state.hozaiDefense = Math.min(100, state.hozaiDefense + 4);
+          event += "你耗去四點內力甩開尾巴，替堂口藏住行跡；何不歸防線升四。";
+        } else event += "你氣力不足，才到側門便被身後的人重新盯上。";
+      } else if (state.currentLocation === "裂石擂" && tag === "練拳") {
+        if (state.playerMp >= 4) {
+          state.playerMp -= 4; remember(state, "裂石擂練拳");
+          event += "你照衛沉岳指點練過拳，耗去四點內力；下次守街時，便認得刀手逼近的步法。";
+        } else event += "你氣息已亂，衛沉岳叫你先收拳，免得傷了自己。";
+      } else if (["晚秋茶寮:喝茶", "黑泥街:歇腳", "夜雨樓:聽曲"].includes(sandboxTag)) {
+        const restored = Math.min(6, state.maxMp - state.playerMp);
+        state.playerMp += restored;
+        event += (reaction?.event || "") + `你暫得喘息，內力回復${restored}。`;
+      } else if (state.currentLocation === "裂石擂" && tag === "歇息") {
+        const restored = Math.min(8, state.maxHp - state.playerHp);
+        state.playerHp += restored;
+        event += (reaction?.event || "") + `你按著傷處歇了一陣，氣血回復${restored}。`;
       } else if (repeatedAction) {
         event += `你再次查問${tag}，眼前沒有新的線索。`;
         if (npcReply) npcReply.line = repeatedNpcLine(npcReply.speaker, state.flags.repeatedActionCount || 1);
-      } else event += reaction?.event || `你在${state.currentLocation}照自己的意思行事，留意四下動靜。`;
+      } else {
+        event += reaction?.event || `你在${state.currentLocation}照自己的意思行事，留意四下動靜。`;
+        const clue = SANDBOX_CLUES[sandboxTag];
+        if (clue && !state.worldFlags.includes(clue)) {
+          remember(state, clue);
+          event += clue === "已看透骰局" ? "你看出莊家收手的暗號，下一局押注便有了把握。"
+            : clue === "帳目有據" ? "這筆線索留在帳上，日後若有缺頁便能對照。"
+              : clue === "傷藥有據" ? "你把藥色與封口記牢，日後驗藥便有了憑據。"
+                : "你記下街面異動，往後遇上刀手便可早作防備。";
+        }
+      }
     }
     }
     state.hozaiDefense = Math.max(0, state.hozaiDefense - 2);
@@ -521,13 +677,31 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
   const changes: string[] = [];
   if (state.silver !== oldSilver) changes.push(`私銀${state.silver > oldSilver ? "增加" : "減少"}${Math.abs(state.silver - oldSilver)}文`);
   if (state.factionFunds !== oldFunds) changes.push(`公款${state.factionFunds > oldFunds ? "增加" : "減少"}${Math.abs(state.factionFunds - oldFunds)}文`);
-  const options = state.questStep === "prologue_briefing" ? PROLOGUE_OPTIONS
+  return { state, options: availableOptions(state), event: event.trim(), moneyNote: changes.join("，"), npcReply };
+}
+
+export function availableOptions(state: GameState): string[] {
+  return state.questStep === "prologue_briefing" ? PROLOGUE_OPTIONS
     : state.questStep === "yung_tea_stall" ? TEA_OPTIONS
     : state.questStep === "market_collection" ? MARKET_OPTIONS
     : state.questStep === "huizhi_ambush" ? (state.worldFlags.includes("出賣陸千帆") ? SOLO_AMBUSH_OPTIONS : AMBUSH_OPTIONS)
     : state.flags.pendingIncident ? INCIDENT_OPTIONS[state.flags.pendingIncident]
-    : state.currentLocation === "黑泥街" && state.worldFlags.includes("出賣陸千帆")
-      ? SANDBOX_OPTIONS["黑泥街"].map((option) => option.startsWith("C.") ? "C. [查眼線] 留意玄武樓眼線。" : option)
+    : state.currentLocation === "黑泥街"
+      ? SANDBOX_OPTIONS["黑泥街"].map((option) => {
+        if (option.startsWith("A.") && !state.worldFlags.includes("張斷骨舊費已清")) {
+          const due = state.worldFlags.includes("張斷骨規費未收") ? 50
+            : state.worldFlags.includes("張斷骨欠費三十文") ? 30
+              : state.worldFlags.includes("張斷骨欠費二十文") ? 20 : 0;
+          if (due) return `A. [巡街收規] 追收張斷骨所欠${due}文規費，記入公款。`;
+        }
+        return option.startsWith("C.") && state.worldFlags.includes("出賣陸千帆")
+          ? "C. [查眼線] 留意玄武樓眼線。" : option;
+      })
+      : state.currentLocation === "鬼骰坊"
+        ? SANDBOX_OPTIONS["鬼骰坊"].map((option) =>
+          option.startsWith("D.") && state.worldFlags.includes("老千贓款已收")
+            ? "D. [查老千] 再查賭桌手法；舊贓款已收，未必有新所得。"
+            : option.startsWith("E.") && state.worldFlags.includes("賭坊錯帳已收")
+              ? "E. [核暗帳] 再核暗帳；舊錯帳已清，未必有新所得。" : option)
       : SANDBOX_OPTIONS[state.currentLocation];
-  return { state, options, event: event.trim(), moneyNote: changes.join("，"), npcReply };
 }

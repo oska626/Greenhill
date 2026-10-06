@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { aptitude, LANDMARKS, normalizeState, type GameState } from "@/lib/game-engine";
+import { aptitude, availableOptions, LANDMARKS, normalizeState, type GameState } from "@/lib/game-engine";
 import { renameLegacyWorldNames } from "@/lib/npc-voices";
 
 interface ApiResponse {
@@ -95,8 +95,7 @@ export default function GamePage() {
         const parsed: SavedGameData = JSON.parse(raw);
         const state = normalizeState(parsed?.state);
         if (state && typeof parsed?.narrative === "string" && Array.isArray(parsed?.options)) {
-          setSavedGame({ ...parsed, state, narrative: renameLegacyWorldNames(parsed.narrative),
-            options: parsed.options.filter((option): option is string => typeof option === "string").map(renameLegacyWorldNames) });
+          setSavedGame({ ...parsed, state, narrative: renameLegacyWorldNames(parsed.narrative), options: availableOptions(state) });
         }
       }
     } catch (e) {
@@ -480,17 +479,16 @@ export default function GamePage() {
 
           <div className="bg-stone-900/80 border border-stone-800 rounded-lg p-4 flex flex-col gap-3">
             <div className="text-xs font-semibold text-stone-400 tracking-wider">江湖抉擇 (A - E)</div>
+            {gameState?.questStep === "sandbox" && (
+              <div className="text-[11px] text-stone-500">每走一步，玄武樓便逼近一分。線索與欠帳，都會留到往後。</div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {options.map((opt, idx) => (
                 <button
                   key={idx}
                   disabled={loading}
                   onClick={() => handleAction(opt)}
-                  className={`text-left text-xs md:text-sm px-3.5 py-2.5 rounded border transition duration-150 disabled:opacity-40 disabled:cursor-not-allowed ${
-                    opt.startsWith("E.")
-                      ? "bg-amber-950/30 border-amber-700/60 hover:bg-amber-900/50 text-amber-200 font-medium md:col-span-2"
-                      : "bg-stone-800/70 hover:bg-stone-700/80 border-stone-700/50 text-stone-200 hover:border-stone-500"
-                  }`}
+                  className="text-left text-xs md:text-sm px-3.5 py-2.5 rounded border transition duration-150 disabled:opacity-40 disabled:cursor-not-allowed bg-stone-800/70 hover:bg-stone-700/80 border-stone-700/50 text-stone-200 hover:border-stone-500"
                 >
                   {opt}
                 </button>

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { aptitude, LANDMARKS, normalizeState, resolveTurn } from "../lib/game-engine.ts";
+import { aptitude, availableOptions, LANDMARKS, normalizeState, resolveTurn } from "../lib/game-engine.ts";
 import { NPC_VOICES, npcVoiceGuide, renameLegacyWorldNames, repeatedNpcLine } from "../lib/npc-voices.ts";
 
 function newGame() {
@@ -80,7 +80,7 @@ test("every sandbox choice has a distinct event and NPC reply", () => {
   assert.equal(injury.npcReply.speaker, "陸千帆");
 });
 
-test("every tutorial option advances one scene without skipping medicine or fee", () => {
+test("tutorial choices advance one scene while preserving their different costs", () => {
   const opening = resolveTurn(newGame(), "[初入堂口] 阿七", true);
   assert.equal(opening.state.turn, 1);
   for (const prologue of opening.options) {
@@ -94,11 +94,11 @@ test("every tutorial option advances one scene without skipping medicine or fee"
       assert.equal(market.state.currentLocation, "黑泥街");
       assert.ok(market.state.inventory.includes("【金創散】"));
       assert.ok(!market.state.inventory.includes("【生草藥包】"));
-      for (const marketChoice of market.options) {
+      for (const [index, marketChoice] of market.options.entries()) {
         const ambush = resolveTurn(market.state, marketChoice, false);
         assert.equal(ambush.state.questStep, "huizhi_ambush");
-        assert.equal(ambush.state.factionFunds, 60);
-        assert.ok(ambush.event.includes("五十文"));
+        assert.equal(ambush.state.factionFunds, market.state.factionFunds + [50, 50, 30, 20, 0][index]);
+        assert.equal(ambush.state.flags.collectedMarketFee, index !== 4);
         assert.ok(!ambush.state.inventory.includes("【金創散】"));
         const sandbox = resolveTurn(ambush.state, ambush.options[0], false);
         assert.equal(sandbox.state.questStep, "sandbox");
@@ -108,14 +108,91 @@ test("every tutorial option advances one scene without skipping medicine or fee"
   }
 });
 
+test("early choices pay off during the ambush", () => {
+  const opening = resolveTurn(newGame(), "[初入堂口] 阿七", true);
+  const direct = resolveTurn(opening.state, opening.options[0], false);
+  const allowance = resolveTurn(opening.state, opening.options[1], false);
+  assert.equal(direct.state.hozaiDefense, opening.state.hozaiDefense + 4);
+  assert.equal(allowance.state.silver, 10);
+  assert.equal(allowance.state.factionFunds, 0);
+
+  const informed = resolveTurn(opening.state, opening.options[2], false);
+  const ordinaryTea = resolveTurn(direct.state, direct.options[0], false);
+  const informedTea = resolveTurn(informed.state, informed.options[0], false);
+  const ordinaryMarket = resolveTurn(ordinaryTea.state, ordinaryTea.options[0], false);
+  const informedMarket = resolveTurn(informedTea.state, informedTea.options[0], false);
+  const ordinaryAmbush = resolveTurn(ordinaryMarket.state, ordinaryMarket.options[0], false);
+  const informedAmbush = resolveTurn(informedMarket.state, informedMarket.options[0], false);
+  assert.ok(informedAmbush.state.playerHp > ordinaryAmbush.state.playerHp);
+  assert.ok(informedAmbush.state.worldFlags.includes("問清刀手兵刃"));
+});
+
+test("ambush tactics have distinct losses and a saved game receives current options", () => {
+  const ambush = { ...newGame(), questStep: "huizhi_ambush", currentLocation: "黑泥街" };
+  const outcomes = availableOptions(ambush).map((option) => resolveTurn(ambush, option, false));
+  assert.equal(new Set(outcomes.map((result) => `${result.state.playerHp}:${result.state.playerMp}`)).size, 5);
+  assert.ok(outcomes[4].state.worldFlags.includes("擊退伏擊刀手"));
+  const restored = normalizeState({ ...ambush, worldFlags: ["張斷骨欠費三十文"] });
+  assert.match(availableOptions({ ...restored, questStep: "sandbox" })[0], /追收張斷骨所欠30文/);
+});
+
+test("market choices create collectible debts instead of identical fees", () => {
+  let turn = resolveTurn(newGame(), "[初入堂口] 阿七", true);
+  turn = resolveTurn(turn.state, turn.options[0], false);
+  turn = resolveTurn(turn.state, turn.options[0], false);
+  const fees = [50, 50, 30, 20, 0];
+  const outcomes = turn.options.map((option, index) => {
+    const result = resolveTurn(turn.state, option, false);
+    assert.equal(result.state.factionFunds, turn.state.factionFunds + fees[index]);
+    return result;
+  });
+  assert.ok(outcomes[1].state.worldFlags.includes("陸千帆傷勢加重"));
+  assert.ok(outcomes[2].state.worldFlags.includes("已察覺巷口伏兵"));
+  assert.ok(outcomes[3].state.worldFlags.includes("張斷骨欠費三十文"));
+  assert.ok(outcomes[4].state.worldFlags.includes("張斷骨規費未收"));
+  for (const index of [2, 3, 4]) {
+    let aftermath = resolveTurn(outcomes[index].state, outcomes[index].options[0], false);
+    assert.match(aftermath.options[0], /追收張斷骨所欠/);
+    const before = aftermath.state.factionFunds;
+    aftermath = resolveTurn(aftermath.state, aftermath.options[0], false);
+    assert.equal(aftermath.state.factionFunds, before + 50 - fees[index]);
+    assert.ok(aftermath.state.worldFlags.includes("張斷骨舊費已清"));
+  }
+});
+
+test("sandbox clues improve later incidents and reading the dice matters", () => {
+  const baseline = { ...newGame(), questStep: "sandbox", currentLocation: "鬼骰坊", turn: 5, silver: 20 };
+  const read = resolveTurn(baseline, "B. [看盤] 觀察骰盤，尋找莊家的破綻。", false);
+  assert.ok(read.state.worldFlags.includes("已看透骰局"));
+  const wager = resolveTurn(read.state, "A. [押小] 押十文私銀賭一局。", false);
+  assert.equal(wager.state.silver, 30);
+  assert.ok(!wager.state.worldFlags.includes("已看透骰局"));
+
+  for (const [incident, clue, option, expected] of [
+    ["market_raid", "街面有備", "C. [設局取證] 記下刀手勒索攤販的證詞。", 2],
+    ["market_raid", "擊退伏擊刀手", "C. [設局取證] 記下刀手勒索攤販的證詞。", 2],
+    ["missing_ledger", "帳目有據", "A. [查賭檔] 到鬼骰坊核對缺失的規費帳。", 10],
+    ["tainted_medicine", "傷藥有據", "A. [封存藥包] 封住來歷不明的傷藥。", 2],
+    ["tainted_medicine", "辨清傷藥封口", "A. [封存藥包] 封住來歷不明的傷藥。", 2],
+  ]) {
+    const state = { ...newGame(), questStep: "sandbox", flags: { ...newGame().flags, pendingIncident: incident } };
+    const plain = resolveTurn(state, option, false);
+    const prepared = resolveTurn({ ...state, worldFlags: [clue] }, option, false);
+    const plainValue = incident === "missing_ledger" ? plain.state.factionFunds : plain.state.hozaiDefense;
+    const preparedValue = incident === "missing_ledger" ? prepared.state.factionFunds : prepared.state.hozaiDefense;
+    assert.equal(preparedValue - plainValue, expected, `${clue} should change ${incident}`);
+  }
+});
+
 test("private fee is personal money with a permanent consequence", () => {
   let turn = resolveTurn(newGame(), "[初入堂口] 阿七", true);
   turn = resolveTurn(turn.state, turn.options[0], false);
   turn = resolveTurn(turn.state, turn.options[0], false);
+  const defenseBeforeTheft = turn.state.hozaiDefense;
   turn = resolveTurn(turn.state, "F. [自訂手段] 私吞五十文規費", false);
   assert.equal(turn.state.silver, 50);
   assert.equal(turn.state.factionFunds, 10);
-  assert.equal(turn.state.hozaiDefense, 50);
+  assert.equal(turn.state.hozaiDefense, defenseBeforeTheft - 10);
   assert.ok(turn.state.worldFlags.includes("私吞五十文規費"));
   assert.ok(turn.event.includes("五十文"));
 });
