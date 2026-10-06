@@ -41,16 +41,16 @@ export default function GameScreen() {
         <div className="max-w-lg text-center space-y-6">
           <div className="space-y-2">
             <h1 className="text-3xl font-bold tracking-wider text-zinc-100">
-              鳴森樓
+              青山城
             </h1>
             <p className="text-sm text-zinc-500 tracking-[0.3em] uppercase">
-              ming-sum-pavilion
+              青鋒堂 · 城西
             </p>
           </div>
           <p className="text-sm leading-relaxed text-zinc-400">
-            青山城，一座江湖人匯聚嘅古城。傳聞城中鳴森樓藏住一段不為人知嘅秘密，
-            三個武人離奇失蹤，人心惶惶。你係一個無名浪客，今日踏入城中，
-            命運嘅齒輪開始轉動……
+            青山城的雨落了幾日，城西的街口仍有人守著。
+            玄武樓的刀手要奪黑泥街，青鋒堂的舊門卻還未關。
+            你踏進門時，何不歸正把一包傷藥壓在帳簿上。
           </p>
           <Button
             onClick={startGame}

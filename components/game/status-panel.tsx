@@ -66,7 +66,7 @@ export function StatusPanel({ state }: StatusPanelProps) {
           <span className="text-zinc-200">{state.companion}</span>
         </div>
         <div className="flex justify-between items-center">
-          <span className="text-zinc-400">何仔防線：</span>
+          <span className="text-zinc-400">何不歸防線：</span>
           <div className="flex items-center gap-2">
             <div className="w-16 bg-zinc-800 h-1.5 rounded-full overflow-hidden">
               <div 
@@ -78,8 +78,8 @@ export function StatusPanel({ state }: StatusPanelProps) {
           </div>
         </div>
         <div className="flex justify-between text-zinc-500">
-          <span>西涼猜忌：{state.xiliang_suspicion ?? 10}%</span>
-          <span>僧臣罪證：{state.monk_evidence ?? 10}%</span>
+          <span>燕鎮嶽猜忌：{state.xiliang_suspicion ?? 10}%</span>
+          <span>玄渡罪證：{state.monk_evidence ?? 10}%</span>
         </div>
       </div>
     </div>

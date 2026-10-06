@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { aptitude, LANDMARKS, normalizeState, type GameState } from "@/lib/game-engine";
+import { renameLegacyWorldNames } from "@/lib/npc-voices";
 
 interface ApiResponse {
   narrative: string;
@@ -21,8 +22,8 @@ const SAVE_KEY = "qingshan_game_save_v1";
 const BACKGROUNDS = [
   {
     id: "debt_collector",
-    name: "爛賭收數佬",
-    desc: "常年在聚財坊廝混打滾，擅長睇人眼色與恐嚇逼數，下手陰毒專打軟肋。",
+    name: "賭坊收帳人",
+    desc: "你在鬼骰坊替人追帳，認得欠債人的眼神，也認得藏在袖中的刀。",
     trait: "察言觀色（交涉與洞察提升）",
     startingItems: ["【灌鉛假骰】"],
     hp: 100,
@@ -31,7 +32,7 @@ const BACKGROUNDS = [
   {
     id: "pickpocket",
     name: "城西街童扒手",
-    desc: "從小在泥濘市集混大，擅長偷雞摸狗、腳底抹油。身法靈活，擅避要害。",
+    desc: "你在黑泥街長大。攤販記不住你的臉，守門人卻總比你慢一步。",
     trait: "手疾眼快（身法與偷襲提升）",
     startingItems: ["【生石灰粉】"],
     hp: 90,
@@ -39,8 +40,8 @@ const BACKGROUNDS = [
   },
   {
     id: "martial_dropout",
-    name: "濕鳩武館棄徒",
-    desc: "被黑市武館逐出門牆，雖無上乘內功，但練就一身爛命硬橋硬馬。",
+    name: "落魄武館棄徒",
+    desc: "你被裂石擂逐出門牆。拳路仍在，肩上的舊傷也還在。",
     trait: "皮糙肉厚（受擊傷害抗性）",
     startingItems: ["【粗鐵護腕】"],
     hp: 120,
@@ -49,7 +50,7 @@ const BACKGROUNDS = [
   {
     id: "doc_assistant",
     name: "黑市醫道學徒",
-    desc: "曾在仙館替死人熬藥洗傷，識得草藥毒物，通曉人體要害死穴。",
+    desc: "你曾在苦煙館熬藥洗傷。藥味留在指縫，傷口的顏色瞞不過你。",
     trait: "辨毒識藥（毒傷與異常抗性）",
     startingItems: ["【止血散】"],
     hp: 95,
@@ -58,7 +59,7 @@ const BACKGROUNDS = [
   {
     id: "custom",
     name: "自定義市井流民",
-    desc: "身世不明的市井孤魂，憑一口狠勁在青山城苟活。",
+    desc: "你從未向人說清來歷。青山城也從未追問，只看你能否活過明日。",
     trait: "草莽之軀（屬性均衡）",
     startingItems: [],
     hp: 100,
@@ -94,7 +95,8 @@ export default function GamePage() {
         const parsed: SavedGameData = JSON.parse(raw);
         const state = normalizeState(parsed?.state);
         if (state && typeof parsed?.narrative === "string" && Array.isArray(parsed?.options)) {
-          setSavedGame({ ...parsed, state });
+          setSavedGame({ ...parsed, state, narrative: renameLegacyWorldNames(parsed.narrative),
+            options: parsed.options.filter((option): option is string => typeof option === "string").map(renameLegacyWorldNames) });
         }
       }
     } catch (e) {
@@ -125,7 +127,7 @@ export default function GamePage() {
   };
 
   const handleRestartGame = () => {
-    if (window.confirm("確定要重頭嚟過？當前所有江湖進度與存檔將會抹除！")) {
+    if (window.confirm("確定重新開始？目前的進度與存檔將被清除。")) {
       try {
         localStorage.removeItem(SAVE_KEY);
       } catch (e) {
@@ -147,7 +149,7 @@ export default function GamePage() {
       return;
     }
     if (selectedBgId === "custom" && (!customGender.trim() || !customSkill.trim() || !customPersonality.trim())) {
-      setErrorMsg("請填妥性別、技能同埋性格，何仔先可以認識你。");
+      setErrorMsg("請填妥性別、技能同埋性格，何不歸先可以認識你。");
       return;
     }
     setErrorMsg("");
@@ -164,7 +166,7 @@ export default function GamePage() {
       ...(selectedBgId === "custom" ? {
         gender: customGender.trim(), skill: customSkill.trim(), personality: customPersonality.trim(),
       } : {}),
-      currentLocation: "明心閣總壇",
+      currentLocation: "青鋒堂總壇",
       inventory: [...bg.startingItems],
       maxInventory: 4,
       playerHp: stats.hp,
@@ -189,7 +191,7 @@ export default function GamePage() {
     setOptions([]);
     setView("game");
     setLoading(true);
-    lastActionRef.current = `[初入堂口] ${trimmedName}（出身：${bg.name}，${selectedBgId === "custom" ? `性別：${customGender.trim()}，技能：${customSkill.trim()}，性格：${customPersonality.trim()}` : `特質：${initialTrait}`}）踏入明心閣總壇，向何仔領命。`;
+    lastActionRef.current = `[初入堂口] ${trimmedName}（出身：${bg.name}，${selectedBgId === "custom" ? `性別：${customGender.trim()}，技能：${customSkill.trim()}，性格：${customPersonality.trim()}` : `特質：${initialTrait}`}）踏入青鋒堂總壇，向何不歸領命。`;
 
     try {
       const res = await fetch("/api/turn", {
@@ -285,7 +287,7 @@ export default function GamePage() {
         <div className="max-w-2xl w-full bg-stone-900/90 border border-stone-800 rounded-lg p-6 shadow-2xl space-y-6">
           <div className="text-center space-y-1 border-b border-stone-800 pb-4">
             <h1 className="text-2xl font-bold tracking-widest text-amber-500">青山城 · 泥潭入道</h1>
-            <p className="text-xs text-stone-400">大雨滂沱，刀鋒未冷。在城西這片泥濘死地，立下你的身家姓名。</p>
+            <p className="text-xs text-stone-400">城西的雨還未停。報上名號，走進青鋒堂那扇尚未關上的門。</p>
           </div>
 
           {savedGame && (
@@ -347,7 +349,7 @@ export default function GamePage() {
 
           {selectedBgId === "custom" && (
             <div className="space-y-3 pt-1">
-              <p className="text-xs text-stone-400">用短句寫下角色，何仔會喺開局聽你親口講。</p>
+              <p className="text-xs text-stone-400">寫下你的本事與性情。何不歸會在堂口親自問你。</p>
               <div className="space-y-1.5">
                 <label htmlFor="custom-gender" className="text-xs font-semibold text-stone-400 tracking-wider">性別（8 字內）</label>
                 <input id="custom-gender" type="text" maxLength={8} value={customGender} onChange={(e) => setCustomGender(e.target.value)}
@@ -422,7 +424,7 @@ export default function GamePage() {
               <span className="text-emerald-400 font-mono font-medium">{gameState?.factionFunds ?? 0}</span> 文
             </div>
             <div>
-              <span className="text-stone-500 mr-1">何仔防線:</span>
+              <span className="text-stone-500 mr-1">何不歸防線:</span>
               <span
                 className={`font-mono font-bold ${
                   (gameState?.hozaiDefense ?? 60) <= 20
@@ -442,7 +444,7 @@ export default function GamePage() {
               className="ml-2 px-2.5 py-1 rounded bg-stone-800 hover:bg-rose-900/50 hover:text-rose-300 border border-stone-700/60 hover:border-rose-700/50 text-[11px] text-stone-400 transition"
               title="抹除所有進度，重返創角頁面"
             >
-              重頭嚟過
+              重新開始
             </button>
           </div>
         </div>
@@ -506,7 +508,7 @@ export default function GamePage() {
                   value={customInput}
                   disabled={loading}
                   onChange={(e) => setCustomInput(e.target.value)}
-                  placeholder="例：就地抓一把爛泥掟落對方隻眼、翻轉張枱借力跳窗、大叫官差嚟喇..."
+                  placeholder="例：抓起泥土揚向刀手雙眼，趁亂從後窗脫身。"
                   className="flex-1 bg-stone-950 border border-stone-700/80 rounded px-3 py-2 text-xs md:text-sm focus:outline-none focus:border-amber-600 text-stone-200 placeholder:text-stone-600 disabled:opacity-50"
                 />
                 <button

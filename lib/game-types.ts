@@ -12,11 +12,11 @@ export interface PlayerState {
   companion: string;
 
   // 門派與同伴隱藏數值
-  ho_defense: number;        // 何仔防線 (初始 60/100)
+  ho_defense: number;        // 何不歸防線 (初始 60/100)
   controlled_streets: number;// 轄下街區 (初始 3)
   gang_funds: number;        // 門派流動金 (文)
-  xiliang_suspicion: number; // 西涼猜忌度 (0-100)
-  monk_evidence: number;     // 僧臣罪證度 (0-100)
+  xiliang_suspicion: number; // 燕鎮嶽猜忌度 (0-100)
+  monk_evidence: number;     // 玄渡罪證度 (0-100)
   
   // 節奏控制
   combat_rounds: number;     // 當前戰鬥輪數 (封頂 3-4 回合)
@@ -41,7 +41,7 @@ export const INITIAL_PLAYER_STATE: PlayerState = {
   wit_points: 2,
   weapon: '徒手',
   inventory: ['', '', '', ''],
-  companion: '何仔（在場·防線 60/60）',
+  companion: '何不歸（在場·防線 60/60）',
 
   ho_defense: 60,
   controlled_streets: 3,
@@ -54,9 +54,9 @@ export const INITIAL_PLAYER_STATE: PlayerState = {
 };
 
 export const INITIAL_ACTIONS: string[] = [
-  'A. [城西街童扒手] 氣血40 | 鐵短錐(15) | 微波零步5%',
-  'B. [濕鳩武館棄徒] 氣血55 | 爛鐵條(20) | 斷橋沉肘5%',
-  'C. [爛賭收數佬] 氣血45 | 碎肉剪(10) | 淋紅油5%',
-  'D. [黑市醫生助手] 氣血42 | 放血薄刃(12) | 分筋挑骨5%',
-  'E. [自定義江湖人] 自訂稱號、背景與破爛物資',
+  'A. [城西街童扒手] 從黑泥街的攤隙中長大。',
+  'B. [落魄武館棄徒] 拳路未忘，舊傷難平。',
+  'C. [賭坊收帳人] 認得借據，也認得人心。',
+  'D. [黑市醫道學徒] 藥味與血色，從不認錯。',
+  'E. [自定義市井流民] 自行寫下來歷與本事。',
 ];

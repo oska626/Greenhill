@@ -16,12 +16,13 @@ interface MapModalProps {
 }
 
 const MAP_AREAS = [
-  { name: '鳴森樓', desc: '城中最老茶樓，消息匯聚之地', x: 50, y: 45 },
-  { name: '青石大街', desc: '貫穿南北的主街，商販雲集', x: 50, y: 22 },
-  { name: '後巷暗道', desc: '藏污納垢之所，江湖人出沒', x: 78, y: 55 },
-  { name: '城隍廟', desc: '夜間香火不斷，可疑人物聚集', x: 25, y: 68 },
-  { name: '碼頭倉庫', desc: '貨物進出之地，暗藏玄機', x: 82, y: 80 },
-  { name: '北城門', desc: '通往城外山道，守衛森嚴', x: 50, y: 8 },
+  { name: '青鋒堂總壇', desc: '同門落腳的舊鑄劍堂', x: 25, y: 23 },
+  { name: '晚秋茶寮', desc: '容晚秋的茶檔與消息站', x: 42, y: 40 },
+  { name: '黑泥街', desc: '攤販雜處的主街市集', x: 67, y: 37 },
+  { name: '鬼骰坊', desc: '賭檔、借貸與暗帳所在', x: 25, y: 58 },
+  { name: '裂石擂', desc: '地下拳館與打手據點', x: 78, y: 66 },
+  { name: '苦煙館', desc: '禁藥與黑市消息集散處', x: 46, y: 76 },
+  { name: '夜雨樓', desc: '風月場所，亦是情報樞紐', x: 13, y: 86 },
 ];
 
 export function MapModal({ open, onOpenChange }: MapModalProps) {
@@ -30,7 +31,7 @@ export function MapModal({ open, onOpenChange }: MapModalProps) {
       <DialogContent className="max-w-2xl border-zinc-800 bg-zinc-950 p-0 overflow-hidden">
         <DialogHeader className="px-6 pt-5 pb-3 border-b border-zinc-800">
           <DialogTitle className="text-lg font-semibold text-zinc-100">
-            青山城 · 區域分佈
+            青山城 · 城西七處據點
           </DialogTitle>
           <DialogDescription className="text-sm text-zinc-500">
             江湖路險，步步為營
@@ -109,7 +110,7 @@ export function MapModal({ open, onOpenChange }: MapModalProps) {
             className="border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
           >
             <X className="h-4 w-4 mr-1.5" />
-            关闭
+            關閉
           </Button>
         </div>
       </DialogContent>

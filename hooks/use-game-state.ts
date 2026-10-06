@@ -7,6 +7,7 @@ import {
   INITIAL_PLAYER_STATE,
   INITIAL_ACTIONS,
 } from '@/lib/game-types';
+import { renameLegacyWorldNames } from '@/lib/npc-voices';
 
 const STORAGE_KEY = 'ming-sum-pavilion-save';
 
@@ -22,7 +23,15 @@ function loadSave(): SaveData | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as SaveData;
+    const save = JSON.parse(raw) as SaveData;
+    if (save.playerState?.companion) save.playerState.companion = renameLegacyWorldNames(save.playerState.companion);
+    if (Array.isArray(save.chatHistory)) save.chatHistory = save.chatHistory.map((message) => ({
+      ...message,
+      content: message.role === 'gm' ? renameLegacyWorldNames(message.content) : message.content,
+      actions: message.actions?.map(renameLegacyWorldNames),
+    }));
+    if (Array.isArray(save.actions)) save.actions = save.actions.map(renameLegacyWorldNames);
+    return save;
   } catch {
     return null;
   }
@@ -40,7 +49,7 @@ function persistSave(data: SaveData) {
 const OPENING_MESSAGE: ChatMessage = {
   role: 'gm',
   content:
-    '青山城，連日暴雨，城西唐樓嘅瓦頂漏水如注。\n\n明心閣正堂嘅爛八仙桌上攤住幾張發黃嘅借據同半截冷硬油條。門外隱約傳嚟城東匯智樓打手嘅叫罵聲。\n\n何仔抹走額頭嘅雨水，將嘴入面嘅油條吞落去，上下打量咗你一眼：\n「咦，好生面口喎。睇你個死樣，都係走投無路先入嚟明心閣㗎啦？報個名號，撈開邊瓣呀？」\n\n【請選擇你嘅市井出身】：',
+    '青山城連日落雨。青鋒堂的舊簷擋不住水，堂中的帳頁卻仍攤得整整齊齊。門外傳來玄武樓刀手的聲音，隔著雨，也聽得出他們在催人讓街。\n\n何不歸抹去額上的雨水，把一包傷藥推到你面前。他沒有問你從哪裏逃來，只看了一眼你腳下的泥。\n何不歸：「先報上名號。這扇門還開著，你總要知道，進來之後要替誰守住它。」\n\n【選擇你的出身】：',
   actions: INITIAL_ACTIONS,
 };
 
