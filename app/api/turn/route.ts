@@ -15,7 +15,10 @@ const SPEAKER: Record<Landmark, string> = {
 
 function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker: string; line: string }): string {
   if (state.questStep === "prologue_briefing" && npcReply?.speaker === "何仔") {
-    return `${event}\n\n你伸手，藥包不動。\n何仔：「${npcReply.line}」`;
+    const detail = state.background === "自定義市井流民" && state.gender && state.skill && state.personality
+      ? "你看見藥包的麻繩沾著泥。"
+      : "你伸手，藥包不動。";
+    return `${event}\n\n${detail}\n何仔：「${npcReply.line}」`;
   }
   const clauses = event.split(/(?<=。)/).filter(Boolean);
   const midpoint = Math.max(1, Math.ceil(clauses.length / 2));
@@ -78,19 +81,14 @@ function validNarrative(value: unknown, npcReply?: { speaker: string; line: stri
   const narrationOnly = value.replace(/^[^\n：]+：[「『].*$/gm, "");
   const dialogueLines = parts[1]?.match(/\n[^：\n]+：[「『]/g) || [];
   const hoLine = parts[1]?.match(/\n何仔：「([^」]*)」/)?.[1] || "";
-  const genderMentioned = !customOpening || Boolean(customOpening.gender && (
-    /不願|保密|未定|未知/.test(customOpening.gender)
-      ? /性別|不願|保密|未定|未知/.test(hoLine)
-      : hoLine.includes(customOpening.gender)
-  ));
   return parts.length === 2 && parts.every(Boolean) && length >= 80 && length <= 120
     && !/[他她它]/.test(narrationOnly)
     && !/手機|電腦|槍械|超人|修仙|法術/.test(value)
     && dialogueLines.length === 1
     && (!npcReply || Boolean(customOpening) || parts[1].includes(`${npcReply.speaker}：「${npcReply.line}」`))
-    && (!customOpening || (Boolean(hoLine) && genderMentioned
-      && [customOpening.skill, customOpening.personality].every((detail) => detail && hoLine.includes(detail))
-      && hoLine.includes("域卡度") && hoLine.includes("五十文")))
+    && (!customOpening || (Boolean(hoLine)
+      && hoLine.includes("域卡度") && hoLine.includes("五十文")
+      && !/(你是.{0,12}，.{0,18}，性子|性別[:：]|技能[:：]|性格[:：])/.test(hoLine)))
     && value.replace(/\s/g, "") !== previousNarrative.replace(/\s/g, "");
 }
 
@@ -118,11 +116,11 @@ async function narrate(state: GameState, action: string, event: string, moneyCha
     && state.background === "自定義市井流民" && Boolean(state.gender && state.skill && state.personality);
   const openingInstruction = state.questStep === "prologue_briefing"
     ? customOpening
-      ? `自訂人物：性別「${state.gender}」、技能「${state.skill}」、性格「${state.personality}」。何仔要親口提到三項，評斷這門本事和性子會怎樣影響救域卡度、收五十文；性別只作稱呼與身份資訊，不據此推斷能力。對白自然，避免逐欄念資料。\n`
+      ? `自訂人物：性別「${state.gender}」、技能「${state.skill}」、性格「${state.personality}」。何仔先看這門本事能怎樣幫手，再從性子推斷玩家可能犯的錯或能守住的事，才交代救域卡度、收五十文。性別只影響自然稱呼，不推斷能力，也無須直說。請用何仔護短又怕欠帳的口吻，不要念「你是某性別、會某技能、性子某樣」的資料清單。\n`
       : `開局人物：出身「${state.background}」，特質「${state.trait}」。第一段用城西泥、搗藥聲、肉檔討數帶你入堂；第二段何仔當面評你，先露同門情分再壓五十文。短句有停頓。\n`
     : "";
   const replyInstruction = customOpening
-    ? "第二段由何仔說話，保留名號、三項人物資料及救域卡度與五十文規費，措辭可自行組織。\n"
+    ? "第二段由何仔親口評斷角色，再說救域卡度與收五十文規費；可以轉述人物資料，毋須逐字重複。\n"
     : npcReply ? `確定對白：${npcReply.speaker}：「${npcReply.line}」。第二段原句保留。\n` : "";
   const speaker = npcReply?.speaker || (state.currentLocation === "泥濘市集" && state.worldFlags.includes("出賣域卡度")
     ? "張屠戶" : SPEAKER[state.currentLocation]);

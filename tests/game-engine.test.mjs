@@ -35,11 +35,11 @@ test("opening gives each created background a concrete character detail", () => 
   }
 });
 
-test("custom creation keeps gender, skill and personality in Ho Zai's first-turn assessment", () => {
+test("custom opening turns profile details into Ho Zai's judgement rather than a checklist", () => {
   const profiles = [
-    { gender: "女子", skill: "辨藥", personality: "嘴硬心軟", judgement: "救人歸救人，帳也得收齊" },
-    { gender: "男子", skill: "使短刀", personality: "脾氣暴躁", judgement: "火氣收住" },
-    { gender: "非二元", skill: "摸鎖", personality: "遇事多疑", judgement: "看清退路" },
+    { gender: "女", skill: "開鎖", personality: "多疑", address: "阿七姑娘", skillCue: "鎖眼", personalityCue: "防人" },
+    { gender: "男子", skill: "使短刀", personality: "脾氣暴躁", address: "阿七兄弟", skillCue: "護人", personalityCue: "脾氣" },
+    { gender: "非二元", skill: "辨藥", personality: "嘴硬心軟", address: "阿七", skillCue: "認得藥", personalityCue: "心軟" },
   ];
   for (const profile of profiles) {
     const state = normalizeState({ ...newGame(), background: "自定義市井流民", trait: profile.skill, ...profile });
@@ -47,10 +47,10 @@ test("custom creation keeps gender, skill and personality in Ho Zai's first-turn
     assert.equal(opening.state.gender, profile.gender);
     assert.equal(opening.state.skill, profile.skill);
     assert.equal(opening.state.personality, profile.personality);
-    assert.ok(opening.npcReply.line.includes(profile.gender));
-    assert.ok(opening.npcReply.line.includes(profile.skill));
-    assert.ok(opening.npcReply.line.includes(profile.personality));
-    assert.ok(opening.npcReply.line.includes(profile.judgement));
+    assert.ok(opening.npcReply.line.startsWith(profile.address));
+    assert.ok(opening.npcReply.line.includes(profile.skillCue));
+    assert.ok(opening.npcReply.line.includes(profile.personalityCue));
+    assert.ok(!opening.npcReply.line.includes("性子"));
     assert.ok(opening.npcReply.line.includes("域卡度"));
     assert.ok(opening.npcReply.line.includes("五十文"));
     assert.equal(opening.state.maxHp, aptitude("阿七", "自定義市井流民", profile.skill).hp);

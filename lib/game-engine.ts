@@ -229,13 +229,22 @@ function customOpeningAssessment(state: GameState, address: string): string {
   const gender = state.gender || "不願透露";
   const skill = state.skill || state.trait;
   const personality = state.personality || "寡言";
-  const genderPhrase = /不願|保密|未定|未知/.test(gender) ? "性別你不願多說" : `你是${gender}`;
-  const challenge = /心軟|善良|重情|仁慈/.test(personality) ? "救人歸救人，帳也得收齊。"
-    : /衝動|暴躁|急性|莽撞/.test(personality) ? "火氣收住，先把人救回來。"
-    : /多疑|謹慎|膽小|怕事/.test(personality) ? "看清退路，別忘了先救人。"
-    : /冷酷|無情|冷漠|狠/.test(personality) ? "下得了狠手，也別把同門丟下。"
-    : "我看你做事有沒有分寸。";
-  return `${address}，${genderPhrase}，靠${skill}吃飯，性子${personality}。${challenge}去容姐換藥救域卡度，再收張屠戶五十文。`;
+  const skillName = skill.replace(/^(擅長|熟悉|懂得|會)/, "") || "這門手藝";
+  const greeting = /^(女|女子|女性)$/.test(gender) && address !== "小子" ? `${address}姑娘`
+    : /^(男|男子|男性)$/.test(gender) && address !== "小子" ? `${address}兄弟` : address;
+  const judgement = /鎖|扒|偷|盜/.test(skill) ? "鎖眼你看得明白，人心可沒那麼好撬。"
+    : /醫|藥|毒|療|止血/.test(skill) ? "你認得藥，域卡度那道傷就交你看。"
+    : /刀|劍|棍|武|拳|打/.test(skill) ? "你會動手，先拿這本事護人。"
+    : /帳|算|賭|收數|口才/.test(skill) ? "你會算帳，先把同門的命算進去。"
+    : /跑|身法|探路|輕功/.test(skill) ? "你腳步快，記得替同門留條路。"
+    : `你說會${skillName}。先用來護人。`;
+  const caution = /多疑|疑心|不信人/.test(personality) ? "你防人防得緊，自己人總得信一回。"
+    : /心軟|善良|重情|仁慈/.test(personality) ? "你心軟，我知道；該收的帳還是得收。"
+    : /衝動|暴躁|急性|莽撞/.test(personality) ? "脾氣先壓住，別替刀手省事。"
+    : /謹慎|小心|怕事/.test(personality) ? "你看得仔細，別把人耽誤了。"
+    : /冷酷|無情|冷漠|狠/.test(personality) ? "心硬可以，別把同門丟下。"
+    : `至於${personality}，回來再讓我見識。`;
+  return `${greeting}，${judgement}${caution}先去容姐換藥救域卡度；張屠戶那五十文，我替你記著。`;
 }
 
 export function normalizeState(raw: unknown): GameState | null {
