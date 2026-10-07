@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeState, resolveTurn, type GameState, type Landmark } from "@/lib/game-engine";
+import { COMPANION_IDS, relationshipLabel } from "@/lib/companion-relations";
 import { hasSectAddressViolation, npcVoiceGuide, sectMemberAddress } from "@/lib/npc-voices";
 
 const SYSTEM_PROMPT = `你是青山城城西的文字冒險主持人。這是古代底層幫派江湖；同門情分、欠帳、傷勢與地盤牽動人心。只用自然的繁體中文書面語，不用廣東話、現代口語或網絡用語。沒有神怪、高武或現代物品。
@@ -121,7 +122,10 @@ async function narrate(state: GameState, action: string, event: string, moneyCha
   const replyInstruction = npcReply ? `確定對白：${npcReply.speaker}：「${npcReply.line}」。第二段原句保留。\n` : "";
   const speaker = npcReply?.speaker || (state.currentLocation === "黑泥街" && state.worldFlags.includes("出賣陸千帆")
     ? "張斷骨" : SPEAKER[state.currentLocation]);
-  const prompt = `第 ${state.turn} 回合。地點：${state.currentLocation}；階段：${state.questStep}；你做了：${action.slice(0, 180)}。\n確定事件：${event}\n本回合 NPC：${speaker}。聲線：${npcVoiceGuide(speaker)}\n${replyInstruction}已記因果：${state.worldFlags.join("、") || "無"}。${previousNarrative ? `上一回合敘事：${previousNarrative.slice(0, 180)}。避免重複句式和對白，只描寫今回合新事件。` : ""}只寫確定事件；所有收支金額須明說。`;
+  const companion = COMPANION_IDS.find((name) => name === speaker);
+  const relation = companion ? state.relationships[companion] : undefined;
+  const relationNote = relation ? `與玩家關係：${relationshipLabel(relation)}${relation.wounded ? "，仍然帶傷" : ""}。` : "";
+  const prompt = `第 ${state.turn} 回合。地點：${state.currentLocation}；階段：${state.questStep}；你做了：${action.slice(0, 180)}。\n確定事件：${event}\n本回合 NPC：${speaker}。聲線：${npcVoiceGuide(speaker)}${relationNote}\n${replyInstruction}已記因果：${state.worldFlags.join("、") || "無"}。${previousNarrative ? `上一回合敘事：${previousNarrative.slice(0, 180)}。避免重複句式和對白，只描寫今回合新事件。` : ""}只寫確定事件；所有收支金額須明說。`;
   try {
     const response = await fetch(azureUrl(endpoint, deployment), {
       method: "POST",

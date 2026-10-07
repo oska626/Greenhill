@@ -3,7 +3,8 @@ import test from "node:test";
 import { aptitude, availableOptions, LANDMARKS, normalizeState, resolveTurn } from "../lib/game-engine.ts";
 import { NPC_VOICES, hasSectAddressViolation, npcVoiceGuide, renameLegacyWorldNames, repeatedNpcLine, sectMemberAddress } from "../lib/npc-voices.ts";
 import { createCombat, resolveCombatRound, trainMove } from "../lib/combat-engine.ts";
-import { MISSIONS, missionOptions, travelChoices } from "../lib/city-progression.ts";
+import { ENDING_OPTIONS, MISSIONS, guardLayersForLifeline, missionOptions, travelChoices } from "../lib/city-progression.ts";
+import { companionLeads, newRelationships } from "../lib/companion-relations.ts";
 
 function newGame() {
   const stats = aptitude("阿七", "賭坊收帳人", "察言觀色");
@@ -11,7 +12,7 @@ function newGame() {
     turn: 1, playerName: "阿七", background: "賭坊收帳人", trait: "察言觀色",
     currentLocation: "青鋒堂總壇", inventory: ["【灌鉛假骰】"], maxInventory: 4,
     playerHp: stats.hp, maxHp: stats.hp, playerMp: stats.mp, maxMp: stats.mp,
-    silver: 0, factionFunds: 10, sectLifeline: 60, worldFlags: [],
+    silver: 0, factionFunds: 10, sectLifeline: 60, worldFlags: [], relationships: newRelationships(),
     questStep: "prologue_briefing",
     flags: { tookHerbs: false, visitedYung: false, collectedMarketFee: false, marketAmbushTriggered: false },
   };
@@ -473,14 +474,121 @@ test("zero lifeline opens a final choice and the ending closes the game", () => 
   assert.equal(crisis.state.sectLifeline, 0);
   assert.equal(crisis.state.flags.finalCrisis, true);
   assert.equal(crisis.options.length, 3);
-  const victory = resolveTurn(crisis.state, crisis.options[0], false);
-  assert.equal(victory.state.flags.ending, "守住城西");
-  assert.match(victory.event, /守街名冊/);
-  assert.deepEqual(victory.options, []);
-  const repeated = resolveTurn(victory.state, "A. [休整]", false);
-  assert.equal(repeated.state.turn, victory.state.turn);
-  const collapse = resolveTurn({ ...crisis.state, worldFlags: ["城東吞併危機"] }, crisis.options[0], false);
+  const collapse = resolveTurn(crisis.state, crisis.options[0], false);
   assert.equal(collapse.state.flags.ending, "城西陷落");
+  assert.match(collapse.event, /守街名冊/);
+  assert.deepEqual(collapse.options, []);
+  const repeated = resolveTurn(collapse.state, "A. [休整]", false);
+  assert.equal(repeated.state.turn, collapse.state.turn);
+  const lastStand = resolveTurn({ ...crisis.state, worldFlags: MISSIONS.map((mission) => mission.clue) }, crisis.options[0], false);
+  assert.equal(lastStand.state.flags.ending, "守住城西");
+});
+
+test("high lifeline grants one guard layer per ten points from sixty", () => {
+  const clues = MISSIONS.slice(0, 3).map((mission) => mission.clue);
+  const endingAt = (lifeline) => resolveTurn({ ...newGame(), questStep: "sandbox", turn: 70, sectLifeline: lifeline,
+    worldFlags: clues, flags: { ...newGame().flags, finalCrisis: true } }, ENDING_OPTIONS[0], false);
+  const below = endingAt(59);
+  const sixty = endingAt(60);
+  assert.equal(below.state.flags.finalGuardLayers, 0);
+  assert.equal(below.state.sectLifeline, 34);
+  assert.equal(below.state.flags.ending, "城西陷落");
+  assert.equal(sixty.state.flags.finalGuardLayers, 1);
+  assert.equal(sixty.state.sectLifeline, 40);
+  assert.equal(sixty.state.flags.ending, "守住城西");
+  for (const [lifeline, layers] of [[59, 0], [60, 1], [69, 1], [70, 2], [79, 2],
+    [80, 3], [90, 4], [100, 5]]) assert.equal(guardLayersForLifeline(lifeline), layers);
+  assert.match(sixty.event, /守備1層抵銷5點/);
+  assert.equal(endingAt(60).state.flags.finalSupport, 3);
+  const extraHelp = resolveTurn({ ...newGame(), questStep: "sandbox", sectLifeline: 59,
+    worldFlags: MISSIONS.slice(0, 4).map((mission) => mission.clue), flags: { ...newGame().flags, finalCrisis: true } },
+  ENDING_OPTIONS[0], false);
+  assert.equal(extraHelp.state.flags.ending, "守住城西");
+  const cede = resolveTurn({ ...newGame(), questStep: "sandbox", sectLifeline: 60,
+    flags: { ...newGame().flags, finalCrisis: true } }, ENDING_OPTIONS[1], false);
+  assert.equal(cede.state.sectLifeline, 60);
+  assert.equal(cede.state.flags.finalGuardLayers, undefined);
+});
+
+test("a multi-turn journey may pass turn seventy before the crisis opens", () => {
+  const state = { ...newGame(), questStep: "sandbox", turn: 68, sectLifeline: 80 };
+  const choice = travelChoices(state, "夜雨樓")[0];
+  assert.equal(choice.turns, 3);
+  const arrival = resolveTurn(state, choice.label, false);
+  assert.equal(arrival.state.turn, 71);
+  assert.equal(arrival.state.flags.finalCrisis, true);
+});
+
+test("saving Lu Qianfan changes trust, injury, and help in the prologue", () => {
+  const scene = { ...newGame(), questStep: "market_collection", currentLocation: "黑泥街",
+    inventory: ["【金創散】"] };
+  const choices = availableOptions(scene);
+  const first = choices.map((choice) => resolveTurn(scene, choice, false).state);
+  assert.deepEqual(first.map((state) => state.relationships["陸千帆"].trust), [2, -2, 1, 1, 2]);
+  assert.equal(first[1].relationships["陸千帆"].wounded, true);
+  const guard = availableOptions(first[0]).find((option) => option.startsWith("B. [護住同門]"));
+  assert.ok(guard);
+  const guarded = resolveTurn(first[0], guard, false);
+  assert.equal(guarded.state.relationships["陸千帆"].trust, 3);
+  assert.ok(guarded.state.worldFlags.includes("伏擊中護住陸千帆"));
+  const betrayed = resolveTurn(scene, "F. [自訂手段] 出賣陸千帆", false).state;
+  assert.equal(betrayed.relationships["陸千帆"].estranged, true);
+  assert.equal(betrayed.relationships["陸千帆"].trust, -3);
+  assert.ok(!missionOptions({ ...betrayed, questStep: "sandbox", combat: undefined }).some((option) => option.includes("雙重勒索")));
+
+  const trusted = { ...first[0], questStep: "sandbox", combat: undefined };
+  const directions = availableOptions(trusted).find((option) => option.startsWith("M. [請陸千帆指路]"));
+  assert.ok(directions);
+  const guided = resolveTurn(trusted, directions, false);
+  assert.ok(guided.state.worldFlags.includes("熟記市集暗巷"));
+  assert.ok(!availableOptions(guided.state).some((option) => option.startsWith("M. [請陸千帆指路]")));
+
+  const wounded = { ...first[1], questStep: "sandbox", combat: undefined, currentLocation: "苦煙館", silver: 10 };
+  const medicine = availableOptions(wounded).find((option) => option.startsWith("M. [為陸千帆求藥]"));
+  assert.ok(medicine);
+  const healed = resolveTurn(wounded, medicine, false);
+  assert.equal(healed.state.silver, 0);
+  assert.equal(healed.state.relationships["陸千帆"].wounded, false);
+  assert.equal(healed.state.relationships["陸千帆"].trust, -1);
+});
+
+test("landmark choices prepare different NPCs and survive old saves", () => {
+  const complete = (missionId, careful) => {
+    const mission = MISSIONS.find((item) => item.id === missionId);
+    const origin = { ...newGame(), questStep: "sandbox", currentLocation: mission.origin };
+    const accepted = resolveTurn(origin, missionOptions(origin).find((option) => option.includes(mission.title)), false);
+    const target = { ...accepted.state, currentLocation: mission.target };
+    const action = missionOptions(target).find((option) => option.includes(mission.title)
+      && option.startsWith(careful ? "G. [辦差]" : "H. [速辦]"));
+    return resolveTurn(target, action, false).state;
+  };
+  assert.equal(complete("missing_courier", true).relationships["容晚秋"].trust, 1);
+  assert.equal(complete("missing_courier", false).relationships["容晚秋"].trust, -1);
+  assert.equal(complete("arena_probe", true).relationships["衛沉岳"].trust, 1);
+  const rushed = complete("arena_probe", false);
+  assert.equal(rushed.relationships["衛沉岳"].trust, -1);
+  assert.equal(rushed.relationships["霍破陣"].trust, 1);
+
+  const old = { ...newGame(), relationships: undefined,
+    worldFlags: ["先救陸千帆", "失蹤腳夫完成", "刀手進城路線"] };
+  const restored = normalizeState(old);
+  assert.equal(restored.relationships["陸千帆"].trust, 2);
+  assert.equal(restored.relationships["容晚秋"].trust, 1);
+  const crisis = { ...restored, questStep: "sandbox", flags: { ...restored.flags, finalCrisis: true } };
+  const cede = resolveTurn(crisis, ENDING_OPTIONS[1], false);
+  assert.deepEqual(cede.state.flags.prologueCompanionLeads, ["陸千帆", "容晚秋"]);
+  assert.deepEqual(normalizeState(cede.state).flags.prologueCompanionLeads, ["陸千帆", "容晚秋"]);
+  const flee = resolveTurn(crisis, ENDING_OPTIONS[2], false);
+  assert.deepEqual(flee.state.flags.prologueCompanionLeads, []);
+  assert.equal(flee.state.relationships["陸千帆"].trust, 2);
+  const allies = newRelationships();
+  allies["陸千帆"].trust = 2;
+  allies["陸千帆"].wounded = true;
+  assert.deepEqual(companionLeads(allies), []);
+  allies["陸千帆"].wounded = false;
+  assert.deepEqual(companionLeads(allies), ["陸千帆"]);
+  allies["陸千帆"].estranged = true;
+  assert.deepEqual(companionLeads(allies), []);
 });
 
 test("work, authorized debt collection, contracts, and lending keep accounts separate", () => {

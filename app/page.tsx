@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useRef } from "react";
 import { aptitude, availableOptions, LANDMARKS, normalizeState, type GameState, type Landmark } from "@/lib/game-engine";
-import { travelChoices } from "@/lib/city-progression";
+import { guardLayersForLifeline, travelChoices } from "@/lib/city-progression";
+import { newRelationships } from "@/lib/companion-relations";
 import { renameLegacyWorldNames } from "@/lib/npc-voices";
 import { MapModal } from "@/components/game/map-modal";
 
@@ -181,6 +182,7 @@ export default function GamePage() {
       factionFunds: 10,
       sectLifeline: 60,
       worldFlags: [],
+      relationships: newRelationships(),
       equippedWeapon: "fists",
       weaponDurability: 0,
       knownMoves: {},
@@ -443,6 +445,11 @@ export default function GamePage() {
               >
                 {gameState?.sectLifeline ?? 60}/100
               </span>
+              {gameState?.questStep === "sandbox" && (!gameState.flags.ending || gameState.flags.finalGuardLayers !== undefined) && (
+                <span className="ml-2 text-stone-400 text-[11px]" title="命脈60起每10點增加一層守備；每層抵銷5點終局攻勢">
+                  守備{gameState.flags.finalGuardLayers ?? guardLayersForLifeline(gameState.sectLifeline)}層
+                </span>
+              )}
             </div>
 
             <button

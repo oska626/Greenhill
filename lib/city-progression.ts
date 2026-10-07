@@ -1,4 +1,5 @@
 import type { GameState, Landmark } from "./game-engine.ts";
+import { applyMissionRelationship, companionLeads } from "./companion-relations.ts";
 
 type Route = { from: Landmark; to: Landmark; turns: number };
 const ROADS: Route[] = [
@@ -74,6 +75,7 @@ const missionFlag = (mission: Mission, stage: "已領" | "完成") => `${mission
 export function missionOptions(state: GameState): string[] {
   const options: string[] = [];
   for (const mission of MISSIONS) {
+    if (mission.id === "double_dues" && state.relationships["陸千帆"].estranged) continue;
     if (state.worldFlags.includes(missionFlag(mission, "完成"))) continue;
     const accepted = state.worldFlags.includes(missionFlag(mission, "已領"));
     if (!accepted && state.currentLocation === mission.origin) {
@@ -106,16 +108,22 @@ export function resolveMission(state: GameState, action: string): { event: strin
   if (mission.id === "missing_courier" && careful) state.worldFlags.push("茶寮暗道已知");
   if (mission.id === "hidden_spy" && careful) state.worldFlags.push("賭坊後巷已知");
   if (mission.id === "forged_deed" && careful) state.maxInventory = Math.min(6, state.maxInventory + 1);
-  const contact: Partial<Record<Landmark, string>> = { "青鋒堂總壇": "何不歸", "晚秋茶寮": "容晚秋", "黑泥街": "陸千帆", "鬼骰坊": "祁觀衡" };
+  applyMissionRelationship(state.relationships, mission.id, careful);
+  const contact: Partial<Record<Landmark, string>> = { "青鋒堂總壇": "何不歸", "晚秋茶寮": "容晚秋",
+    "黑泥街": state.relationships["陸千帆"].estranged ? "張斷骨" : "陸千帆", "鬼骰坊": "祁觀衡" };
   return { event: `${careful ? mission.good : mission.bad}${careful ? "青鋒堂命脈升五。" : "青鋒堂命脈減三。"}${mission.giver}私下預留在接頭處的錢袋有${mission.pay}文，你照約領作私銀。${mission.id === "double_dues" && !careful ? "另有十文規費記入公帳。" : ""}`,
     speaker: contact[mission.target] || mission.giver, line: careful ? "這事辦得實在。日後用得上。" : "眼前過得去，後頭的帳還得算。" };
 }
 
 export const ENDING_OPTIONS = [
-  "A. [固守城西] 召集同門與街坊守住七處據點；憑已辦差事決定勝算。",
+  "A. [固守城西] 召集同門與街坊守住七處據點；至少要有三項終局支援，命脈六十起每十點多一層守備。",
   "B. [割地求存] 向玄武樓交出城西產業，保住殘存同門。",
   "C. [獨自撤走] 放下青鋒堂，自城西暗巷逃生。",
 ];
+
+export function guardLayersForLifeline(lifeline: number): number {
+  return Math.max(0, Math.min(5, Math.floor((lifeline - 50) / 10)));
+}
 
 export function resolveEnding(state: GameState, action: string): string {
   const support = MISSIONS.filter((mission) => state.worldFlags.includes(mission.clue)).length;
@@ -129,10 +137,26 @@ export function resolveEnding(state: GameState, action: string): string {
     hidden_spy: "柳照霜識破耳目，提前封住夜雨樓側門",
   };
   const aid = MISSIONS.filter((mission) => state.worldFlags.includes(mission.clue)).map((mission) => help[mission.id]).join("；");
-  state.flags.ending = action.startsWith("B.") ? "割地求存" : action.startsWith("C.") ? "獨自撤走"
-    : support >= 3 && state.sectLifeline + support * 8 >= 24 ? "守住城西" : "城西陷落";
-  return state.flags.ending === "守住城西" ? `玄武樓刀手衝進城西。${aid}。青鋒堂與街坊終將刀手逼退。何不歸守住總壇，城西仍由自己人作主。`
-    : state.flags.ending === "割地求存" ? "你與何不歸交出地契，換得同門一條生路。玄武樓的旗插遍城西，青鋒堂從此受人節制。"
-      : state.flags.ending === "獨自撤走" ? "你從暗巷逃離，身後的青鋒堂招牌在火裏倒下。你活了下來，城西卻失去最後一道守護。"
-        : `你召集僅餘的人守街，${aid ? `${aid}，仍缺了足夠接應。` : "卻缺了足夠接應。"}玄武樓逐巷插旗，總壇終於失守。何不歸帶著傷者撤走，青鋒堂的基業在這一夜散盡。`;
+  if (action.startsWith("B.")) {
+    state.flags.ending = "割地求存";
+    state.flags.prologueCompanionLeads = companionLeads(state.relationships, state.flags.ending);
+    return "你與何不歸交出地契，換得同門一條生路。玄武樓的旗插遍城西，青鋒堂從此受人節制。";
+  }
+  if (action.startsWith("C.")) {
+    state.flags.ending = "獨自撤走";
+    state.flags.prologueCompanionLeads = companionLeads(state.relationships, state.flags.ending);
+    return "你從暗巷逃離，身後的青鋒堂招牌在火裏倒下。你活了下來，城西卻失去最後一道守護。";
+  }
+  const guardLayers = guardLayersForLifeline(state.sectLifeline);
+  const damageBlocked = guardLayers * 5;
+  const assaultDamage = 25 - damageBlocked;
+  state.sectLifeline = Math.max(0, state.sectLifeline - assaultDamage);
+  state.flags.finalGuardLayers = guardLayers;
+  state.flags.finalSupport = support;
+  const battleReport = `玄武樓攻勢原可削去二十五點命脈；守備${guardLayers}層抵銷${damageBlocked}點，戰後命脈餘${state.sectLifeline}點。`;
+  state.flags.ending = support >= 3 && state.sectLifeline + support * 10 >= 65 ? "守住城西" : "城西陷落";
+  state.flags.prologueCompanionLeads = companionLeads(state.relationships, state.flags.ending);
+  return state.flags.ending === "守住城西"
+    ? `玄武樓刀手衝進城西。${battleReport}${aid}。青鋒堂與街坊終將刀手逼退。何不歸守住總壇，城西仍由自己人作主。`
+    : `你召集僅餘的人守街。${battleReport}${aid ? `${aid}，仍缺了足夠接應。` : "卻缺了足夠接應。"}玄武樓逐巷插旗，總壇終於失守。何不歸帶著傷者撤走，青鋒堂的基業在這一夜散盡。`;
 }

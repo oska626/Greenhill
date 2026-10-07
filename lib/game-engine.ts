@@ -1,7 +1,9 @@
 import { renameLegacyWorldNames, repeatedNpcLine } from "./npc-voices.ts";
 import { combatOptions, createCombat, normalizeCombat, resolveCombatRound, trainMove, WEAPONS,
   type CombatState, type KnownMoves, type WeaponId } from "./combat-engine.ts";
-import { ENDING_OPTIONS, missionOptions, resolveEnding, resolveMission, travelChoices } from "./city-progression.ts";
+import { ENDING_OPTIONS, MISSIONS, missionOptions, resolveEnding, resolveMission, travelChoices } from "./city-progression.ts";
+import { COMPANION_IDS, applyMissionRelationship, changeTrust, companionLeads, newRelationships, normalizeRelationships,
+  type CompanionId, type CompanionRelationships } from "./companion-relations.ts";
 
 export const LANDMARKS = [
   "青鋒堂總壇", "晚秋茶寮", "黑泥街", "鬼骰坊", "裂石擂", "苦煙館", "夜雨樓",
@@ -30,6 +32,7 @@ export interface GameState {
   factionFunds: number;
   sectLifeline: number;
   worldFlags: string[];
+  relationships: CompanionRelationships;
   equippedWeapon?: WeaponId;
   weaponDurability?: number;
   knownMoves?: KnownMoves;
@@ -48,6 +51,9 @@ export interface GameState {
     repeatedActionCount?: number;
     ending?: string;
     finalCrisis?: boolean;
+    finalGuardLayers?: number;
+    finalSupport?: number;
+    prologueCompanionLeads?: CompanionId[];
     lastJobTurn?: number;
     loanDueTurn?: number;
   };
@@ -254,6 +260,34 @@ function customOpeningAssessment(state: GameState, address: string): string {
   return `${greeting}，${judgement}${caution}${OPENING_WORLD_BRIEFING}${OPENING_ERRAND}`;
 }
 
+function legacyRelationships(worldFlags: string[]): CompanionRelationships {
+  const relationships = newRelationships();
+  const lu = relationships["陸千帆"];
+  if (worldFlags.includes("出賣陸千帆")) {
+    lu.trust = -3;
+    lu.estranged = true;
+  } else if (worldFlags.includes("先救陸千帆") || worldFlags.includes("張斷骨規費未收")) {
+    lu.trust = 2;
+  } else if (worldFlags.includes("陸千帆傷勢加重")) {
+    lu.trust = -2;
+    lu.wounded = true;
+  } else if (worldFlags.includes("救下陸千帆")) {
+    lu.trust = 1;
+  }
+  if (worldFlags.includes("陸千帆再受刀傷")) lu.wounded = true;
+  if (worldFlags.includes("伏擊中護住陸千帆")) changeTrust(relationships, "陸千帆", 1);
+  if (worldFlags.includes("陸千帆傷勢穩定")) {
+    lu.wounded = false;
+    changeTrust(relationships, "陸千帆", 1);
+  }
+  if (worldFlags.includes("茶寮傳信接應")) changeTrust(relationships, "容晚秋", 1);
+  for (const mission of MISSIONS) {
+    if (worldFlags.includes(`${mission.title}完成`))
+      applyMissionRelationship(relationships, mission.id, worldFlags.includes(mission.clue));
+  }
+  return relationships;
+}
+
 export function normalizeState(raw: unknown): GameState | null {
   if (!raw || typeof raw !== "object") return null;
   const value = raw as Partial<GameState>;
@@ -268,6 +302,8 @@ export function normalizeState(raw: unknown): GameState | null {
   const flags = value.flags || { tookHerbs: false, visitedYung: false, collectedMarketFee: false, marketAmbushTriggered: false };
   const pendingIncident = INCIDENTS.includes(flags.pendingIncident as Incident) ? flags.pendingIncident as Incident : undefined;
   const worldFlags = Array.isArray(value.worldFlags) ? value.worldFlags.filter((flag): flag is string => typeof flag === "string").slice(0, 100).map((flag) => renameLegacyWorldNames(flag).slice(0, 30)) : [];
+  const relationships = value.relationships && typeof value.relationships === "object"
+    ? normalizeRelationships(value.relationships) : legacyRelationships(worldFlags);
   const inventory = Array.isArray(value.inventory) ? value.inventory.filter((item): item is string => typeof item === "string").slice(0, 6).map((item) => item.slice(0, 30)) : [];
   const combat = normalizeCombat(value.combat);
   const activeCombat = combat && ((combat.scenario === "market_ambush" && value.questStep === "huizhi_ambush")
@@ -298,6 +334,7 @@ export function normalizeState(raw: unknown): GameState | null {
     silver: finite(value.silver, 0, 0, Number.MAX_SAFE_INTEGER - 1000), factionFunds: finite(value.factionFunds, 10, 0, Number.MAX_SAFE_INTEGER - 1000),
     sectLifeline: finite(value.sectLifeline ?? (value as Partial<GameState> & { hozaiDefense?: unknown }).hozaiDefense, 60, 0, 100),
     worldFlags,
+    relationships,
     equippedWeapon, weaponDurability, knownMoves,
     combat: activeCombat || (value.questStep === "huizhi_ambush"
       ? createCombat("market_ambush", !worldFlags.includes("出賣陸千帆")) : undefined),
@@ -314,6 +351,11 @@ export function normalizeState(raw: unknown): GameState | null {
       lastJobTurn: finite(flags.lastJobTurn, 0, 0, 100000),
       loanDueTurn: finite(flags.loanDueTurn, 0, 0, 100000),
       finalCrisis: flags.finalCrisis === true,
+      finalGuardLayers: flags.finalGuardLayers === undefined ? undefined : finite(flags.finalGuardLayers, 0, 0, 5),
+      finalSupport: flags.finalSupport === undefined ? undefined : finite(flags.finalSupport, 0, 0, 7),
+      prologueCompanionLeads: Array.isArray(flags.prologueCompanionLeads)
+        ? flags.prologueCompanionLeads.filter((name): name is CompanionId => typeof name === "string" && COMPANION_IDS.some((id) => id === name))
+        : flags.ending ? companionLeads(relationships, flags.ending) : undefined,
       ending: typeof flags.ending === "string" && ["守住城西", "城西陷落", "割地求存", "獨自撤走"].includes(flags.ending) ? flags.ending : undefined,
     },
   };
@@ -431,6 +473,11 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
     state.playerMp = result.playerMp;
     state.equippedWeapon = result.weapon;
     state.weaponDurability = result.weaponDurability;
+    if (wasMarketAmbush && result.combat.allyPresent && action.startsWith("B. [護住同門]")
+      && !state.worldFlags.includes("伏擊中護住陸千帆")) {
+      remember(state, "伏擊中護住陸千帆");
+      changeTrust(state.relationships, "陸千帆", 1);
+    }
     if (weaponBefore === "rusty_knife" && result.weapon === "fists" && state.inventory.includes("【生鏽鐵刀】")) {
       state.inventory = state.inventory.filter((item) => item !== "【生鏽鐵刀】");
     }
@@ -461,6 +508,7 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
         }
         if (result.combat.allyWounded) {
           remember(state, "陸千帆再受刀傷");
+          state.relationships["陸千帆"].wounded = true;
           state.sectLifeline = Math.max(0, state.sectLifeline - 3);
           event += "陸千帆的舊傷又添一刀，青鋒堂命脈再減三。";
         }
@@ -534,7 +582,7 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
     else if (choice === 1) { remember(state, "認清刀手裝束"); event += "容晚秋說刀手袖口繫著灰線，你把這個記號記下。"; }
     else if (choice === 2) { remember(state, "茶寮調息"); event += "熱茶壓下疲乏，你把氣息調勻。"; }
     else if (choice === 3) { remember(state, "辨清傷藥封口"); event += "容晚秋教你認清封口的繩結與藥味。"; }
-    else if (choice === 4) { remember(state, "茶寮傳信接應"); event += "容晚秋派人通知堂口，說市集恐有埋伏。"; }
+    else if (choice === 4) { remember(state, "茶寮傳信接應"); changeTrust(state.relationships, "容晚秋", 1); event += "容晚秋派人通知堂口，說市集恐有埋伏。"; }
     state.questStep = "market_collection";
     state.currentLocation = "黑泥街";
     const herb = state.inventory.indexOf("【生草藥包】");
@@ -550,12 +598,16 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
     const maimed = customAction(action) && /打斷張斷骨|致殘張斷骨|廢了張斷骨/.test(action);
     if (betrayed) {
       remember(state, "出賣陸千帆");
+      state.relationships["陸千帆"].trust = -3;
+      state.relationships["陸千帆"].estranged = true;
       state.sectLifeline = Math.max(0, state.sectLifeline - 15);
       event += "你扣下金創散，任陸千帆帶傷獨自留在肉檔。";
     } else {
       const medicine = state.inventory.indexOf("【金創散】");
       if (medicine >= 0) state.inventory.splice(medicine, 1);
       remember(state, "救下陸千帆");
+      changeTrust(state.relationships, "陸千帆", [2, -2, 1, 1, 2][choice] ?? 1);
+      if (choice === 1) state.relationships["陸千帆"].wounded = true;
     }
     if (maimed) {
       remember(state, "打斷張斷骨右手");
@@ -618,6 +670,22 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
     if (mission) {
       event += mission.event;
       npcReply = { speaker: mission.speaker, line: mission.line };
+    } else if (state.currentLocation === "黑泥街" && action.startsWith("M. [請陸千帆指路]")
+      && state.relationships["陸千帆"].trust >= 2 && !state.relationships["陸千帆"].wounded
+      && !state.relationships["陸千帆"].estranged && !state.worldFlags.includes("熟記市集暗巷")) {
+      remember(state, "熟記市集暗巷");
+      event += "陸千帆領你走過肉檔後方的窄巷，逐一指出可避開街口眼線的轉角。你記下總壇與黑泥街之間的暗道。";
+      npcReply = { speaker: "陸千帆", line: "這條路我只帶信得過的人走。記住，回頭先看有沒有人跟著。" };
+    } else if (state.currentLocation === "苦煙館" && action.startsWith("M. [為陸千帆求藥]")
+      && state.relationships["陸千帆"].wounded && !state.relationships["陸千帆"].estranged) {
+      if (state.silver >= 10) {
+        state.silver -= 10;
+        state.relationships["陸千帆"].wounded = false;
+        changeTrust(state.relationships, "陸千帆", 1);
+        remember(state, "陸千帆傷勢穩定");
+        event += "你自掏十文私銀請顧忘生調藥，送去黑泥街替陸千帆換下浸血的布條。他傷勢漸穩，終於能再走暗巷。";
+        npcReply = { speaker: "顧忘生", line: "傷口能合上。你若還叫他帶傷硬撐，這藥便白用了。" };
+      } else event += "你拿不出十文私銀替陸千帆求藥，顧忘生先替你記下方子。";
     } else if (state.currentLocation === "夜雨樓" && action.startsWith("J. [接暗殺令]") && state.worldFlags.filter((flag) => flag.endsWith("完成")).length >= 3 && !state.worldFlags.includes("暗殺令已接")) {
       remember(state, "暗殺令已接");
       event += "柳照霜交你一張沒有署名的契紙：玄武樓的刀手頭目今晚會到黑泥街。事成付四十文私銀。";
@@ -651,10 +719,12 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
       npcReply = { speaker: "祁觀衡", line: "公數是公數，你的五文佣金我另記。" };
     } else if (state.currentLocation === "黑泥街" && action.startsWith("K. [和談追債]") && state.worldFlags.includes("追債令已領") && !state.worldFlags.includes("追債令已結")) {
       remember(state, "追債令已結"); state.factionFunds += 15; state.silver += 5;
+      changeTrust(state.relationships, "陸千帆", 1);
       event += "你同欠債攤販商量分期，先追回十五文入公帳；祁觀衡按約付你五文私銀佣金。";
       npcReply = { speaker: "陸千帆", line: "你肯留他一口飯，他下月才交得出餘款。" };
     } else if (state.currentLocation === "黑泥街" && action.startsWith("L. [強追欠款]") && state.worldFlags.includes("追債令已領") && !state.worldFlags.includes("追債令已結")) {
       remember(state, "追債令已結"); state.factionFunds += 20; state.silver += 8;
+      changeTrust(state.relationships, "陸千帆", -1);
       state.sectLifeline = Math.max(0, state.sectLifeline - 5);
       event += "你強追二十文舊款入公帳，祁觀衡付你八文私銀佣金；攤販閉門，青鋒堂命脈減五。";
       npcReply = { speaker: "陸千帆", line: "帳是平了。這條街的人可未必肯認你。" };
@@ -835,6 +905,13 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
                 : "你記下街面異動，往後遇上刀手便可早作防備。";
         }
       }
+      if (sandboxTag === "黑泥街:找陸千帆" && npcReply) {
+        const relation = state.relationships["陸千帆"];
+        npcReply.line = relation.wounded ? "這道傷還拖著我。若你真要我幫忙，先去苦煙館找顧忘生。"
+          : relation.trust >= 2 ? "後巷我替你看過。你若要走暗路，先來找我。"
+            : relation.trust < 0 ? "我走得動。你的帳先算清，別叫我替你收尾。"
+              : npcReply.line;
+      }
     }
     }
     }
@@ -946,5 +1023,12 @@ export function availableOptions(state: GameState): string[] {
     sideWork.push("K. [和談追債] 追回十五文公數，領五文私銀佣金；留下餘款欠條。");
     sideWork.push("L. [強追欠款] 追回二十文公數，領八文私銀佣金；命脈減五。");
   }
+  if (state.currentLocation === "黑泥街" && state.relationships["陸千帆"].trust >= 2
+    && !state.relationships["陸千帆"].wounded && !state.relationships["陸千帆"].estranged
+    && !state.worldFlags.includes("熟記市集暗巷"))
+    sideWork.push("M. [請陸千帆指路] 請他帶你認清黑泥街後巷，發現往總壇的暗道。");
+  if (state.currentLocation === "苦煙館" && state.relationships["陸千帆"].wounded
+    && !state.relationships["陸千帆"].estranged)
+    sideWork.push("M. [為陸千帆求藥] 自掏十文私銀請顧忘生療傷；傷勢穩定後可再同行。");
   return [...base, ...missionOptions(state), ...training, ...sideWork];
 }
