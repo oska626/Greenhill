@@ -198,7 +198,7 @@ export default function GamePage() {
     setOptions([]);
     setView("game");
     setLoading(true);
-    lastActionRef.current = `[初入堂口] ${trimmedName}（出身：${bg.name}，${selectedBgId === "custom" ? `性別：${customGender.trim()}，技能：${customSkill.trim()}，性格：${customPersonality.trim()}` : `特質：${initialTrait}`}）踏入青鋒堂總壇，向何不歸領命。`;
+    lastActionRef.current = `[初入堂口] ${trimmedName}（出身：${bg.name}，${selectedBgId === "custom" ? `性別：${customGender.trim()}，技能：${customSkill.trim()}，性格：${customPersonality.trim()}` : `特質：${initialTrait}`}）踏入青鋒堂總壇，向堂主領命。`;
 
     try {
       const res = await fetch("/api/turn", {

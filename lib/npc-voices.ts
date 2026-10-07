@@ -72,11 +72,25 @@ export function renameLegacyWorldNames(text: string): string {
 
 export type NpcName = keyof typeof NPC_VOICES;
 
+export const SECT_MEMBERS = ["你", "陸千帆", "祁觀衡", "衛沉岳", "顧忘生", "柳照霜", "霍破陣"] as const;
+export function isSectMember(speaker: string): boolean {
+  return SECT_MEMBERS.some((name) => name === speaker);
+}
+
+export function sectMemberAddress(speaker: string, line: string): string {
+  return isSectMember(speaker) ? line.replaceAll("何不歸", "堂主").replaceAll("何仔", "堂主") : line;
+}
+
+export function hasSectAddressViolation(narrative: string): boolean {
+  const dialogue = /(?:^|\n)([^：\n]+)：[「『]([^」』]*)[」』]/g;
+  return Array.from(narrative.matchAll(dialogue)).some((match) => isSectMember(match[1]) && /何不歸|何仔/.test(match[2]));
+}
+
 const SHARED_VOICE_STYLE = "全用繁體中文書面語，不用廣東話。先回應當下所見，再說利害；句子長短錯落，語意自然轉進，避免逐項報事。";
 
 export function npcVoiceGuide(speaker: string): string {
   const guide = speaker in NPC_VOICES ? NPC_VOICES[speaker as NpcName].guide : "依角色當下利益說話，讓用字顯出性格。";
-  return `${guide}${SHARED_VOICE_STYLE}`;
+  return `${guide}${SHARED_VOICE_STYLE}${isSectMember(speaker) ? "你是青鋒堂門生，提起何不歸只稱堂主，絕不直呼其名。" : ""}`;
 }
 
 export function repeatedNpcLine(speaker: string, count: number): string {

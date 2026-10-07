@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeState, resolveTurn, type GameState, type Landmark } from "@/lib/game-engine";
-import { npcVoiceGuide } from "@/lib/npc-voices";
+import { hasSectAddressViolation, npcVoiceGuide, sectMemberAddress } from "@/lib/npc-voices";
 
 const SYSTEM_PROMPT = `你是青山城城西的文字冒險主持人。這是古代底層幫派江湖；同門情分、欠帳、傷勢與地盤牽動人心。只用自然的繁體中文書面語，不用廣東話、現代口語或網絡用語。沒有神怪、高武或現代物品。
 旁白以第二人稱「你」推進。玩家名號只可在 NPC 對白出現。原地行動不重複描寫環境。以動作、傷口、器物和帳目起筆，讓事情先發生，再顯出人物的打算與代價；收束時留下當下的決定或壓力。句子長短交錯，段落有起伏，不把事件逐項列成流水帳，也不堆砌典故、口號或華麗形容詞。
-NPC 說話須符合各自的利益與習慣。話可以說得含蓄，意思必須清楚。若已提供確定對白，逐字保留該句，不另加 NPC 發言。
+NPC 說話須符合各自的利益與習慣。青鋒堂所有門生及玩家提及何不歸時一律稱「堂主」，絕不直呼其名；門派外的人可以叫「何不歸」。旁白可以寫全名。話可以說得含蓄，意思必須清楚。若已提供確定對白，逐字保留該句，不另加 NPC 發言。
 只回 JSON：{"narrative":"..."}。narrative 須 90 至 220 字，嚴格兩段，以 \\n\\n 分隔；第二段的 NPC 對白另起一行。
 只敘述提供的確定事件，不增減金錢、道具、氣血、內力或地點，不讓玩家離開城西七據點。`;
 
@@ -90,6 +90,7 @@ function validNarrative(value: unknown, npcReply?: { speaker: string; line: stri
     && !/[嘅咗喺啲唔冇嚟咁佢畀睇]/.test(value)
     && !/手機|電腦|槍械|超人|修仙|法術/.test(value)
     && dialogueLines.length === 1
+    && !hasSectAddressViolation(value)
     && (!npcReply || parts[1].includes(`${npcReply.speaker}：「${npcReply.line}」`))
     && value.replace(/\s/g, "") !== previousNarrative.replace(/\s/g, "");
 }
@@ -105,6 +106,7 @@ function azureUrl(endpoint: string, deployment: string) {
 }
 
 async function narrate(state: GameState, action: string, event: string, moneyChanged: boolean, combatTurn: boolean, npcReply?: { speaker: string; line: string }, previousNarrative = "") {
+  if (npcReply) npcReply = { ...npcReply, line: sectMemberAddress(npcReply.speaker, npcReply.line) };
   const fallback = fallbackNarrative(event, state, npcReply, combatTurn);
   const fallbackResult = (reason: string) => ({ text: fallback, source: "fallback" as const, reason });
   if (state.questStep === "prologue_briefing" && state.turn === 1) return fallbackResult("authored_opening");

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { aptitude, availableOptions, LANDMARKS, normalizeState, resolveTurn } from "../lib/game-engine.ts";
-import { NPC_VOICES, npcVoiceGuide, renameLegacyWorldNames, repeatedNpcLine } from "../lib/npc-voices.ts";
+import { NPC_VOICES, hasSectAddressViolation, npcVoiceGuide, renameLegacyWorldNames, repeatedNpcLine, sectMemberAddress } from "../lib/npc-voices.ts";
 import { createCombat, resolveCombatRound, trainMove } from "../lib/combat-engine.ts";
 import { MISSIONS, missionOptions, travelChoices } from "../lib/city-progression.ts";
 
@@ -165,7 +165,7 @@ test("training, weapon purchase, and wear are settled by rules", () => {
   assert.equal(trainMove(1, 5, 50).success, false);
   assert.equal(trainMove(1, 6, 9).success, false);
   assert.equal(trainMove(3, 50, 50).success, false);
-  let hall = resolveTurn({ ...newGame(), questStep: "sandbox", silver: 50 }, "E. [習泥鰍步] 向何不歸學保命步法。", false);
+  let hall = resolveTurn({ ...newGame(), questStep: "sandbox", silver: 50 }, "E. [習泥鰍步] 向堂主學保命步法。", false);
   assert.equal(hall.state.knownMoves.mud_step, 1);
   assert.equal(hall.state.playerMp, newGame().playerMp - 4);
   let arena = resolveTurn({ ...hall.state, currentLocation: "裂石擂" }, "B. [習裂石短拳] 向衛沉岳習拳。", false);
@@ -390,11 +390,22 @@ test("named NPCs have distinct guidance and repeat replies", () => {
   assert.match(npcVoiceGuide("祁觀衡"), /帳房/);
 });
 
+test("sect members call He Bugui 堂主 while outsiders may use his name", () => {
+  assert.equal(sectMemberAddress("霍破陣", "何不歸，守住後面。"), "堂主，守住後面。");
+  assert.equal(sectMemberAddress("裴無鋒", "何不歸，交出城西。"), "何不歸，交出城西。");
+  assert.equal(hasSectAddressViolation("霍破陣：「何不歸，守住後面。」"), true);
+  assert.equal(hasSectAddressViolation("霍破陣：「堂主，守住後面。」"), false);
+  assert.equal(hasSectAddressViolation("你：「何不歸，請吩咐。」"), true);
+  assert.equal(hasSectAddressViolation("裴無鋒：「何不歸，交出城西。」"), false);
+  assert.match(npcVoiceGuide("陸千帆"), /只稱堂主/);
+  assert.ok(availableOptions({ ...newGame(), questStep: "sandbox" }).some((option) => option.includes("問堂主")));
+});
+
 test("incident replies use the speaker involved in each branch", () => {
   const state = { ...newGame(), questStep: "sandbox", turn: 13, flags: { ...newGame().flags, pendingIncident: "missing_ledger" } };
   assert.equal(resolveTurn(state, "A. [查賭檔] 到鬼骰坊核對缺失的規費帳。", false).npcReply.speaker, "祁觀衡");
   assert.equal(resolveTurn(state, "B. [問容晚秋] 問容晚秋誰曾帶走帳簿。", false).npcReply.speaker, "容晚秋");
-  assert.equal(resolveTurn(state, "E. [告知何不歸] 把帳目破綻交給何不歸處置。", false).npcReply.speaker, "何不歸");
+  assert.equal(resolveTurn(state, "E. [告知堂主] 把帳目破綻交給堂主處置。", false).npcReply.speaker, "何不歸");
 });
 
 test("legacy defense becomes sect lifeline and a member cannot spend public funds", () => {

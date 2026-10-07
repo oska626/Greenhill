@@ -77,7 +77,7 @@ export function missionOptions(state: GameState): string[] {
     if (state.worldFlags.includes(missionFlag(mission, "完成"))) continue;
     const accepted = state.worldFlags.includes(missionFlag(mission, "已領"));
     if (!accepted && state.currentLocation === mission.origin) {
-      options.push(`G. [領差] ${mission.title}：${mission.giver}託你到${mission.target}辦事；酬勞${mission.pay}文私銀。`);
+      options.push(`G. [領差] ${mission.title}：${mission.giver === "何不歸" ? "堂主" : mission.giver}託你到${mission.target}辦事；酬勞${mission.pay}文私銀。`);
     } else if (accepted && state.currentLocation === mission.target) {
       options.push(`G. [辦差] ${mission.title}：查清來龍去脈；命脈升五，取得終局支援及${mission.pay}文私銀。`);
       options.push(`H. [速辦] ${mission.title}：先解眼前難題；命脈減三，取得${mission.pay}文私銀，留下後患。`);
