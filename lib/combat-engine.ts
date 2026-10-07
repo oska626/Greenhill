@@ -5,7 +5,7 @@ export const WEAPONS = {
 } as const;
 
 export type WeaponId = keyof typeof WEAPONS;
-export type MoveId = "mud_step" | "short_punch";
+export type MoveId = "mud_step" | "short_punch" | "soft_parry" | "point_strike";
 export type KnownMoves = Partial<Record<MoveId, number>>;
 export type CombatScenario = "market_ambush" | "arena";
 export type CombatIntent = "slash" | "flank" | "press" | "jab" | "heavy";
@@ -87,17 +87,22 @@ export function normalizeCombat(raw: unknown): CombatState | undefined {
 export function combatOptions(combat: CombatState, weapon: WeaponId, knownMoves: KnownMoves, mp: number, canTakeStick = true): string[] {
   const shortPunch = weapon === "fists" && (knownMoves.short_punch || 0) > 0 && mp >= 4;
   const mudStep = (knownMoves.mud_step || 0) > 0 && mp >= 3;
+  const softParry = (knownMoves.soft_parry || 0) > 0 && mp >= 3;
+  const pointStrike = (knownMoves.point_strike || 0) > 0 && mp >= 4;
   const terrain = combat.scenario === "market_ambush"
     ? weapon === "fists" && canTakeStick ? "抄起案邊木棍，擾亂刀手步子" : "借肉案擾亂刀手步子"
     : "借圍欄擾亂對手步子";
   return [
     shortPunch ? "A. [裂石短拳] 耗四點內力逼退對手；進攻時仍會露出空門。"
       : `A. [正面進擊] 以${WEAPONS[weapon].name}進攻；可傷敵，也須承受還擊。`,
-    mudStep ? "B. [泥鰍步] 耗三點內力護住要害，借勢還擊。"
+    softParry && mudStep ? "B. [泥鰍卸力] 耗三點內力閃開來勢，守住同門並反擊。"
+      : softParry ? "B. [卸力手] 耗三點內力卸去來勢，守住同門並反擊。"
+      : mudStep ? "B. [泥鰍步] 耗三點內力護住要害，借勢還擊。"
       : combat.allyPresent ? "B. [護住同門] 擋在陸千帆身前，少受傷，暫難擊退刀手。"
         : "B. [沉身守勢] 護住要害，少受傷，暫難擊退對手。",
     `C. [借地形] ${terrain}；最多耗二點內力。`,
-    "D. [佯攻破綻] 最多耗四點內力搶出破綻；下一擊更重，自身也會露空門。",
+    pointStrike ? "D. [辨穴陰招] 耗四點內力點破對手守勢；下一擊更重。"
+      : "D. [佯攻破綻] 最多耗四點內力搶出破綻；下一擊更重，自身也會露空門。",
     combat.allyPresent ? "E. [護人撤離] 帶陸千帆退出肉檔；保住性命，讓出街口。"
       : "E. [抽身退走] 退出這場爭鬥；保住性命，放棄眼前勝負。",
   ];
@@ -143,8 +148,11 @@ export function resolveCombatRound(input: CombatInput): CombatResolution {
     damage = Math.max(1, damage - combat.enemyGuard);
     combat.opening = 0;
   } else if (code === "B") {
+    const softRank = mp >= 3 ? Math.max(0, Math.min(3, input.knownMoves.soft_parry || 0)) : 0;
     const rank = mp >= 3 ? Math.max(0, Math.min(3, input.knownMoves.mud_step || 0)) : 0;
-    if (rank) { mp -= 3; cover = 7 + rank; damage = 1 + rank; notes.push("你側身踏出何不歸教的泥鰍步，內力減三。"); }
+    if (softRank && rank) { mp -= 3; cover = 7 + rank; damage = 2 + softRank * 2; notes.push("你踏出泥鰍步，再以卸力手化開來勢，內力減三。"); }
+    else if (softRank) { mp -= 3; cover = 6 + softRank; damage = 2 + softRank * 2; notes.push("你以柳照霜教的卸力手化開來勢，內力減三。"); }
+    else if (rank) { mp -= 3; cover = 7 + rank; damage = 1 + rank; notes.push("你側身踏出何不歸教的泥鰍步，內力減三。"); }
     else { cover = 6; damage = 1; notes.push(combat.allyPresent ? "你守住陸千帆身前的空隙。" : "你沉身護住肋下。"); }
     damage = Math.max(0, damage - combat.enemyGuard);
     combat.enemyGuard = Math.max(0, combat.enemyGuard - 1);
@@ -161,11 +169,12 @@ export function resolveCombatRound(input: CombatInput): CombatResolution {
   } else {
     const spent = Math.min(4, mp);
     mp -= spent;
-    damage = 4 + (spent === 4 ? 2 : 0) + combat.opening;
+    const rank = spent === 4 ? Math.max(0, Math.min(3, input.knownMoves.point_strike || 0)) : 0;
+    damage = 4 + (spent === 4 ? 2 : 0) + combat.opening + rank * 2;
     combat.enemyGuard = 0;
-    combat.opening = spent === 4 ? 3 : 1;
-    exposure = 1;
-    notes.push(`你佯攻搶出破綻，內力減${spent}。`);
+    combat.opening = spent === 4 ? 3 + rank : 1;
+    exposure = rank ? 0 : 1;
+    notes.push(rank ? `你照祁觀衡所教點破對手穴位，內力減四。` : `你佯攻搶出破綻，內力減${spent}。`);
   }
 
   if ((code === "A" || code === "D") && weapon !== "fists") {

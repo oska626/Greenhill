@@ -1,6 +1,6 @@
 # 03 — 主線進度、重大事件與結局判定
 
-> 此文為擴展情節構想。現行主線只有四幕教學及城西沙盒，以 [00_game_contract.md](00_game_contract.md) 為準；文中跨城行動不是玩家選項。
+> 此文保留遠期擴展情節構想。現行版本已有四幕教學、七據點差事及城東吞併危機；實際規則以 [00_game_contract.md](00_game_contract.md) 為準。文中跨城行動不是玩家選項。
 
 ## 1. 遊戲推進階段 (Phase 1–3)
 
@@ -18,7 +18,7 @@
 * **主要衝突**：
   * 黃萬鈞以城主府官印地契與租稅漏洞，勒令查封青鋒堂名下的夜雨樓、鬼骰坊與苦煙館[span_27](start_span)[span_27](end_span)[span_28](start_span)[span_28](end_span)。
   * 玄武樓秘密煉製丹藥的發狂「藥人」逃竄至城西市集大開殺戒，城北朝廷官衙（玄渡）藉機派遣大內密探暗中封鎖調查[span_29](start_span)[span_29](end_span)[span_30](start_span)[span_30](end_span)。
-  * 青鋒堂內部出現裂痕：何不歸防線瀕臨極限、霍破陣私自伏擊險死、衛沉岳拳傷舊患復發、陸千帆黑市走私被官府與仇家盯梢[span_31](start_span)[span_31](end_span)[span_32](start_span)[span_32](end_span)。
+  * 青鋒堂內部出現裂痕：青鋒堂命脈瀕臨極限、霍破陣私自伏擊險死、衛沉岳拳傷舊患復發、陸千帆黑市走私被官府與仇家盯梢[span_31](start_span)[span_31](end_span)[span_32](start_span)[span_32](end_span)。
 * **晉級條件**：查明藥人案背後的邪派丹方黑幕，或粉碎一次重大收契奪產陰謀，並在城北「玄渡」或城南「黃萬鈞」之間建立初步斡旋渠道[span_33](start_span)[span_33](end_span)[span_34](start_span)[span_34](end_span)。
 
 ---
@@ -39,7 +39,7 @@
 * **分支與代價**：
   * **正面迎戰（派霍破陣 / 衛沉岳 / 玩家拔刀）**：保住街道規費，但同門負傷，引來裴無鋒記恨並升級刺殺威脅[span_44](start_span)[span_44](end_span)。
   * **暗盤使詐（派祁觀衡 / 陸千帆 / 玩家玩泥漿陰招）**：動用生石灰、假銀票或引誘瘋狗街鼠打亂對手陣腳，逼退傭兵，但市集商戶暫停營業一日[span_45](start_span)[span_45](end_span)[span_46](start_span)[span_46](end_span)。
-  * **割地息事（交由何不歸委曲求全）**：何不歸跪低認契弟讓出半條街，青鋒堂收入銳減，何不歸防線數值受損[span_47](start_span)[span_47](end_span)[span_48](start_span)[span_48](end_span)。
+  * **割地息事（交由何不歸委曲求全）**：何不歸跪低認契弟讓出半條街，青鋒堂收入銳減，青鋒堂命脈數值受損[span_47](start_span)[span_47](end_span)[span_48](start_span)[span_48](end_span)。
 
 ---
 
@@ -61,11 +61,9 @@
 
 ---
 
-### 【事件 4：何不歸防線崩潰】（觸發：何不歸防線數值歸零或重大傷亡）
-* **情境**：何不歸長年受壓與屈辱徹底爆發，決定獨自前往玄武樓大酒家或城主府頂罪受死，以換取殘存同門一線生機[span_67](start_span)[span_67](end_span)[span_68](start_span)[span_68](end_span)。
-* **分支與代價**：
-  * **劫道救人**：集合全堂殘部殺入城東，引爆全面決戰；何不歸保住性命，但青鋒堂退路全斷，與全城黑道徹底撕破臉[span_69](start_span)[span_69](end_span)[span_70](start_span)[span_70](end_span)。
-  * **接掌大權**：冷眼坐視何不歸犧牲，玩家正式上位成為青鋒堂新堂主，門派作風徹底轉為不擇手段之陰狠[span_71](start_span)[span_71](end_span)[span_72](start_span)[span_72](end_span)。
+### 【事件 4：青鋒堂命脈歸零】（現行觸發：命脈歸零或第 70 回合）
+* **情境**：玄武樓同時向城西七處據點插旗，何不歸召集殘部，玩家須決定最後去路。
+* **分支與代價**：固守城西須靠先前完成的據點差事及剩餘命脈；割地可保住殘存同門，卻失去自主；獨自撤走則保住玩家性命，青鋒堂瓦解。
 
 ---
 
@@ -84,7 +82,7 @@ GM 必須在推演過程中暗中記錄以下數值，決定重大情節轉折[s
 
 * `青鋒堂轄下產業數`（起步：3；影響每日規費進賬與弟兄士氣，歸零則門派瓦解滅門）[span_80](start_span)[span_80](end_span)[span_81](start_span)[span_81](end_span)。
 * `門派流動金`（以文/兩銀計算；影響門派開支、同門藥石與裝備補充）[span_82](start_span)[span_82](end_span)[span_83](start_span)[span_83](end_span)。
-* `何不歸防線`（起步：60/100；何不歸每次受辱擋刀扣 5–15，歸零強制觸發【事件 4】）[span_84](start_span)[span_84](end_span)。
+* `青鋒堂命脈`（起步：60/100；反映地盤、收入、同門士氣與守備；玄武樓按回合施壓，玩家任務、撤守及捐助會改變數值；歸零觸發【事件 4】）。
 * `同門傷亡狀態`[span_85](start_span)[span_85](end_span)：
   * 衛沉岳（外門硬傷惡化度）[span_86](start_span)[span_86](end_span)[span_87](start_span)[span_87](end_span)
   * 霍破陣（走火入魔 / 傷殘狀態）[span_88](start_span)[span_88](end_span)

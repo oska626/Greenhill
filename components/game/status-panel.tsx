@@ -66,15 +66,15 @@ export function StatusPanel({ state }: StatusPanelProps) {
           <span className="text-zinc-200">{state.companion}</span>
         </div>
         <div className="flex justify-between items-center">
-          <span className="text-zinc-400">何不歸防線：</span>
+          <span className="text-zinc-400">青鋒堂命脈：</span>
           <div className="flex items-center gap-2">
             <div className="w-16 bg-zinc-800 h-1.5 rounded-full overflow-hidden">
               <div 
                 className="bg-emerald-500 h-full transition-all" 
-                style={{ width: `${Math.max(0, Math.min(100, (state.ho_defense ?? 60)))}%` }} 
+                style={{ width: `${Math.max(0, Math.min(100, (state.sect_lifeline ?? 60)))}%` }}
               />
             </div>
-            <span className="text-emerald-400 font-mono">{state.ho_defense ?? 60}/100</span>
+            <span className="text-emerald-400 font-mono">{state.sect_lifeline ?? 60}/100</span>
           </div>
         </div>
         <div className="flex justify-between text-zinc-500">

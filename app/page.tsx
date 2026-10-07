@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { aptitude, availableOptions, LANDMARKS, normalizeState, type GameState } from "@/lib/game-engine";
+import { aptitude, availableOptions, LANDMARKS, normalizeState, type GameState, type Landmark } from "@/lib/game-engine";
+import { travelChoices } from "@/lib/city-progression";
 import { renameLegacyWorldNames } from "@/lib/npc-voices";
+import { MapModal } from "@/components/game/map-modal";
 
 interface ApiResponse {
   narrative: string;
@@ -84,6 +86,8 @@ export default function GamePage() {
   const [loading, setLoading] = useState<boolean>(false);
   const [customInput, setCustomInput] = useState<string>("");
   const [errorMsg, setErrorMsg] = useState<string>("");
+  const [selectedDestination, setSelectedDestination] = useState<Landmark | null>(null);
+  const [mapOpen, setMapOpen] = useState(false);
 
   const narrativeEndRef = useRef<HTMLDivElement>(null);
   const lastActionRef = useRef<string>("");
@@ -137,6 +141,7 @@ export default function GamePage() {
       setNarrative("");
       setOptions([]);
       setCustomInput("");
+      setSelectedDestination(null);
       setErrorMsg("");
       setView("creation");
     }
@@ -174,7 +179,7 @@ export default function GamePage() {
       maxMp: stats.mp,
       silver: 0,
       factionFunds: 10,
-      hozaiDefense: 60,
+      sectLifeline: 60,
       worldFlags: [],
       equippedWeapon: "fists",
       weaponDurability: 0,
@@ -418,7 +423,7 @@ export default function GamePage() {
 
           <div className="flex items-center gap-3.5 text-stone-300">
             <div>
-              <span className="text-stone-500 mr-1">銀兩:</span>
+              <span className="text-stone-500 mr-1">私銀:</span>
               <span className="text-amber-400 font-mono font-medium">{gameState?.silver ?? 0}</span> 文
             </div>
             <div>
@@ -426,17 +431,17 @@ export default function GamePage() {
               <span className="text-emerald-400 font-mono font-medium">{gameState?.factionFunds ?? 0}</span> 文
             </div>
             <div>
-              <span className="text-stone-500 mr-1">何不歸防線:</span>
+              <span className="text-stone-500 mr-1">青鋒堂命脈:</span>
               <span
                 className={`font-mono font-bold ${
-                  (gameState?.hozaiDefense ?? 60) <= 20
+                  (gameState?.sectLifeline ?? 60) <= 20
                     ? "text-rose-500 animate-pulse"
-                    : (gameState?.hozaiDefense ?? 60) <= 40
+                    : (gameState?.sectLifeline ?? 60) <= 40
                     ? "text-amber-500"
                     : "text-emerald-400"
                 }`}
               >
-                {gameState?.hozaiDefense ?? 60}/100
+                {gameState?.sectLifeline ?? 60}/100
               </span>
             </div>
 
@@ -481,7 +486,7 @@ export default function GamePage() {
           </div>
 
           <div className="bg-stone-900/80 border border-stone-800 rounded-lg p-4 flex flex-col gap-3">
-            <div className="text-xs font-semibold text-stone-400 tracking-wider">江湖抉擇 (A - E)</div>
+            <div className="text-xs font-semibold text-stone-400 tracking-wider">江湖抉擇與據點差事</div>
             {gameState?.combat && (
               <div className="rounded border border-red-900/50 bg-red-950/25 px-3 py-2 text-xs text-red-200">
                 第 {gameState.combat.round} 回合 · 對手氣血 {gameState.combat.enemyHp} ·
@@ -491,8 +496,8 @@ export default function GamePage() {
                       : gameState.combat.enemyIntent === "jab" ? "對手正試探你的門戶" : "刀手將正面出刀"}
               </div>
             )}
-            {gameState?.questStep === "sandbox" && (
-              <div className="text-[11px] text-stone-500">每走一步，玄武樓便逼近一分。線索與欠帳，都會留到往後。</div>
+            {gameState?.questStep === "sandbox" && !gameState.flags.ending && (
+              <div className="text-[11px] text-stone-500">行路耗時，玄武樓持續施壓；差事、線索與欠帳都會留到終局。</div>
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {options.map((opt, idx) => (
@@ -507,7 +512,7 @@ export default function GamePage() {
               ))}
             </div>
 
-            {!gameState?.flags.pendingIncident && <form onSubmit={handleCustomSubmit} className="mt-2 pt-3 border-t border-stone-800 flex flex-col gap-1.5">
+            {!gameState?.flags.pendingIncident && !gameState?.flags.finalCrisis && !gameState?.flags.ending && <form onSubmit={handleCustomSubmit} className="mt-2 pt-3 border-t border-stone-800 flex flex-col gap-1.5">
               <div className="text-xs font-semibold text-amber-400/90 tracking-wider flex items-center gap-1.5">
                 <span>F. [自訂手段]</span>
                 <span className="text-[11px] text-stone-500 font-normal">自行輸入下三濫招式或突發行動破局</span>
@@ -543,10 +548,12 @@ export default function GamePage() {
               {gameState?.equippedWeapon && gameState.equippedWeapon !== "fists" && <span className="ml-2 text-stone-500">耐用 {gameState.weaponDurability}</span>}
               {gameState?.equippedWeapon === "fists" && gameState.inventory.includes("【生鏽鐵刀】") && <span className="ml-2 text-stone-500">藏刀耐用 {gameState.weaponDurability}</span>}
             </div>
-            {(gameState?.knownMoves?.mud_step || gameState?.knownMoves?.short_punch) ? (
+            {(gameState?.knownMoves?.mud_step || gameState?.knownMoves?.short_punch || gameState?.knownMoves?.soft_parry || gameState?.knownMoves?.point_strike) ? (
               <div className="text-xs text-stone-400">所學：<span className="text-stone-200">{[
                 gameState.knownMoves.mud_step ? `泥鰍步 ${gameState.knownMoves.mud_step} 層` : "",
                 gameState.knownMoves.short_punch ? `裂石短拳 ${gameState.knownMoves.short_punch} 層` : "",
+                gameState.knownMoves.soft_parry ? `卸力手 ${gameState.knownMoves.soft_parry} 層` : "",
+                gameState.knownMoves.point_strike ? `辨穴陰招 ${gameState.knownMoves.point_strike} 層` : "",
               ].filter(Boolean).join("、")}</span></div>
             ) : null}
             {gameState?.personality && <div className="text-xs text-stone-400">性格：<span className="text-stone-200">{gameState.personality}</span></div>}
@@ -630,23 +637,37 @@ export default function GamePage() {
           </div>
 
           <div className="bg-stone-900/80 border border-stone-800 rounded-lg p-4 space-y-2 text-xs">
-            <div className="font-semibold text-stone-400 mb-2">城西地標與堂口</div>
+            <div className="flex items-center justify-between mb-2"><div className="font-semibold text-stone-400">城西地標與路程</div>
+              <button type="button" onClick={() => setMapOpen(true)} className="text-amber-400 hover:text-amber-200">查看地圖</button></div>
             <div className="space-y-1.5 text-stone-400">
               {LANDMARKS.map((location) => (
                 <button
                   key={location}
                   type="button"
-                  disabled={loading || gameState?.questStep !== "sandbox" || Boolean(gameState?.flags.pendingIncident)}
-                  onClick={() => handleAction(`F. [前往] ${location}`)}
+                  disabled={loading || gameState?.questStep !== "sandbox" || Boolean(gameState?.flags.pendingIncident) || Boolean(gameState?.flags.finalCrisis) || Boolean(gameState?.flags.ending) || gameState?.currentLocation === location}
+                  onClick={() => setSelectedDestination(location)}
                   className={`block w-full text-left py-1 px-2 rounded disabled:opacity-45 ${gameState?.currentLocation === location ? "text-amber-300 bg-stone-800" : "hover:bg-stone-800 hover:text-stone-200"}`}
                 >
-                  {location}
+                  {location}{gameState && gameState.currentLocation !== location ? ` · ${travelChoices(gameState, location)[0]?.turns || 1}回合` : " · 目前所在"}
                 </button>
               ))}
             </div>
+            {gameState && selectedDestination && gameState.currentLocation !== selectedDestination && !gameState.flags.finalCrisis && !gameState.flags.ending && (
+              <div className="space-y-1.5 border-t border-stone-700 pt-2">
+                <div className="text-amber-300">前往{selectedDestination}，揀一條路：</div>
+                {travelChoices(gameState, selectedDestination).map((route) => (
+                  <button key={route.kind} type="button" disabled={loading || Boolean(gameState.flags.pendingIncident)}
+                    onClick={() => handleAction(route.label)}
+                    className="block w-full text-left rounded border border-stone-700 bg-stone-800 px-2 py-1.5 hover:border-amber-700 disabled:opacity-40">
+                    {route.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </aside>
       </main>
+      <MapModal open={mapOpen} onOpenChange={setMapOpen} state={gameState} />
     </div>
   );
 }

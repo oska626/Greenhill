@@ -12,7 +12,7 @@ export interface PlayerState {
   companion: string;
 
   // 門派與同伴隱藏數值
-  ho_defense: number;        // 何不歸防線 (初始 60/100)
+  sect_lifeline: number;        // 青鋒堂命脈 (初始 60/100)
   controlled_streets: number;// 轄下街區 (初始 3)
   gang_funds: number;        // 門派流動金 (文)
   xiliang_suspicion: number; // 燕鎮嶽猜忌度 (0-100)
@@ -43,7 +43,7 @@ export const INITIAL_PLAYER_STATE: PlayerState = {
   inventory: ['', '', '', ''],
   companion: '何不歸（在場·防線 60/60）',
 
-  ho_defense: 60,
+  sect_lifeline: 60,
   controlled_streets: 3,
   gang_funds: 50,
   xiliang_suspicion: 10,

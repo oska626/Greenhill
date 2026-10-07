@@ -30,13 +30,13 @@ function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker
     return `${first}\n\n${second}\n${speaker}：「${line}」`;
   }
   const clauses = event.split(/(?<=。)/).filter(Boolean);
-  const pressure = clauses.at(-1)?.startsWith("玄武樓又向城西逼近一步") ? clauses.pop() || "" : "";
+  const pressure = clauses.at(-1)?.startsWith("玄武樓趁") ? clauses.pop() || "" : "";
   const midpoint = Math.max(1, Math.ceil(clauses.length / 2));
   const first = pressure ? clauses.join("") + pressure : clauses.slice(0, midpoint).join("");
   let second = pressure ? "" : clauses.slice(midpoint).join("");
   const visibleLength = (text: string) => Array.from(text.replace(/\s/g, "")).length;
   const sandboxDetail: Record<Landmark, string[]> = {
-    "青鋒堂總壇": ["你翻看堂口帳簿，知道一文公款也不能亂花。", "你記住何不歸的臉色，防線還要有人守。"],
+    "青鋒堂總壇": ["你翻看堂口帳簿，知道一文公款也不能亂花。", "你記住何不歸的臉色，堂口還要有人守。"],
     "晚秋茶寮": ["你掂量藥價，也記住容晚秋提醒過的刀手。", "你收好錢袋，沒有忘記市集的傷號。"],
     "黑泥街": ["你盯住肉檔與巷口，防著舊仇再來。", "你掂量今日規費，沒有把公款當私銀。"],
     "鬼骰坊": ["鬼骰坊的叫喝聲不曾停。你收好錢袋，知道每一筆都有人記著。", "桌上的銅錢仍在移動，你卻得先算清下一筆帳。"],
@@ -151,6 +151,7 @@ export async function POST(req: NextRequest) {
   }
   const opening = payload.action.startsWith("[初入堂口]") && state.questStep === "prologue_briefing" && state.turn === 1;
   const turn = resolveTurn(state, payload.action, opening);
+  if (turn.state.flags.ending) return NextResponse.json({ narrative: turn.event, options: [], state: turn.state, narrativeSource: "ending" });
   const previousNarrative = typeof payload.previousNarrative === "string" ? payload.previousNarrative.slice(0, 500) : "";
   const narration = await narrate(turn.state, payload.action, turn.event, Boolean(turn.moneyNote), Boolean(state.combat || turn.state.combat), turn.npcReply, previousNarrative);
   return NextResponse.json({

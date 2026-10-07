@@ -9,10 +9,13 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { X } from 'lucide-react';
+import { ROAD_LINKS, SECRET_LINKS } from '@/lib/city-progression';
+import type { GameState } from '@/lib/game-engine';
 
 interface MapModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  state?: GameState | null;
 }
 
 const MAP_AREAS = [
@@ -25,7 +28,8 @@ const MAP_AREAS = [
   { name: '夜雨樓', desc: '風月場所，亦是情報樞紐', x: 13, y: 86 },
 ];
 
-export function MapModal({ open, onOpenChange }: MapModalProps) {
+export function MapModal({ open, onOpenChange, state }: MapModalProps) {
+  const position = (name: string) => MAP_AREAS.find((area) => area.name === name)!;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl border-zinc-800 bg-zinc-950 p-0 overflow-hidden">
@@ -55,9 +59,13 @@ export function MapModal({ open, onOpenChange }: MapModalProps) {
               {/* City walls */}
               <div className="absolute inset-2 border-2 border-dashed border-zinc-700/60 rounded-lg" />
 
-              {/* Roads */}
-              <div className="absolute left-1/2 top-2 bottom-2 w-px bg-zinc-700/40 -translate-x-1/2" />
-              <div className="absolute top-1/2 left-2 right-2 h-px bg-zinc-700/40 -translate-y-1/2" />
+              <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="城西明路與已發現暗道">
+                {ROAD_LINKS.map((road) => <line key={`${road.from}-${road.to}`} x1={position(road.from).x} y1={position(road.from).y}
+                  x2={position(road.to).x} y2={position(road.to).y} stroke="#a8a29e" strokeOpacity="0.55" strokeWidth="0.6" />)}
+                {SECRET_LINKS.filter((route) => state?.worldFlags.includes(route.flag)).map((route) =>
+                  <line key={`${route.from}-${route.to}`} x1={position(route.from).x} y1={position(route.from).y}
+                    x2={position(route.to).x} y2={position(route.to).y} stroke="#f59e0b" strokeWidth="0.8" strokeDasharray="2 1" />)}
+              </svg>
 
               {/* Area markers */}
               {MAP_AREAS.map((area, i) => (
@@ -83,6 +91,7 @@ export function MapModal({ open, onOpenChange }: MapModalProps) {
               ))}
             </div>
           </div>
+          <p className="text-xs text-zinc-400">灰線：明路；金色虛線：已發現暗道。選目的地後可比較路程與風險。</p>
 
           {/* Area legend */}
           <div className="grid grid-cols-2 gap-2">
