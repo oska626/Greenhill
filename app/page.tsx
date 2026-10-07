@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { aptitude, availableOptions, LANDMARKS, normalizeState, type GameState, type Landmark } from "@/lib/game-engine";
+import { aptitude, availableOptions, CUSTOM_ACTION_START, LANDMARKS, normalizeState, type GameState, type Landmark } from "@/lib/game-engine";
 import { guardLayersForLifeline, travelChoices } from "@/lib/city-progression";
 import { newRelationships } from "@/lib/companion-relations";
 import { renameLegacyWorldNames } from "@/lib/npc-voices";
@@ -12,6 +12,7 @@ interface ApiResponse {
   options: string[];
   state: GameState;
   error?: string;
+  narrativeSource?: string;
 }
 
 interface SavedGameData {
@@ -179,6 +180,7 @@ export default function GamePage() {
       playerMp: stats.mp,
       maxMp: stats.mp,
       silver: 0,
+      customActionUses: CUSTOM_ACTION_START,
       factionFunds: 10,
       sectLifeline: 60,
       worldFlags: [],
@@ -267,6 +269,11 @@ export default function GamePage() {
       const nextNarrative = data.narrative;
       const nextOptions = data.options || [];
 
+      if (data.narrativeSource === "custom_rejected") {
+        setErrorMsg(nextNarrative);
+        return;
+      }
+
       setGameState(nextState);
       setNarrative(nextNarrative);
       setOptions(nextOptions);
@@ -283,7 +290,7 @@ export default function GamePage() {
 
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customInput.trim() || gameState?.flags.pendingIncident) return;
+    if (!customInput.trim()) return;
     handleAction(`F. [自訂手段] ${customInput.trim()}`);
   };
 
@@ -519,23 +526,24 @@ export default function GamePage() {
               ))}
             </div>
 
-            {!gameState?.flags.pendingIncident && !gameState?.flags.finalCrisis && !gameState?.flags.ending && <form onSubmit={handleCustomSubmit} className="mt-2 pt-3 border-t border-stone-800 flex flex-col gap-1.5">
+            {!gameState?.flags.finalCrisis && !gameState?.flags.ending && <form onSubmit={handleCustomSubmit} className="mt-2 pt-3 border-t border-stone-800 flex flex-col gap-1.5">
               <div className="text-xs font-semibold text-amber-400/90 tracking-wider flex items-center gap-1.5">
-                <span>F. [自訂手段]</span>
-                <span className="text-[11px] text-stone-500 font-normal">自行輸入下三濫招式或突發行動破局</span>
+                <span>F. [自訂手段] 剩餘 {gameState?.customActionUses ?? 0} 次</span>
+                <span className="text-[11px] text-stone-500 font-normal">限 50 字；完成差事或到總壇付 50 文私銀補給</span>
               </div>
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={customInput}
-                  disabled={loading}
+                  disabled={loading || !gameState?.customActionUses}
                   onChange={(e) => setCustomInput(e.target.value)}
-                  placeholder="例：抓起泥土揚向刀手雙眼，趁亂從後窗脫身。"
+                  placeholder="寫明眼前人物或物件，同埋你打算點做。"
+                  maxLength={50}
                   className="flex-1 bg-stone-950 border border-stone-700/80 rounded px-3 py-2 text-xs md:text-sm focus:outline-none focus:border-amber-600 text-stone-200 placeholder:text-stone-600 disabled:opacity-50"
                 />
                 <button
                   type="submit"
-                  disabled={loading || !customInput.trim()}
+                  disabled={loading || !customInput.trim() || !gameState?.customActionUses}
                   className="bg-amber-700 hover:bg-amber-600 text-amber-100 px-5 py-2 rounded text-xs md:text-sm font-medium transition disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
                 >
                   出招

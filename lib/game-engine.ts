@@ -4,6 +4,7 @@ import { combatOptions, createCombat, normalizeCombat, resolveCombatRound, train
 import { ENDING_OPTIONS, MISSIONS, missionOptions, resolveEnding, resolveMission, travelChoices } from "./city-progression.ts";
 import { COMPANION_IDS, applyMissionRelationship, changeTrust, companionLeads, newRelationships, normalizeRelationships,
   type CompanionId, type CompanionRelationships } from "./companion-relations.ts";
+import { negatesIrreversibleAction, type CreativeAction } from "./custom-action.ts";
 
 export const LANDMARKS = [
   "青鋒堂總壇", "晚秋茶寮", "黑泥街", "鬼骰坊", "裂石擂", "苦煙館", "夜雨樓",
@@ -12,6 +13,8 @@ export const LANDMARKS = [
 export type Landmark = typeof LANDMARKS[number];
 export type QuestStep = "prologue_briefing" | "yung_tea_stall" | "market_collection" | "huizhi_ambush" | "sandbox";
 export type Incident = "market_raid" | "missing_ledger" | "tainted_medicine";
+export const CUSTOM_ACTION_START = 2;
+export const CUSTOM_ACTION_PRICE = 50;
 
 export interface GameState {
   turn: number;
@@ -29,6 +32,7 @@ export interface GameState {
   playerMp: number;
   maxMp: number;
   silver: number;
+  customActionUses: number;
   factionFunds: number;
   sectLifeline: number;
   worldFlags: string[];
@@ -332,6 +336,7 @@ export function normalizeState(raw: unknown): GameState | null {
     playerHp: finite(value.playerHp, maxHp, 0, maxHp), maxHp,
     playerMp: finite(value.playerMp, maxMp, 0, maxMp), maxMp,
     silver: finite(value.silver, 0, 0, Number.MAX_SAFE_INTEGER - 1000), factionFunds: finite(value.factionFunds, 10, 0, Number.MAX_SAFE_INTEGER - 1000),
+    customActionUses: finite(value.customActionUses, CUSTOM_ACTION_START, 0, 100),
     sectLifeline: finite(value.sectLifeline ?? (value as Partial<GameState> & { hozaiDefense?: unknown }).hozaiDefense, 60, 0, 100),
     worldFlags,
     relationships,
@@ -439,16 +444,20 @@ function resolveIncident(state: GameState, incident: Incident, choice: number): 
   return { event: `${destination && destination !== origin ? `你沿明路費${turns}回合趕到${destination}。` : ""}${lead}${event}`, reply, turns };
 }
 
-export function resolveTurn(rawState: GameState, action: string, opening: boolean): TurnResult {
+export function resolveTurn(rawState: GameState, action: string, opening: boolean, creative?: CreativeAction, spendCustomUse = false): TurnResult {
   const state = normalizeState(rawState);
   if (!state) throw new Error("遊戲狀態無效");
   if (state.flags.ending) return { state, options: [], event: `青山城的這段故事已結束：${state.flags.ending}。`, moneyNote: "" };
+  const usesCustomAction = customAction(action) || spendCustomUse;
+  if (usesCustomAction && state.customActionUses === 0)
+    return { state, options: availableOptions(state), event: "機變次數已用盡；完成差事或到總壇請堂主補給。", moneyNote: "" };
   if (state.flags.finalCrisis) {
     if (!ENDING_OPTIONS.includes(action)) return { state, options: ENDING_OPTIONS, event: "玄武樓已壓到城西門前。你須決定青鋒堂最後的去路。", moneyNote: "" };
     return { state, options: [], event: resolveEnding(state, action), moneyNote: "" };
   }
   const oldSilver = state.silver;
   const oldFunds = state.factionFunds;
+  if (usesCustomAction) state.customActionUses -= 1;
   let event = "";
   let npcReply: TurnResult["npcReply"];
   let travelTurns = 1;
@@ -594,8 +603,9 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
     if (choice < 0) event += flavor("market_collection");
     state.questStep = "huizhi_ambush";
     state.currentLocation = "黑泥街";
-    const betrayed = customAction(action) && /背叛|出賣陸千帆|不救陸千帆/.test(action);
-    const maimed = customAction(action) && /打斷張斷骨|致殘張斷骨|廢了張斷骨/.test(action);
+    const intentionalHarm = customAction(action) && !negatesIrreversibleAction(action);
+    const betrayed = intentionalHarm && /背叛|出賣陸千帆|不救陸千帆/.test(action);
+    const maimed = intentionalHarm && /打斷張斷骨|致殘張斷骨|廢了張斷骨/.test(action);
     if (betrayed) {
       remember(state, "出賣陸千帆");
       state.relationships["陸千帆"].trust = -3;
@@ -614,7 +624,7 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
       event += "你打斷張斷骨右手，肉檔眾人看在眼裡。";
     }
     state.flags.marketAmbushTriggered = true;
-    if (customAction(action) && /私吞|昧起|袋起|自己收/.test(action)) {
+    if (intentionalHarm && /私吞|昧起|袋起|自己收/.test(action)) {
       state.silver += 50;
       state.flags.collectedMarketFee = true;
       remember(state, "私吞五十文規費");
@@ -665,11 +675,51 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
       event += resolved.event;
       npcReply = resolved.reply;
       travelTurns = resolved.turns;
+    } else if (creative && customAction(action)) {
+      const flag = `${state.currentLocation}機變${creative.goal}`;
+      if (state.worldFlags.includes(flag)) {
+        event += `你再次借${creative.anchor}試同一手，這處已沒有新的收穫。`;
+      } else if (creative.goal === "護人" && state.playerHp < 4) {
+        event += "你傷得太重，眼下護不住旁人，只得先穩住自己。";
+      } else if (["做工", "牽制"].includes(creative.goal) && state.playerMp < 3) {
+        event += "你氣力不足，這一手未能使成。";
+      } else {
+        remember(state, flag);
+        if (creative.goal === "查線索") {
+          state.sectLifeline = Math.min(100, state.sectLifeline + 2);
+          event += `你從${creative.anchor}察出旁人漏看的破綻，及早通知堂口；青鋒堂命脈升二。`;
+        } else if (creative.goal === "護人") {
+          state.playerHp -= 3;
+          state.sectLifeline = Math.min(100, state.sectLifeline + 4);
+          event += `你借${creative.anchor}護住眼前的人，自己受傷氣血減三；街面暫穩，青鋒堂命脈升四。`;
+        } else if (creative.goal === "做工") {
+          state.playerMp -= 3;
+          state.silver += 4;
+          event += `你借${creative.anchor}替人完成一樁活，內力減三，領四文私銀。`;
+        } else if (creative.goal === "牽制") {
+          state.playerMp -= 3;
+          state.sectLifeline = Math.min(100, state.sectLifeline + 3);
+          event += `你借${creative.anchor}拖住玄武樓眼線，內力減三；堂口得以補位，青鋒堂命脈升三。`;
+        } else {
+          state.sectLifeline = Math.min(100, state.sectLifeline + 2);
+          const companion = COMPANION_IDS.find((name) => name === creative.anchor);
+          if (companion) changeTrust(state.relationships, companion, 1);
+          event += `你同${creative.anchor}把眼前利害說清，對方肯替堂口留一條路；青鋒堂命脈升二。`;
+          npcReply = { speaker: creative.anchor, line: "話說明白了。眼前這一步，我會照應。" };
+        }
+      }
     } else {
     const mission = resolveMission(state, action);
     if (mission) {
       event += mission.event;
       npcReply = { speaker: mission.speaker, line: mission.line };
+    } else if (state.currentLocation === "青鋒堂總壇" && action === `N. [請堂主授機變] 付${CUSTOM_ACTION_PRICE}文私銀，請堂主補給一次機變；公款不動。`) {
+      if (state.silver >= CUSTOM_ACTION_PRICE) {
+        state.silver -= CUSTOM_ACTION_PRICE;
+        state.customActionUses += 1;
+        event += `你從私囊數出${CUSTOM_ACTION_PRICE}文交給堂主，換得一次額外機變；公款未動。`;
+        npcReply = { speaker: "何不歸", line: "這筆是你的私銀，我記清了。下回出手，先看準局勢。" };
+      } else event += `你私銀不足${CUSTOM_ACTION_PRICE}文，堂主叫你先把眼前差事辦妥。`;
     } else if (state.currentLocation === "黑泥街" && action.startsWith("M. [請陸千帆指路]")
       && state.relationships["陸千帆"].trust >= 2 && !state.relationships["陸千帆"].wounded
       && !state.relationships["陸千帆"].estranged && !state.worldFlags.includes("熟記市集暗巷")) {
@@ -1030,5 +1080,7 @@ export function availableOptions(state: GameState): string[] {
   if (state.currentLocation === "苦煙館" && state.relationships["陸千帆"].wounded
     && !state.relationships["陸千帆"].estranged)
     sideWork.push("M. [為陸千帆求藥] 自掏十文私銀請顧忘生療傷；傷勢穩定後可再同行。");
+  if (state.currentLocation === "青鋒堂總壇")
+    sideWork.push(`N. [請堂主授機變] 付${CUSTOM_ACTION_PRICE}文私銀，請堂主補給一次機變；公款不動。`);
   return [...base, ...missionOptions(state), ...training, ...sideWork];
 }

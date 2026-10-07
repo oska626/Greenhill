@@ -81,8 +81,8 @@ export function missionOptions(state: GameState): string[] {
     if (!accepted && state.currentLocation === mission.origin) {
       options.push(`G. [領差] ${mission.title}：${mission.giver === "何不歸" ? "堂主" : mission.giver}託你到${mission.target}辦事；酬勞${mission.pay}文私銀。`);
     } else if (accepted && state.currentLocation === mission.target) {
-      options.push(`G. [辦差] ${mission.title}：查清來龍去脈；命脈升五，取得終局支援及${mission.pay}文私銀。`);
-      options.push(`H. [速辦] ${mission.title}：先解眼前難題；命脈減三，取得${mission.pay}文私銀，留下後患。`);
+      options.push(`G. [辦差] ${mission.title}：查清來龍去脈；命脈升五，取得終局支援、機變一次及${mission.pay}文私銀。`);
+      options.push(`H. [速辦] ${mission.title}：先解眼前難題；命脈減三，取得機變一次及${mission.pay}文私銀，留下後患。`);
     }
   }
   return options;
@@ -102,6 +102,7 @@ export function resolveMission(state: GameState, action: string): { event: strin
   state.worldFlags.push(missionFlag(mission, "完成"));
   if (careful) state.worldFlags.push(mission.clue);
   state.silver += mission.pay;
+  state.customActionUses = Math.min(100, state.customActionUses + 1);
   if (careful) state.sectLifeline = Math.min(100, state.sectLifeline + 5);
   else state.sectLifeline = Math.max(0, state.sectLifeline - 3);
   if (mission.id === "double_dues" && !careful) state.factionFunds += 10;
@@ -111,7 +112,7 @@ export function resolveMission(state: GameState, action: string): { event: strin
   applyMissionRelationship(state.relationships, mission.id, careful);
   const contact: Partial<Record<Landmark, string>> = { "青鋒堂總壇": "何不歸", "晚秋茶寮": "容晚秋",
     "黑泥街": state.relationships["陸千帆"].estranged ? "張斷骨" : "陸千帆", "鬼骰坊": "祁觀衡" };
-  return { event: `${careful ? mission.good : mission.bad}${careful ? "青鋒堂命脈升五。" : "青鋒堂命脈減三。"}${mission.giver}私下預留在接頭處的錢袋有${mission.pay}文，你照約領作私銀。${mission.id === "double_dues" && !careful ? "另有十文規費記入公帳。" : ""}`,
+  return { event: `${careful ? mission.good : mission.bad}${careful ? "青鋒堂命脈升五。" : "青鋒堂命脈減三。"}${mission.giver}私下預留在接頭處的錢袋有${mission.pay}文，你照約領作私銀；機變次數回復一。${mission.id === "double_dues" && !careful ? "另有十文規費記入公帳。" : ""}`,
     speaker: contact[mission.target] || mission.giver, line: careful ? "這事辦得實在。日後用得上。" : "眼前過得去，後頭的帳還得算。" };
 }
 
