@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { aptitude, availableOptions, CUSTOM_ACTION_START, LANDMARKS, normalizeState, type GameState, type Landmark } from "@/lib/game-engine";
+import { CUSTOM_ACTION_MAX } from "@/lib/custom-action";
 import { guardLayersForLifeline, travelChoices } from "@/lib/city-progression";
 import { newRelationships } from "@/lib/companion-relations";
 import { renameLegacyWorldNames } from "@/lib/npc-voices";
@@ -528,7 +529,7 @@ export default function GamePage() {
 
             {!gameState?.flags.finalCrisis && !gameState?.flags.ending && <form onSubmit={handleCustomSubmit} className="mt-2 pt-3 border-t border-stone-800 flex flex-col gap-1.5">
               <div className="text-xs font-semibold text-amber-400/90 tracking-wider flex items-center gap-1.5">
-                <span>F. [自訂手段] 剩餘 {gameState?.customActionUses ?? 0} 次</span>
+                <span>F. [自訂手段] {gameState?.customActionUses ?? 0}/{CUSTOM_ACTION_MAX}</span>
                 <span className="text-[11px] text-stone-500 font-normal">限 50 字；完成差事或到總壇付 50 文私銀補給</span>
               </div>
               <div className="flex gap-2">

@@ -1,5 +1,7 @@
 import type { GameState, Landmark } from "./game-engine.ts";
 
+export const CUSTOM_ACTION_MAX = 2;
+
 export const SCENE_ANCHORS: Record<Landmark, readonly string[]> = {
   "青鋒堂總壇": ["帳簿", "門閂", "堂口同門", "何不歸"],
   "晚秋茶寮": ["茶桌", "藥包", "容晚秋"],
