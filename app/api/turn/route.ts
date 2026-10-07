@@ -13,10 +13,21 @@ const SPEAKER: Record<Landmark, string> = {
   "鬼骰坊": "祁觀衡", "裂石擂": "衛沉岳", "苦煙館": "顧忘生", "夜雨樓": "柳照霜",
 };
 
-function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker: string; line: string }): string {
+function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker: string; line: string }, combatTurn = false): string {
   if (state.questStep === "prologue_briefing" && npcReply?.speaker === "何不歸") {
     const detail = "你看見何不歸指節上的舊傷，也看見藥包旁那本未合上的帳。";
     return `${event}\n\n${detail}\n何不歸：「${npcReply.line}」`;
+  }
+  if (combatTurn) {
+    const sentences = event.split(/(?<=。)/).filter(Boolean);
+    const midpoint = Math.max(1, Math.ceil(sentences.length / 2));
+    const first = sentences.slice(0, midpoint).join("");
+    const second = sentences.slice(midpoint).join("") || "勝負尚未定下，你仍須看清對方下一步。";
+    const speaker = npcReply?.speaker || (state.currentLocation === "裂石擂" ? "衛沉岳"
+      : state.worldFlags.includes("出賣陸千帆") ? "張斷骨" : "陸千帆");
+    const line = npcReply?.line || (state.currentLocation === "裂石擂" ? "先看他的肩。拳還未到。"
+      : state.worldFlags.includes("出賣陸千帆") ? "你一個人守得住這條街？" : "刀手近了。先看他握刀的手。");
+    return `${first}\n\n${second}\n${speaker}：「${line}」`;
   }
   const clauses = event.split(/(?<=。)/).filter(Boolean);
   const pressure = clauses.at(-1)?.startsWith("玄武樓又向城西逼近一步") ? clauses.pop() || "" : "";
@@ -93,10 +104,11 @@ function azureUrl(endpoint: string, deployment: string) {
   return `${base}/openai/deployments/${deployment}/chat/completions?api-version=${version}`;
 }
 
-async function narrate(state: GameState, action: string, event: string, moneyChanged: boolean, npcReply?: { speaker: string; line: string }, previousNarrative = "") {
-  const fallback = fallbackNarrative(event, state, npcReply);
+async function narrate(state: GameState, action: string, event: string, moneyChanged: boolean, combatTurn: boolean, npcReply?: { speaker: string; line: string }, previousNarrative = "") {
+  const fallback = fallbackNarrative(event, state, npcReply, combatTurn);
   const fallbackResult = (reason: string) => ({ text: fallback, source: "fallback" as const, reason });
   if (state.questStep === "prologue_briefing" && state.turn === 1) return fallbackResult("authored_opening");
+  if (combatTurn) return fallbackResult("calculated_combat");
   // The deterministic account already contains the exact transaction.
   if (moneyChanged) return fallbackResult("money_change");
   const key = process.env.AZURE_OPENAI_API_KEY || process.env.AZURE_API_KEY;
@@ -140,7 +152,7 @@ export async function POST(req: NextRequest) {
   const opening = payload.action.startsWith("[初入堂口]") && state.questStep === "prologue_briefing" && state.turn === 1;
   const turn = resolveTurn(state, payload.action, opening);
   const previousNarrative = typeof payload.previousNarrative === "string" ? payload.previousNarrative.slice(0, 500) : "";
-  const narration = await narrate(turn.state, payload.action, turn.event, Boolean(turn.moneyNote), turn.npcReply, previousNarrative);
+  const narration = await narrate(turn.state, payload.action, turn.event, Boolean(turn.moneyNote), Boolean(state.combat || turn.state.combat), turn.npcReply, previousNarrative);
   return NextResponse.json({
     narrative: narration.text, options: turn.options, state: turn.state,
     narrativeSource: narration.source,

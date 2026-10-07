@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { aptitude, availableOptions, LANDMARKS, normalizeState, resolveTurn } from "../lib/game-engine.ts";
 import { NPC_VOICES, npcVoiceGuide, renameLegacyWorldNames, repeatedNpcLine } from "../lib/npc-voices.ts";
+import { createCombat, resolveCombatRound, trainMove } from "../lib/combat-engine.ts";
 
 function newGame() {
   const stats = aptitude("阿七", "賭坊收帳人", "察言觀色");
@@ -13,6 +14,12 @@ function newGame() {
     questStep: "prologue_briefing",
     flags: { tookHerbs: false, visitedYung: false, collectedMarketFee: false, marketAmbushTriggered: false },
   };
+}
+
+function finishCombat(turn) {
+  for (let round = 0; round < 5 && turn.state.combat; round++) turn = resolveTurn(turn.state, turn.options[0], false);
+  assert.equal(turn.state.combat, undefined, "combat must resolve within four rounds");
+  return turn;
 }
 
 test("opening gives each created background a concrete character detail", () => {
@@ -100,7 +107,7 @@ test("tutorial choices advance one scene while preserving their different costs"
         assert.equal(ambush.state.factionFunds, market.state.factionFunds + [50, 50, 30, 20, 0][index]);
         assert.equal(ambush.state.flags.collectedMarketFee, index !== 4);
         assert.ok(!ambush.state.inventory.includes("【金創散】"));
-        const sandbox = resolveTurn(ambush.state, ambush.options[0], false);
+        const sandbox = finishCombat(ambush);
         assert.equal(sandbox.state.questStep, "sandbox");
         assert.equal(sandbox.state.currentLocation, "黑泥街");
       }
@@ -127,13 +134,55 @@ test("early choices pay off during the ambush", () => {
   assert.ok(informedAmbush.state.worldFlags.includes("問清刀手兵刃"));
 });
 
-test("ambush tactics have distinct losses and a saved game receives current options", () => {
+test("ambush tactics have distinct costs and a saved game receives current options", () => {
   const ambush = { ...newGame(), questStep: "huizhi_ambush", currentLocation: "黑泥街" };
   const outcomes = availableOptions(ambush).map((option) => resolveTurn(ambush, option, false));
   assert.equal(new Set(outcomes.map((result) => `${result.state.playerHp}:${result.state.playerMp}`)).size, 5);
-  assert.ok(outcomes[4].state.worldFlags.includes("擊退伏擊刀手"));
-  const restored = normalizeState({ ...ambush, worldFlags: ["張斷骨欠費三十文"] });
-  assert.match(availableOptions({ ...restored, questStep: "sandbox" })[0], /追收張斷骨所欠30文/);
+  assert.ok(outcomes[4].state.worldFlags.includes("市集伏擊撤守"));
+  assert.ok(outcomes[4].state.hozaiDefense < ambush.hozaiDefense);
+  const restored = normalizeState({ ...ambush, questStep: "sandbox", worldFlags: ["張斷骨欠費三十文"] });
+  assert.match(availableOptions(restored)[0], /追收張斷骨所欠30文/);
+});
+
+test("combat calculation is deterministic and guards a threatened ally", () => {
+  const combat = createCombat("market_ambush", true);
+  const base = { combat, playerHp: 100, playerMp: 50, weapon: "fists", weaponDurability: 0, knownMoves: {} };
+  const first = resolveCombatRound({ ...base, action: "A. [正面進擊]" });
+  const again = resolveCombatRound({ ...base, action: "A. [正面進擊]" });
+  assert.deepEqual(first, again);
+  assert.equal(combat.round, 1, "resolver must not mutate its input");
+  assert.equal(first.outcome, "ongoing");
+  const flank = resolveCombatRound({ ...base, combat: first.combat, action: "A. [正面進擊]" });
+  const guarded = resolveCombatRound({ ...base, combat: first.combat, action: "B. [護住同門]" });
+  assert.equal(flank.combat.allyWounded, true);
+  assert.equal(guarded.combat.allyWounded, false);
+  assert.ok(guarded.playerHp > flank.playerHp);
+});
+
+test("training, weapon purchase, and wear are settled by rules", () => {
+  assert.deepEqual(trainMove(0, 4, 0), { success: true, rank: 1, mpCost: 4, silverCost: 0, reason: "" });
+  assert.equal(trainMove(1, 5, 50).success, false);
+  assert.equal(trainMove(1, 6, 9).success, false);
+  assert.equal(trainMove(3, 50, 50).success, false);
+  let hall = resolveTurn({ ...newGame(), questStep: "sandbox", silver: 50 }, "E. [習泥鰍步] 向何不歸學保命步法。", false);
+  assert.equal(hall.state.knownMoves.mud_step, 1);
+  assert.equal(hall.state.playerMp, newGame().playerMp - 4);
+  let arena = resolveTurn({ ...hall.state, currentLocation: "裂石擂" }, "B. [習裂石短拳] 向衛沉岳習拳。", false);
+  assert.equal(arena.state.knownMoves.short_punch, 1);
+  arena = resolveTurn(arena.state, "E. [整備兵器] 買刀。", false);
+  assert.equal(arena.state.equippedWeapon, "rusty_knife");
+  assert.equal(arena.state.silver, 10);
+  assert.ok(arena.state.inventory.includes("【生鏽鐵刀】"));
+  arena = resolveTurn(arena.state, arena.options[4], false);
+  assert.equal(arena.state.equippedWeapon, "fists");
+  assert.equal(arena.state.weaponDurability, 4);
+  arena = resolveTurn(arena.state, arena.options[4], false);
+  assert.equal(arena.state.equippedWeapon, "rusty_knife");
+  assert.equal(arena.state.weaponDurability, 4);
+  const breakable = { ...arena.state, combat: createCombat("arena"), weaponDurability: 1 };
+  const strike = resolveTurn(breakable, "A. [正面進擊]", false);
+  assert.equal(strike.state.equippedWeapon, "fists");
+  assert.ok(!strike.state.inventory.includes("【生鏽鐵刀】"));
 });
 
 test("market choices create collectible debts instead of identical fees", () => {
@@ -151,7 +200,7 @@ test("market choices create collectible debts instead of identical fees", () => 
   assert.ok(outcomes[3].state.worldFlags.includes("張斷骨欠費三十文"));
   assert.ok(outcomes[4].state.worldFlags.includes("張斷骨規費未收"));
   for (const index of [2, 3, 4]) {
-    let aftermath = resolveTurn(outcomes[index].state, outcomes[index].options[0], false);
+    let aftermath = finishCombat(outcomes[index]);
     assert.match(aftermath.options[0], /追收張斷骨所欠/);
     const before = aftermath.state.factionFunds;
     aftermath = resolveTurn(aftermath.state, aftermath.options[0], false);
@@ -206,8 +255,8 @@ test("betrayal and maiming alter later options and encounters", () => {
   assert.ok(turn.state.worldFlags.includes("打斷張斷骨右手"));
   assert.ok(turn.state.inventory.includes("【金創散】"));
   assert.ok(turn.options.every((option) => !option.includes("陸千帆")));
-  turn = resolveTurn(turn.state, turn.options[0], false);
-  assert.ok(turn.event.includes("獨自"));
+  assert.equal(turn.state.combat.allyPresent, false);
+  turn = finishCombat(turn);
   turn = resolveTurn(turn.state, "F. [前往] 黑泥街", false);
   assert.ok(turn.state.worldFlags.includes("屠戶避讓"));
   assert.ok(turn.options.every((option) => !option.includes("找陸千帆")));
@@ -217,6 +266,8 @@ test("sandbox travel stays inside seven landmarks and resources have a ledger", 
   let turn = resolveTurn({ ...newGame(), questStep: "sandbox" }, "F. [前往] 裂石擂", false);
   assert.equal(turn.state.currentLocation, "裂石擂");
   turn = resolveTurn(turn.state, turn.options[0], false);
+  assert.equal(turn.state.combat.scenario, "arena");
+  turn = finishCombat(turn);
   assert.equal(turn.state.silver, 20);
   assert.ok(turn.moneyNote.includes("私銀增加20文"));
   turn = resolveTurn(turn.state, "F. [前往] 晚秋茶寮", false);
@@ -247,12 +298,14 @@ test("absurd custom actions lose health and malformed numeric state is normalize
   assert.equal(turn.state.playerHp, state.maxHp - 15);
 });
 
-test("turn eight interrupts the sandbox with a new choice and resolves its consequence", () => {
+test("sandbox incident follows the finished market ambush", () => {
   let turn = resolveTurn(newGame(), "[初入堂口] 阿七", true);
-  for (let index = 0; index < 4; index++) turn = resolveTurn(turn.state, turn.options[0], false);
-  assert.equal(turn.state.turn, 5);
-  for (let index = 0; index < 3; index++) turn = resolveTurn(turn.state, turn.options[2], false);
-  assert.equal(turn.state.turn, 8);
+  for (let index = 0; index < 3; index++) turn = resolveTurn(turn.state, turn.options[0], false);
+  assert.equal(turn.state.questStep, "huizhi_ambush");
+  turn = finishCombat(turn);
+  assert.equal(turn.state.questStep, "sandbox");
+  for (let index = 0; index < 4 && !turn.state.flags.pendingIncident; index++) turn = resolveTurn(turn.state, turn.options[2], false);
+  assert.ok(turn.state.turn >= 8);
   assert.equal(turn.state.flags.pendingIncident, "market_raid");
   assert.match(turn.event, /插旗/);
   assert.match(turn.options[0], /護住攤販/);
@@ -317,6 +370,9 @@ test("older saves keep their location and consequences after the world rename", 
     "青鋒堂與玄武樓爭地，金冊莊坐收漁利。");
   assert.equal(normalizeState({ ...newGame(), background: "濕鳩武館棄徒" }).background, "落魄武館棄徒");
   assert.equal(normalizeState({ ...newGame(), background: "爛賭收數佬" }).background, "賭坊收帳人");
+  const ambush = normalizeState({ ...newGame(), questStep: "huizhi_ambush", worldFlags: ["出賣域卡度"] });
+  assert.equal(ambush.combat.scenario, "market_ambush");
+  assert.equal(ambush.combat.allyPresent, false);
 });
 
 test("named NPCs have distinct guidance and repeat replies", () => {

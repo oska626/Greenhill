@@ -176,6 +176,9 @@ export default function GamePage() {
       factionFunds: 10,
       hozaiDefense: 60,
       worldFlags: [],
+      equippedWeapon: "fists",
+      weaponDurability: 0,
+      knownMoves: {},
       questStep: "prologue_briefing",
       flags: {
         tookHerbs: false,
@@ -479,6 +482,15 @@ export default function GamePage() {
 
           <div className="bg-stone-900/80 border border-stone-800 rounded-lg p-4 flex flex-col gap-3">
             <div className="text-xs font-semibold text-stone-400 tracking-wider">江湖抉擇 (A - E)</div>
+            {gameState?.combat && (
+              <div className="rounded border border-red-900/50 bg-red-950/25 px-3 py-2 text-xs text-red-200">
+                第 {gameState.combat.round} 回合 · 對手氣血 {gameState.combat.enemyHp} ·
+                {gameState.combat.enemyIntent === "flank" ? "刀手正繞向陸千帆"
+                  : gameState.combat.enemyIntent === "heavy" ? "對手正蓄力重拳"
+                    : gameState.combat.enemyIntent === "press" ? "刀手正逼近肉案"
+                      : gameState.combat.enemyIntent === "jab" ? "對手正試探你的門戶" : "刀手將正面出刀"}
+              </div>
+            )}
             {gameState?.questStep === "sandbox" && (
               <div className="text-[11px] text-stone-500">每走一步，玄武樓便逼近一分。線索與欠帳，都會留到往後。</div>
             )}
@@ -527,6 +539,16 @@ export default function GamePage() {
               <span className="text-xs font-semibold text-stone-400">身體狀況</span>
               <span className="text-[10px] text-amber-300/80">{gameState?.skill || gameState?.trait}</span>
             </div>
+            <div className="text-xs text-stone-400">兵器：<span className="text-stone-200">{gameState?.equippedWeapon === "rusty_knife" ? "生鏽鐵刀" : gameState?.equippedWeapon === "wooden_stick" ? "案邊木棍" : "徒手"}</span>
+              {gameState?.equippedWeapon && gameState.equippedWeapon !== "fists" && <span className="ml-2 text-stone-500">耐用 {gameState.weaponDurability}</span>}
+              {gameState?.equippedWeapon === "fists" && gameState.inventory.includes("【生鏽鐵刀】") && <span className="ml-2 text-stone-500">藏刀耐用 {gameState.weaponDurability}</span>}
+            </div>
+            {(gameState?.knownMoves?.mud_step || gameState?.knownMoves?.short_punch) ? (
+              <div className="text-xs text-stone-400">所學：<span className="text-stone-200">{[
+                gameState.knownMoves.mud_step ? `泥鰍步 ${gameState.knownMoves.mud_step} 層` : "",
+                gameState.knownMoves.short_punch ? `裂石短拳 ${gameState.knownMoves.short_punch} 層` : "",
+              ].filter(Boolean).join("、")}</span></div>
+            ) : null}
             {gameState?.personality && <div className="text-xs text-stone-400">性格：<span className="text-stone-200">{gameState.personality}</span></div>}
             <div>
               <div className="flex justify-between text-xs mb-1">

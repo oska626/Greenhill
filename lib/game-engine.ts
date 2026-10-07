@@ -1,4 +1,6 @@
 import { renameLegacyWorldNames, repeatedNpcLine } from "./npc-voices.ts";
+import { combatOptions, createCombat, normalizeCombat, resolveCombatRound, trainMove, WEAPONS,
+  type CombatState, type KnownMoves, type WeaponId } from "./combat-engine.ts";
 
 export const LANDMARKS = [
   "青鋒堂總壇", "晚秋茶寮", "黑泥街", "鬼骰坊", "裂石擂", "苦煙館", "夜雨樓",
@@ -27,6 +29,10 @@ export interface GameState {
   factionFunds: number;
   hozaiDefense: number;
   worldFlags: string[];
+  equippedWeapon?: WeaponId;
+  weaponDurability?: number;
+  knownMoves?: KnownMoves;
+  combat?: CombatState;
   questStep: QuestStep;
   flags: {
     tookHerbs: boolean;
@@ -71,35 +77,18 @@ const MARKET_OPTIONS = [
   "D. [容許緩交] 先救人，收二十文，准張斷骨餘下三十文日後補交。",
   "E. [護人撤離] 先帶陸千帆離開肉檔；五十文規費暫時收不到。",
 ];
-const AMBUSH_OPTIONS = [
-  "A. [正面護人] 替陸千帆擋刀；少耗氣力，難免多受傷。",
-  "B. [掀案阻敵] 掀翻肉案擋住刀手；傷勢與氣力各有耗損。",
-  "C. [背靠背守] 與陸千帆結陣；多耗氣力，少受刀傷。",
-  "D. [登簷引敵] 踩柱登簷引開刀手；耗力最重，傷勢最輕。",
-  "E. [側翼擊敵] 擊向刀手下盤；冒險受傷，留下擊退敵人的名聲。",
-];
-const SOLO_AMBUSH_OPTIONS = [
-  "A. [正面迎敵] 獨自擋刀；少耗氣力，難免多受傷。",
-  "B. [掀案阻敵] 掀翻肉案，趁亂突圍。",
-  "C. [守住牆角] 倚牆尋隙；多耗氣力，少受刀傷。",
-  "D. [登簷引敵] 踩柱登簷；耗力最重，傷勢最輕。",
-  "E. [側翼擊敵] 擊向刀手下盤；冒險受傷，留下擊退敵人的名聲。",
-];
-const SOLO_AMBUSH_FLAVOR = ["你獨自正面擋刀。", "你獨自掀翻肉案擋敵。", "你靠牆守住巷口。", "你踩柱登簷尋隙。", "你低身擊向刀手下盤。"];
-
-const TUTORIAL_FLAVOR: Record<Exclude<QuestStep, "sandbox">, string[]> = {
+const TUTORIAL_FLAVOR: Record<Exclude<QuestStep, "sandbox" | "huizhi_ambush">, string[]> = {
   prologue_briefing: ["你接過藥包，立即動身。", "你向何不歸討路費，才接過藥包。", "你問清刀手路線，記住他們慣用的兵刃。", "你拆開藥包，驗過草藥才領命。", "你認清通往市集的暗巷，再帶藥離開。"],
   yung_tea_stall: ["你請容晚秋先配傷藥，趕在刀手前動身。", "你問清刀手裝束，請容晚秋換藥。", "你飲過熱茶，調勻氣息才換藥。", "你跟容晚秋認清藥封，再收下金創散。", "你託容晚秋向堂口傳信，換藥後趕往市集。"],
   market_collection: ["你先救陸千帆，再逼張斷骨交錢。", "你先向張斷骨索錢，讓陸千帆帶傷等候。", "你先查巷口刀手，回頭救人時已收不齊規費。", "你先救人，允張斷骨緩交餘款。", "你護陸千帆離開肉檔，暫且放下規費。"],
-  huizhi_ambush: ["你護住陸千帆，正面擋刀。", "你掀翻肉案擋住刀手。", "你與陸千帆背靠背結陣。", "你踩柱登簷，尋隙突圍。", "你低身擊向刀手下盤。"],
 };
 
 const SANDBOX_OPTIONS: Record<Landmark, string[]> = {
-  "青鋒堂總壇": ["A. [休整] 靜坐調息，回復氣血與內力。", "B. [固防] 撥二十文公款修補堂口防線。", "C. [盤點] 清點堂口帳目。", "D. [問何不歸] 問何不歸近日玄武樓動靜。", "E. [巡視] 巡視總壇守備。"],
+  "青鋒堂總壇": ["A. [休整] 靜坐調息，回復氣血與內力。", "B. [固防] 撥二十文公款修補堂口防線。", "C. [盤點] 清點堂口帳目。", "D. [問何不歸] 問何不歸近日玄武樓動靜。", "E. [習泥鰍步] 向何不歸學保命步法；耗內力與一回合。"],
   "晚秋茶寮": ["A. [買藥] 花十文私銀買金創散並敷藥。", "B. [打探] 問容晚秋城西傳聞。", "C. [喝茶] 喝茶歇腳。", "D. [辨藥] 請容晚秋辨認草藥。", "E. [看街] 留意茶檔外動靜。"],
   "黑泥街": ["A. [巡街收規] 催收十文規費，記入公款。", "B. [問價] 打聽市集藥價。", "C. [找陸千帆] 問陸千帆傷勢。", "D. [盯梢] 留意玄武樓眼線。", "E. [歇腳] 在肉檔旁歇腳，回復少許內力。"],
   "鬼骰坊": ["A. [押小] 押十文私銀賭一局。", "B. [看盤] 觀察骰盤，尋找莊家的破綻。", "C. [問祁觀衡] 問祁觀衡堂口欠帳。", "D. [查老千] 查出藏籌碼的賭客，替堂口追回銀錢。", "E. [核暗帳] 核對賭坊暗帳，替堂口追回錯漏。"],
-  "裂石擂": ["A. [打黑拳] 挨一場黑拳，賺二十文私銀。", "B. [練拳] 向衛沉岳請教拳腳。", "C. [觀擂] 觀察擂台對手。", "D. [問霍破陣] 問霍破陣拳館近況。", "E. [歇息] 在拳館歇腳。"],
+  "裂石擂": ["A. [打黑拳] 上擂迎敵；打贏可得二十文私銀，受傷自行承擔。", "B. [習裂石短拳] 向衛沉岳習拳；耗內力與一回合。", "C. [觀擂] 觀察擂台對手。", "D. [問霍破陣] 問霍破陣拳館近況。", "E. [整備兵器] 花四十文私銀買生鏽鐵刀，或花十文修刀。"],
   "苦煙館": ["A. [問藥] 打聽止血藥價。", "B. [看人] 觀察館內客人。", "C. [問顧忘生] 問顧忘生黑市傳聞。", "D. [拒藥] 拒絕來路不明的丹藥。", "E. [調製敷藥] 耗費內力調藥，替自己止傷。"],
   "夜雨樓": ["A. [問柳照霜] 問柳照霜城西消息。", "B. [聽曲] 聽一曲，稍作調息。", "C. [查客] 留意陌生客人。", "D. [問路] 問清附近暗巷。", "E. [斷開跟梢] 費些氣力甩開盯梢的人。"],
 };
@@ -142,7 +131,7 @@ const SANDBOX_REACTIONS: Record<Landmark, Record<string, Reaction>> = {
     "固防": { event: "", line: "補牆要用公款，少一文都是別人的飯錢。先把帳記清。" },
     "盤點": { event: "你翻開堂口帳簿，逐筆核對公款，沒有漏下一文。", line: "你看得清這本帳，我便能騰出手守門。別讓我白忙。" },
     "問何不歸": { event: "你問何不歸玄武樓近況，聽見城西幾處路口都添了眼線。", line: "路口又添了眼線。我能替你擋人，卻替你找不出路。" },
-    "巡視": { event: "你巡過總壇門口與後巷，記住兩處鬆動的門閂。", line: "門閂鬆了便換。今晚我守前門，後巷交給你。" },
+    "習泥鰍步": { event: "", line: "腳下先鬆，肩才不會替旁人接刀。再走一遍。" },
   },
   "晚秋茶寮": {
     "買藥": { event: "", line: "錢放在桌上。藥敷厚些，黑泥街的水不認傷口。" },
@@ -167,11 +156,11 @@ const SANDBOX_REACTIONS: Record<Landmark, Record<string, Reaction>> = {
     "核暗帳": { event: "你陪祁觀衡核對賭坊暗帳，查出一筆被人壓住的舊款。", line: "帳藏得再深，數目總有對不上的一天。這筆錢記回堂口。" },
   },
   "裂石擂": {
-    "打黑拳": { event: "", line: "錢在那裏。傷口先按住，別讓血滴到擂台外。" },
-    "練拳": { event: "你照衛沉岳指點收緊肘線，連打三記短拳。", line: "肘收回來。你的肋下，比拳先到了他面前。" },
+    "打黑拳": { event: "", line: "先看他的肩。拳未到，肩已經告訴你了。" },
+    "習裂石短拳": { event: "", line: "肘收回來。你的肋下，比拳先到了他面前。" },
     "觀擂": { event: "你看完一場擂台，記下對手換步時露出的空門。", line: "左肋有空門。看見不算，打得到才算。" },
     "問霍破陣": { event: "你問霍破陣拳館近況，聽見近來上擂的人多，能走下來的少。", line: "今早抬走一個。誰下的手？我正找他。", speaker: "霍破陣" },
-    "歇息": { event: "你在武館角落歇息，聽見擂台上拳肉相撞。", line: "歇夠，起身。" },
+    "整備兵器": { event: "", line: "刀鈍了可以磨。手若握不穩，換甚麼刀都一樣。" },
   },
   "苦煙館": {
     "問藥": { event: "你問止血藥價，先看清封口，再掂藥包分量。", line: "價寫在紙上。先看封口，再看你身上的傷值不值這包藥。" },
@@ -190,7 +179,7 @@ const SANDBOX_REACTIONS: Record<Landmark, Record<string, Reaction>> = {
 };
 
 const SANDBOX_CLUES: Record<string, string> = {
-  "青鋒堂總壇:盤點": "帳目有據", "青鋒堂總壇:問何不歸": "街面有備", "青鋒堂總壇:巡視": "街面有備",
+  "青鋒堂總壇:盤點": "帳目有據", "青鋒堂總壇:問何不歸": "街面有備",
   "晚秋茶寮:打探": "街面有備", "晚秋茶寮:辨藥": "傷藥有據", "晚秋茶寮:看街": "街面有備",
   "黑泥街:問價": "傷藥有據", "黑泥街:找陸千帆": "街面有備", "黑泥街:盯梢": "街面有備", "黑泥街:查眼線": "街面有備",
   "鬼骰坊:看盤": "已看透骰局", "鬼骰坊:問祁觀衡": "帳目有據", "鬼骰坊:查老千": "帳目有據", "鬼骰坊:核暗帳": "帳目有據",
@@ -273,6 +262,21 @@ export function normalizeState(raw: unknown): GameState | null {
   const maxMp = finite(value.maxMp, stats.mp, 1, 170);
   const flags = value.flags || { tookHerbs: false, visitedYung: false, collectedMarketFee: false, marketAmbushTriggered: false };
   const pendingIncident = INCIDENTS.includes(flags.pendingIncident as Incident) ? flags.pendingIncident as Incident : undefined;
+  const worldFlags = Array.isArray(value.worldFlags) ? value.worldFlags.filter((flag): flag is string => typeof flag === "string").slice(0, 30).map((flag) => renameLegacyWorldNames(flag).slice(0, 20)) : [];
+  const inventory = Array.isArray(value.inventory) ? value.inventory.filter((item): item is string => typeof item === "string").slice(0, 4).map((item) => item.slice(0, 30)) : [];
+  const combat = normalizeCombat(value.combat);
+  const activeCombat = combat && ((combat.scenario === "market_ambush" && value.questStep === "huizhi_ambush")
+    || (combat.scenario === "arena" && value.questStep === "sandbox")) ? combat : undefined;
+  const equippedWeapon: WeaponId = value.equippedWeapon === "rusty_knife" && inventory.includes("【生鏽鐵刀】")
+    ? "rusty_knife" : value.equippedWeapon === "wooden_stick" && activeCombat?.scenario === "market_ambush"
+      ? "wooden_stick" : "fists";
+  const weaponDurability = inventory.includes("【生鏽鐵刀】")
+    ? finite(value.weaponDurability, WEAPONS.rusty_knife.maxDurability, 0, WEAPONS.rusty_knife.maxDurability)
+    : equippedWeapon === "wooden_stick" ? finite(value.weaponDurability, WEAPONS.wooden_stick.maxDurability, 0, WEAPONS.wooden_stick.maxDurability) : 0;
+  const rawMoves = value.knownMoves && typeof value.knownMoves === "object" ? value.knownMoves : {};
+  const knownMoves: KnownMoves = {
+    mud_step: finite(rawMoves.mud_step, 0, 0, 3), short_punch: finite(rawMoves.short_punch, 0, 0, 3),
+  };
   return {
     turn: finite(value.turn, 1, 1, 100000),
     playerName: value.playerName.slice(0, 30), background: background.slice(0, 60), trait: value.trait.slice(0, 60),
@@ -281,13 +285,16 @@ export function normalizeState(raw: unknown): GameState | null {
     personality: typeof value.personality === "string" ? value.personality.replace(/[\r\n「」]/g, "").trim().slice(0, 12) : undefined,
     currentLocation: typeof value.currentLocation === "string" && LANDMARKS.includes(renameLegacyWorldNames(value.currentLocation) as Landmark)
       ? renameLegacyWorldNames(value.currentLocation) as Landmark : "青鋒堂總壇",
-    inventory: Array.isArray(value.inventory) ? value.inventory.filter((item): item is string => typeof item === "string").slice(0, 4).map((item) => item.slice(0, 30)) : [],
+    inventory,
     maxInventory: 4,
     playerHp: finite(value.playerHp, maxHp, 0, maxHp), maxHp,
     playerMp: finite(value.playerMp, maxMp, 0, maxMp), maxMp,
     silver: finite(value.silver, 0, 0, Number.MAX_SAFE_INTEGER - 1000), factionFunds: finite(value.factionFunds, 10, 0, Number.MAX_SAFE_INTEGER - 1000),
     hozaiDefense: finite(value.hozaiDefense, 60, 0, 100),
-    worldFlags: Array.isArray(value.worldFlags) ? value.worldFlags.filter((flag): flag is string => typeof flag === "string").slice(0, 30).map((flag) => renameLegacyWorldNames(flag).slice(0, 20)) : [],
+    worldFlags,
+    equippedWeapon, weaponDurability, knownMoves,
+    combat: activeCombat || (value.questStep === "huizhi_ambush"
+      ? createCombat("market_ambush", !worldFlags.includes("出賣陸千帆")) : undefined),
     questStep: value.questStep as QuestStep,
     flags: {
       tookHerbs: flags.tookHerbs === true, visitedYung: flags.visitedYung === true,
@@ -327,7 +334,7 @@ function resolveIncident(state: GameState, incident: Incident, choice: number): 
       state.hozaiDefense = Math.min(100, state.hozaiDefense + 2);
       event += "刀手認出你曾在肉檔擊退同夥，攻勢一滯，何不歸防線再升二。";
     }
-    if (index <= 1 && state.worldFlags.includes("裂石擂練拳")) {
+    if (index <= 1 && (state.knownMoves?.short_punch || 0) > 0) {
       const restored = Math.min(2, state.maxHp - state.playerHp);
       state.playerHp += restored;
       event += `你憑練過的拳路卸去一部分刀勢，氣血回復${restored}。`;
@@ -374,21 +381,94 @@ function resolveIncident(state: GameState, incident: Incident, choice: number): 
 }
 
 export function resolveTurn(rawState: GameState, action: string, opening: boolean): TurnResult {
-  const state: GameState = { ...rawState, flags: { ...rawState.flags }, inventory: [...rawState.inventory], worldFlags: [...rawState.worldFlags] };
+  const state = normalizeState(rawState);
+  if (!state) throw new Error("遊戲狀態無效");
   const oldSilver = state.silver;
   const oldFunds = state.factionFunds;
   let event = "";
   let npcReply: TurnResult["npcReply"];
   const absurd = customAction(action) && /槍械|手槍|步槍|機關槍|超人|神仙|飛天|激光|雷射|核彈|手機|電腦|修仙|法術/.test(action);
   const choice = /^[A-E]\./.test(action) ? action.charCodeAt(0) - 65 : -1;
-  const flavor = (step: Exclude<QuestStep, "sandbox">) => choice >= 0 ? TUTORIAL_FLAVOR[step][choice] : "你自定手段，仍把眼前差事辦下去。";
+  const flavor = (step: Exclude<QuestStep, "sandbox" | "huizhi_ambush">) => choice >= 0 ? TUTORIAL_FLAVOR[step][choice] : "你自定手段，仍把眼前差事辦下去。";
   if (!opening) state.turn += 1;
   if (absurd) {
     state.playerHp = Math.max(0, state.playerHp - 15);
     event = "你被劣質丹藥幻覺誤導，當場出醜，氣血減十五。";
   }
 
-  if (state.questStep === "prologue_briefing") {
+  if (state.combat) {
+    const wasMarketAmbush = state.combat.scenario === "market_ambush";
+    const weaponBefore = state.equippedWeapon || "fists";
+    const result = resolveCombatRound({
+      combat: state.combat, action: absurd ? "B. [沉身守勢]" : action, playerHp: state.playerHp, playerMp: state.playerMp,
+      weapon: state.equippedWeapon || "fists", weaponDurability: state.weaponDurability || 0,
+      knownMoves: state.knownMoves || {}, canTakeStick: !state.inventory.includes("【生鏽鐵刀】"),
+    });
+    state.playerHp = result.playerHp;
+    state.playerMp = result.playerMp;
+    state.equippedWeapon = result.weapon;
+    state.weaponDurability = result.weaponDurability;
+    if (weaponBefore === "rusty_knife" && result.weapon === "fists" && state.inventory.includes("【生鏽鐵刀】")) {
+      state.inventory = state.inventory.filter((item) => item !== "【生鏽鐵刀】");
+    }
+    event += result.event;
+    if (result.outcome === "ongoing") {
+      state.combat = result.combat;
+      npcReply = wasMarketAmbush && result.combat.allyPresent
+        ? { speaker: "陸千帆", line: "我守住左邊。你看他下一刀從何處來。" }
+        : { speaker: "衛沉岳", line: "肩先動了。別等拳到眼前才退。" };
+    } else {
+      state.combat = undefined;
+      if (state.equippedWeapon === "wooden_stick") {
+        state.equippedWeapon = "fists"; state.weaponDurability = 0;
+        event += "你把打裂的木棍丟在肉案旁。";
+      }
+      if (wasMarketAmbush) {
+        state.questStep = "sandbox";
+        state.currentLocation = "黑泥街";
+        if (result.outcome === "won") {
+          remember(state, "市集伏擊突圍");
+          remember(state, "擊退伏擊刀手");
+          event += "黑泥街的肉檔仍由青鋒堂守著。";
+        } else {
+          state.hozaiDefense = Math.max(0, state.hozaiDefense - (result.outcome === "fled" ? 6 : 10));
+          remember(state, result.outcome === "fled" ? "市集伏擊撤守" : "市集伏擊戰敗");
+          event += result.outcome === "fled" ? "你保住性命，卻讓出肉檔前的街口；何不歸防線減六。"
+            : "青鋒堂暫失肉檔前的街口，何不歸防線減十。";
+        }
+        if (result.combat.allyWounded) {
+          remember(state, "陸千帆再受刀傷");
+          state.hozaiDefense = Math.max(0, state.hozaiDefense - 3);
+          event += "陸千帆的舊傷又添一刀，何不歸防線再減三。";
+        }
+        if (state.worldFlags.includes("茶寮傳信接應")) {
+          state.hozaiDefense = Math.min(100, state.hozaiDefense + 4);
+          event += "容晚秋傳出的信帶來接應，何不歸防線升四。";
+        }
+        if (state.playerHp === 0) {
+          state.playerHp = 1;
+          event += "你被同門拖出刀口，氣血只剩一線。";
+        }
+        npcReply = result.combat.allyPresent
+          ? { speaker: "陸千帆", line: result.outcome === "won" ? "這條街還在。我這道傷，回去再看。" : "人先活下來。肉檔那條路，往後再奪。" }
+          : { speaker: "何不歸", line: "你回來了。街上的事，慢慢說給我聽。" };
+      } else {
+        if (result.outcome === "won") {
+          state.silver += 20;
+          remember(state, "裂石擂勝場");
+          event += "衛沉岳把二十文賞錢放到你手裏，私銀增加二十文。";
+        } else if (state.playerHp === 0) {
+          state.playerHp = 1;
+          event += "衛沉岳將你從擂台上扶下，氣血只剩一線。";
+        }
+        npcReply = { speaker: "衛沉岳", line: result.outcome === "won" ? "拳收住。對手已經倒了。" : "先把氣息養回來，再談下一場。" };
+      }
+    }
+    if (!wasMarketAmbush) {
+      state.hozaiDefense = Math.max(0, state.hozaiDefense - 2);
+      event += "玄武樓又向城西逼近一步；何不歸防線減二。";
+    }
+  } else if (state.questStep === "prologue_briefing") {
     state.currentLocation = "青鋒堂總壇";
     if (opening) {
       const stats = aptitude(state.playerName, state.background, state.trait);
@@ -496,35 +576,13 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
         ? "你們退到巷口，玄武樓刀手已封住去路。"
         : "張斷骨吹響呼哨，玄武樓刀手隨即伏擊。";
     }
-  } else if (state.questStep === "huizhi_ambush") {
-    event += state.worldFlags.includes("出賣陸千帆") && choice >= 0 ? SOLO_AMBUSH_FLAVOR[choice] : flavor("huizhi_ambush");
-    state.questStep = "sandbox";
-    state.currentLocation = "黑泥街";
-    const tactic = choice >= 0 ? choice : 0;
-    const hpBefore = state.playerHp;
-    const mpBefore = state.playerMp;
-    let hpCost = [12, 8, 7, 4, 10][tactic];
-    let mpCost = [2, 5, 7, 11, 4][tactic];
-    if (state.worldFlags.includes("出賣陸千帆")) hpCost += 3;
-    if (state.worldFlags.includes("陸千帆傷勢加重")) hpCost += 3;
-    if (state.worldFlags.includes("問清刀手兵刃")) hpCost -= 2;
-    if (state.worldFlags.includes("驗過堂口草藥") && !state.worldFlags.includes("出賣陸千帆")) hpCost -= 2;
-    if (state.worldFlags.includes("趕在刀手前到市集")) hpCost -= 2;
-    if (state.worldFlags.includes("認清刀手裝束")) hpCost -= 2;
-    if (state.worldFlags.includes("已察覺巷口伏兵")) hpCost -= 3;
-    if (state.worldFlags.includes("熟記市集暗巷")) mpCost -= 2;
-    if (state.worldFlags.includes("茶寮調息")) mpCost -= 3;
-    state.playerHp = Math.max(0, state.playerHp - Math.max(1, hpCost));
-    state.playerMp = Math.max(0, state.playerMp - Math.max(1, mpCost));
-    if (state.worldFlags.includes("茶寮傳信接應")) {
-      state.hozaiDefense = Math.min(100, state.hozaiDefense + 4);
-      event += "茶寮傳信及時，堂口派人接應，何不歸防線升四。";
-    }
-    if (tactic === 4) remember(state, "擊退伏擊刀手");
-    remember(state, "市集伏擊突圍");
-    event += state.worldFlags.includes("出賣陸千帆")
-      ? `你獨自衝出包圍，氣血減${hpBefore - state.playerHp}，內力減${mpBefore - state.playerMp}。你仍留在城西市集，可以探索七處據點。`
-      : `你與陸千帆衝出包圍，氣血減${hpBefore - state.playerHp}，內力減${mpBefore - state.playerMp}。你仍留在城西市集，可以探索七處據點。`;
+    const fight = createCombat("market_ambush", !state.worldFlags.includes("出賣陸千帆"));
+    fight.preparedDefense = Math.min(5, ["問清刀手兵刃", "驗過堂口草藥", "趕在刀手前到市集", "認清刀手裝束", "熟記市集暗巷", "茶寮調息", "已察覺巷口伏兵"]
+      .filter((flag) => state.worldFlags.includes(flag)).length);
+    state.combat = fight;
+    event += fight.preparedDefense
+      ? "先前留下的線索使你認出刀手起勢，尚有一步可以應對。"
+      : "領頭刀手低肩逼近，短刀直指你的胸口。";
   } else {
     const pendingIncident = state.flags.pendingIncident;
     if (pendingIncident) {
@@ -548,7 +606,7 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
       const tag = /^\w\. \[([^\]]+)\]/.exec(action)?.[1] || "";
       const reaction = SANDBOX_REACTIONS[state.currentLocation][tag];
       const sandboxTag = `${state.currentLocation}:${tag}`;
-      const repeatable = ["喝茶", "歇腳", "歇息", "聽曲", "調製敷藥", "練拳"].includes(tag);
+      const repeatable = ["喝茶", "歇腳", "聽曲", "調製敷藥", "習泥鰍步", "習裂石短拳"].includes(tag);
       const repeatedAction = Boolean(reaction?.event) && !repeatable && state.flags.lastSandboxTag === sandboxTag;
       state.flags.repeatedActionCount = repeatedAction ? (state.flags.repeatedActionCount || 0) + 1 : 0;
       state.flags.lastSandboxTag = sandboxTag;
@@ -560,8 +618,44 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
         const suited = /手疾|身法|靈巧|扒手|察言|皮糙|命硬/.test(state.trait);
         event += suited ? "你使出市井陰招，借自身所長甩開眼線。" : "你使出市井陰招，卻手慢半拍，只勉強保住退路。";
       } else if (state.currentLocation === "裂石擂" && tag === "打黑拳") {
-        if (state.playerHp > 10) { state.playerHp -= 10; state.silver += 20; event += "你挨過裂石擂那場硬拳，肋下還在發疼。衛沉岳把二十文賞錢放在台邊；你氣血減十，私銀增加二十文。"; }
-        else event += "你傷得太重，衛沉岳攔住你上擂台。";
+        if (state.playerHp > 10) {
+          state.combat = createCombat("arena");
+          event += "你踏進裂石擂。對手在圍欄另一端沉肩，拳未出，已在試你的門戶。打贏才有二十文賞錢。";
+        } else event += "你傷得太重，衛沉岳攔住你上擂台。";
+      } else if ((state.currentLocation === "青鋒堂總壇" && tag === "習泥鰍步")
+        || (state.currentLocation === "裂石擂" && tag === "習裂石短拳")) {
+        const move = tag === "習泥鰍步" ? "mud_step" : "short_punch";
+        const rank = state.knownMoves?.[move] || 0;
+        const lesson = trainMove(rank, state.playerMp, state.silver);
+        if (lesson.success) {
+          state.playerMp -= lesson.mpCost;
+          state.silver -= lesson.silverCost;
+          state.knownMoves = { ...state.knownMoves, [move]: lesson.rank };
+          event += `你跟著${move === "mud_step" ? "何不歸" : "衛沉岳"}拆過一遍招，${move === "mud_step" ? "泥鰍步" : "裂石短拳"}練到第${lesson.rank}層；內力減${lesson.mpCost}${lesson.silverCost ? `，私銀減${lesson.silverCost}文` : ""}。`;
+        } else event += lesson.reason;
+      } else if (state.currentLocation === "裂石擂" && tag === "整備兵器") {
+        if (!state.inventory.includes("【生鏽鐵刀】")) {
+          if (state.silver >= 40 && state.inventory.length < state.maxInventory) {
+            state.silver -= 40;
+            state.inventory.push("【生鏽鐵刀】");
+            state.equippedWeapon = "rusty_knife";
+            state.weaponDurability = WEAPONS.rusty_knife.maxDurability;
+            event += "你花四十文私銀買下生鏽鐵刀，握柄雖舊，刀口尚能傷人。你將刀佩在身側。";
+          } else event += state.silver < 40 ? "你拿不出四十文私銀，衛沉岳叫你先把拳練穩。" : "行囊已滿，這把刀暫且帶不走。";
+        } else if (state.equippedWeapon === "rusty_knife") {
+          state.equippedWeapon = "fists";
+          event += "你把生鏽鐵刀收入鞘中，騰出雙手運拳。";
+        } else if ((state.weaponDurability || 0) < WEAPONS.rusty_knife.maxDurability) {
+          if (state.silver >= 10) {
+            state.silver -= 10;
+            state.equippedWeapon = "rusty_knife";
+            state.weaponDurability = WEAPONS.rusty_knife.maxDurability;
+            event += "你花十文私銀磨好刀口，將生鏽鐵刀重新佩妥。";
+          } else event += "刀口可磨，錢卻不能賒。你尚欠十文私銀。";
+        } else {
+          state.equippedWeapon = "rusty_knife";
+          event += "你試過刀鋒，將生鏽鐵刀佩在身側。";
+        }
       } else if (state.currentLocation === "晚秋茶寮" && tag === "買藥") {
         if (state.silver >= 10) { state.silver -= 10; state.playerHp = Math.min(state.maxHp, state.playerHp + 25); event += "你將十文私銀放在茶寮桌上。容晚秋替你敷妥金創散，血終於止住；氣血回復二十五。"; }
         else event += "你掂了掂空錢袋，容晚秋搖頭，不肯賒藥。";
@@ -620,19 +714,10 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
           state.hozaiDefense = Math.min(100, state.hozaiDefense + 4);
           event += "你耗去四點內力甩開尾巴，替堂口藏住行跡；何不歸防線升四。";
         } else event += "你氣力不足，才到側門便被身後的人重新盯上。";
-      } else if (state.currentLocation === "裂石擂" && tag === "練拳") {
-        if (state.playerMp >= 4) {
-          state.playerMp -= 4; remember(state, "裂石擂練拳");
-          event += "你照衛沉岳指點練過拳，耗去四點內力；下次守街時，便認得刀手逼近的步法。";
-        } else event += "你氣息已亂，衛沉岳叫你先收拳，免得傷了自己。";
       } else if (["晚秋茶寮:喝茶", "黑泥街:歇腳", "夜雨樓:聽曲"].includes(sandboxTag)) {
         const restored = Math.min(6, state.maxMp - state.playerMp);
         state.playerMp += restored;
         event += (reaction?.event || "") + `你暫得喘息，內力回復${restored}。`;
-      } else if (state.currentLocation === "裂石擂" && tag === "歇息") {
-        const restored = Math.min(8, state.maxHp - state.playerHp);
-        state.playerHp += restored;
-        event += (reaction?.event || "") + `你按著傷處歇了一陣，氣血回復${restored}。`;
       } else if (repeatedAction) {
         event += `你再次查問${tag}，眼前沒有新的線索。`;
         if (npcReply) npcReply.line = repeatedNpcLine(npcReply.speaker, state.flags.repeatedActionCount || 1);
@@ -660,7 +745,7 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
       remember(state, "何不歸防線崩潰");
       event += "你聽見何不歸防線崩潰，堂口人心潰散。";
     }
-    if (!pendingIncident && state.turn >= 8 && state.turn - (state.flags.lastIncidentTurn || 0) >= 5) {
+    if (!state.combat && !pendingIncident && state.turn >= 8 && state.turn - (state.flags.lastIncidentTurn || 0) >= 5) {
       const incident = INCIDENTS[(state.flags.incidentCount || 0) % INCIDENTS.length];
       state.flags.pendingIncident = incident;
       state.flags.lastIncidentTurn = state.turn;
@@ -681,11 +766,18 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
 }
 
 export function availableOptions(state: GameState): string[] {
+  if (state.combat || state.questStep === "huizhi_ambush") {
+    const combat = state.combat || createCombat("market_ambush", !state.worldFlags.includes("出賣陸千帆"));
+    return combatOptions(combat, state.equippedWeapon || "fists", state.knownMoves || {}, state.playerMp, !state.inventory.includes("【生鏽鐵刀】"));
+  }
   return state.questStep === "prologue_briefing" ? PROLOGUE_OPTIONS
     : state.questStep === "yung_tea_stall" ? TEA_OPTIONS
     : state.questStep === "market_collection" ? MARKET_OPTIONS
-    : state.questStep === "huizhi_ambush" ? (state.worldFlags.includes("出賣陸千帆") ? SOLO_AMBUSH_OPTIONS : AMBUSH_OPTIONS)
     : state.flags.pendingIncident ? INCIDENT_OPTIONS[state.flags.pendingIncident]
+    : state.currentLocation === "青鋒堂總壇"
+      ? SANDBOX_OPTIONS["青鋒堂總壇"].map((option) => option.startsWith("E.")
+        ? (state.knownMoves?.mud_step || 0) >= 3 ? "E. [習泥鰍步] 已練到第三層；再問何不歸，只能重溫舊招。"
+          : `E. [習泥鰍步] 向何不歸修習保命步法；目前第${state.knownMoves?.mud_step || 0}層，耗內力${[4, 6, 8][state.knownMoves?.mud_step || 0]}。` : option)
     : state.currentLocation === "黑泥街"
       ? SANDBOX_OPTIONS["黑泥街"].map((option) => {
         if (option.startsWith("A.") && !state.worldFlags.includes("張斷骨舊費已清")) {
@@ -703,5 +795,17 @@ export function availableOptions(state: GameState): string[] {
             ? "D. [查老千] 再查賭桌手法；舊贓款已收，未必有新所得。"
             : option.startsWith("E.") && state.worldFlags.includes("賭坊錯帳已收")
               ? "E. [核暗帳] 再核暗帳；舊錯帳已清，未必有新所得。" : option)
+      : state.currentLocation === "裂石擂"
+        ? SANDBOX_OPTIONS["裂石擂"].map((option) => {
+          if (option.startsWith("B.")) return (state.knownMoves?.short_punch || 0) >= 3
+            ? "B. [習裂石短拳] 已練到第三層；再問衛沉岳，只能重溫舊招。"
+            : `B. [習裂石短拳] 向衛沉岳習拳；目前第${state.knownMoves?.short_punch || 0}層，耗內力${[4, 6, 8][state.knownMoves?.short_punch || 0]}。`;
+          if (option.startsWith("E.") && state.inventory.includes("【生鏽鐵刀】")) return state.equippedWeapon === "rusty_knife"
+            ? "E. [整備兵器] 收刀改用徒手；須花一回合。"
+            : (state.weaponDurability || 0) < WEAPONS.rusty_knife.maxDurability
+              ? "E. [整備兵器] 花十文私銀修磨生鏽鐵刀，然後佩刀。"
+              : "E. [整備兵器] 佩上生鏽鐵刀；須花一回合。";
+          return option;
+        })
       : SANDBOX_OPTIONS[state.currentLocation];
 }
