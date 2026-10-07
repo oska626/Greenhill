@@ -241,7 +241,16 @@ function openingAssessment(background: string, trait: string) {
   return "你腳下站得穩，別叫我失望";
 }
 
-const OPENING_WORLD_BRIEFING = "你剛進堂口，我本不該把這些事交給你。陸千帆那道傷，是玄武樓的人砍的；他們要的，是黑泥街。城南金冊莊早已盯上我們的地契，只等這條街失守。刀傷還有藥可治。若連落腳之地也沒了，我拿甚麼留住這些人？";
+export const OPENING_CITY_NARRATION = `明末年間，青山城城主燕鎮嶽手握重兵，以兵權壓制城東、城南、城西三方勢力。
+
+城東玄武樓樓主裴無鋒正逐漸侵奪城西，圖謀吞併青鋒堂與城南金冊莊，獨掌城中地下秩序；
+
+城南金冊莊莊主黃萬鈞表面替城主經營銀號及管理地契，暗中卻與城外不明勢力往來。
+
+城西青鋒堂堂主何不歸堅守地盤，不願靠掠奪與傷害無辜壯大堂口，誓要讓同門與街坊在此共存。
+
+城北官衙的玄渡奉朝廷密旨坐鎮，表面維持法度，暗中監視燕鎮嶽與城中各方勢力。`;
+const OPENING_WORLD_BRIEFING = "陸千帆那道傷，是玄武樓的人砍的；他們要的，是黑泥街。堂口要守住這條街，也要讓街坊相信我們肯護人。";
 const OPENING_ERRAND = "先到晚秋茶寮換藥，救回陸千帆。張斷骨那五十文，回來時也別忘了。";
 
 function customOpeningAssessment(state: GameState, address: string): string {

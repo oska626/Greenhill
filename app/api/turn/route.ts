@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { availableOptions, normalizeState, resolveTurn, type GameState, type Landmark } from "@/lib/game-engine";
+import { availableOptions, normalizeState, OPENING_CITY_NARRATION, resolveTurn, type GameState, type Landmark } from "@/lib/game-engine";
 import { COMPANION_IDS, relationshipLabel } from "@/lib/companion-relations";
 import { CREATIVE_GOALS, sceneAnchors, validateCustomDecision, type CustomDecision } from "@/lib/custom-action";
 import { hasSectAddressViolation, npcVoiceGuide, sectMemberAddress } from "@/lib/npc-voices";
@@ -18,7 +18,7 @@ const SPEAKER: Record<Landmark, string> = {
 function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker: string; line: string }, combatTurn = false): string {
   if (state.questStep === "prologue_briefing" && npcReply?.speaker === "何不歸") {
     const detail = "你看見何不歸指節上的舊傷，也看見藥包旁那本未合上的帳。";
-    return `${event}\n\n${detail}\n何不歸：「${npcReply.line}」`;
+    return `${OPENING_CITY_NARRATION}\n\n${event}${detail}\n何不歸：「${npcReply.line}」`;
   }
   if (combatTurn) {
     const sentences = event.split(/(?<=。)/).filter(Boolean);

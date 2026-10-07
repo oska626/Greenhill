@@ -6,6 +6,7 @@ import { CUSTOM_ACTION_MAX } from "@/lib/custom-action";
 import { guardLayersForLifeline, travelChoices } from "@/lib/city-progression";
 import { newRelationships } from "@/lib/companion-relations";
 import { renameLegacyWorldNames } from "@/lib/npc-voices";
+import { createPrologueHandoff, type PrologueHandoff } from "@/lib/prologue-handoff";
 import { MapModal } from "@/components/game/map-modal";
 
 interface ApiResponse {
@@ -17,9 +18,11 @@ interface ApiResponse {
 }
 
 interface SavedGameData {
+  saveVersion?: 2;
   state: GameState;
   narrative: string;
   options: string[];
+  handoff?: PrologueHandoff;
 }
 
 const SAVE_KEY = "qingshan_game_save_v1";
@@ -93,6 +96,7 @@ export default function GamePage() {
   const [mapOpen, setMapOpen] = useState(false);
 
   const narrativeEndRef = useRef<HTMLDivElement>(null);
+  const narrativeScrollRef = useRef<HTMLDivElement>(null);
   const lastActionRef = useRef<string>("");
 
   useEffect(() => {
@@ -102,7 +106,13 @@ export default function GamePage() {
         const parsed: SavedGameData = JSON.parse(raw);
         const state = normalizeState(parsed?.state);
         if (state && typeof parsed?.narrative === "string" && Array.isArray(parsed?.options)) {
-          setSavedGame({ ...parsed, state, narrative: renameLegacyWorldNames(parsed.narrative), options: availableOptions(state) });
+          const storedHandoff = parsed.handoff?.version === 1 && parsed.handoff.ending === state.flags.ending
+            && typeof parsed.handoff.summary === "string" ? parsed.handoff : undefined;
+          const restored: SavedGameData = { saveVersion: 2, state,
+            narrative: renameLegacyWorldNames(parsed.narrative), options: availableOptions(state),
+            handoff: storedHandoff || createPrologueHandoff(state) || undefined };
+          setSavedGame(restored);
+          if (state.flags.ending && !storedHandoff) localStorage.setItem(SAVE_KEY, JSON.stringify(restored));
         }
       }
     } catch (e) {
@@ -111,12 +121,17 @@ export default function GamePage() {
   }, []);
 
   useEffect(() => {
-    narrativeEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [narrative, loading]);
+    if (gameState?.turn === 1 && gameState.questStep === "prologue_briefing") {
+      if (narrativeScrollRef.current) narrativeScrollRef.current.scrollTop = 0;
+    } else {
+      narrativeEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [narrative, loading, gameState?.turn, gameState?.questStep]);
 
   const saveToLocalStorage = (state: GameState, narr: string, opts: string[]) => {
     try {
-      const payload: SavedGameData = { state, narrative: narr, options: opts };
+      const payload: SavedGameData = { saveVersion: 2, state, narrative: narr, options: opts,
+        handoff: createPrologueHandoff(state) || undefined };
       localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
       setSavedGame(payload);
     } catch (e) {
@@ -294,6 +309,9 @@ export default function GamePage() {
     if (!customInput.trim()) return;
     handleAction(`F. [自訂手段] ${customInput.trim()}`);
   };
+
+  const handoff = gameState?.flags.ending && savedGame?.state.flags.ending === gameState.flags.ending
+    ? savedGame.handoff || createPrologueHandoff(gameState) : gameState ? createPrologueHandoff(gameState) : null;
 
   if (view === "creation") {
     const curBg = BACKGROUNDS.find((b) => b.id === selectedBgId) || BACKGROUNDS[0];
@@ -474,7 +492,7 @@ export default function GamePage() {
 
       <main className="flex-1 max-w-6xl w-full mx-auto p-4 grid grid-cols-1 lg:grid-cols-4 gap-4">
         <section className="lg:col-span-3 flex flex-col gap-4">
-          <div className="bg-stone-900/60 border border-stone-800/80 rounded-lg p-5 min-h-[380px] max-h-[520px] overflow-y-auto shadow-inner flex flex-col justify-between">
+          <div ref={narrativeScrollRef} className="bg-stone-900/60 border border-stone-800/80 rounded-lg p-5 min-h-[380px] max-h-[520px] overflow-y-auto shadow-inner flex flex-col justify-between">
             {errorMsg ? (
               <div className="p-4 bg-rose-950/40 border border-rose-800 text-rose-300 rounded text-sm">
                 ⚠️ {errorMsg}
@@ -487,8 +505,10 @@ export default function GamePage() {
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="text-sm md:text-base leading-relaxed tracking-wide whitespace-pre-line text-stone-200 font-serif">
-                  {narrative}
+                <div className="space-y-5 text-sm md:text-base leading-relaxed tracking-wide text-stone-200 font-serif">
+                  {narrative.split(/\n\s*\n/).map((paragraph, index) => (
+                    <p key={index} className="whitespace-pre-line">{paragraph}</p>
+                  ))}
                 </div>
                 {loading && (
                   <div className="flex items-center gap-2 text-xs text-amber-500/80 pt-2">
@@ -499,6 +519,14 @@ export default function GamePage() {
               </div>
             )}
           </div>
+
+          {handoff && (
+            <div className="bg-amber-950/25 border border-amber-700/50 rounded-lg p-4 space-y-2">
+              <div className="text-sm font-semibold text-amber-300">第一章承接文字</div>
+              <p className="text-sm leading-relaxed text-stone-200 select-text">{handoff.summary}</p>
+              <p className="text-xs text-stone-400">已連同完整狀態存於此瀏覽器；第一章尚未開放。</p>
+            </div>
+          )}
 
           <div className="bg-stone-900/80 border border-stone-800 rounded-lg p-4 flex flex-col gap-3">
             <div className="text-xs font-semibold text-stone-400 tracking-wider">江湖抉擇與據點差事</div>

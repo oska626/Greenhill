@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { aptitude, availableOptions, LANDMARKS, normalizeState, resolveTurn } from "../lib/game-engine.ts";
+import { aptitude, availableOptions, LANDMARKS, normalizeState, OPENING_CITY_NARRATION, resolveTurn } from "../lib/game-engine.ts";
 import { NPC_VOICES, hasSectAddressViolation, npcVoiceGuide, renameLegacyWorldNames, repeatedNpcLine, sectMemberAddress } from "../lib/npc-voices.ts";
 import { createCombat, resolveCombatRound, trainMove } from "../lib/combat-engine.ts";
 import { ENDING_OPTIONS, MISSIONS, guardLayersForLifeline, missionOptions, travelChoices } from "../lib/city-progression.ts";
@@ -35,15 +35,24 @@ test("opening gives each created background a concrete character detail", () => 
   for (const [background, trait, detail] of portraits) {
     const opening = resolveTurn({ ...newGame(), background, trait }, "[初入堂口] 阿七", true);
     assert.ok(opening.event.includes(detail), `${background} should show ${detail}`);
-    assert.ok(opening.event.startsWith("你踩過城西泥巷"), "city overview should precede He Bugui");
+    assert.ok(opening.event.startsWith("你踩過城西泥巷"), "the player enters the hall after the city overview");
     assert.equal(opening.npcReply.speaker, "何不歸");
     assert.ok(opening.npcReply.line.includes("阿七，你"), `${background} needs He Bugui's assessment`);
     assert.ok(opening.npcReply.line.includes("陸千帆那道傷，是玄武樓的人砍的"));
-    assert.ok(opening.npcReply.line.includes("城南金冊莊"));
+    assert.ok(!opening.npcReply.line.includes("城南金冊莊"), "the city overview stays in narration");
     assert.ok(opening.npcReply.line.includes("黑泥街"));
     assert.ok(opening.npcReply.line.includes("五十文"));
     assert.ok(!opening.event.includes("打量你的出身"));
   }
+});
+
+test("opening narration names the five powers and their leaders", () => {
+  for (const name of ["燕鎮嶽", "裴無鋒", "黃萬鈞", "何不歸", "玄渡"])
+    assert.ok(OPENING_CITY_NARRATION.includes(name));
+  assert.equal(OPENING_CITY_NARRATION.split("\n\n").length, 5, "the city introduction gives each region its own paragraph");
+  assert.match(OPENING_CITY_NARRATION, /^明末年間/);
+  assert.match(OPENING_CITY_NARRATION, /金冊莊莊主黃萬鈞/);
+  assert.match(OPENING_CITY_NARRATION, /同門與街坊在此共存/);
 });
 
 test("custom opening turns profile details into He Bugui's judgement rather than a checklist", () => {
