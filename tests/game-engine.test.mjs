@@ -101,29 +101,40 @@ test("every sandbox choice has a distinct event and NPC reply", () => {
 test("tutorial choices advance one scene while preserving their different costs", () => {
   const opening = resolveTurn(newGame(), "[初入堂口] 阿七", true);
   assert.equal(opening.state.turn, 1);
+  assert.match(opening.npcReply.line, /苦煙館找顧忘生領止血膏藥.*黑泥街市集救陸千帆/);
   for (const prologue of opening.options) {
-    const tea = resolveTurn(opening.state, prologue, false);
-    assert.equal(tea.state.questStep, "yung_tea_stall");
-    assert.equal(tea.state.currentLocation, "晚秋茶寮");
-    assert.ok(tea.state.inventory.includes("【生草藥包】"));
-    for (const choice of tea.options) {
-      const market = resolveTurn(tea.state, choice, false);
+    const clinic = resolveTurn(opening.state, prologue, false);
+    assert.equal(clinic.state.questStep, "kuyan_medicine");
+    assert.equal(clinic.state.currentLocation, "苦煙館");
+    assert.ok(!clinic.state.inventory.includes("【止血膏藥】"));
+    for (const choice of clinic.options) {
+      const market = resolveTurn(clinic.state, choice, false);
       assert.equal(market.state.questStep, "market_collection");
       assert.equal(market.state.currentLocation, "黑泥街");
-      assert.ok(market.state.inventory.includes("【金創散】"));
-      assert.ok(!market.state.inventory.includes("【生草藥包】"));
+      assert.ok(market.state.inventory.includes("【止血膏藥】"));
+      assert.equal(market.state.flags.visitedGu, true);
+      assert.equal(market.npcReply?.speaker, "顧忘生");
       for (const [index, marketChoice] of market.options.entries()) {
         const ambush = resolveTurn(market.state, marketChoice, false);
         assert.equal(ambush.state.questStep, "huizhi_ambush");
         assert.equal(ambush.state.factionFunds, market.state.factionFunds + [50, 50, 30, 20, 0][index]);
         assert.equal(ambush.state.flags.collectedMarketFee, index !== 4);
-        assert.ok(!ambush.state.inventory.includes("【金創散】"));
+        assert.ok(!ambush.state.inventory.includes("【止血膏藥】"));
         const sandbox = finishCombat(ambush);
         assert.equal(sandbox.state.questStep, "sandbox");
         assert.equal(sandbox.state.currentLocation, "黑泥街");
       }
     }
   }
+});
+
+test("a save already at the tea stall can finish the old medicine route", () => {
+  const saved = { ...newGame(), questStep: "yung_tea_stall", currentLocation: "晚秋茶寮",
+    inventory: ["【生草藥包】"], flags: { ...newGame().flags, tookHerbs: true } };
+  const restored = normalizeState(saved);
+  const market = resolveTurn(restored, availableOptions(restored)[0], false);
+  assert.equal(market.state.questStep, "market_collection");
+  assert.ok(market.state.inventory.includes("【金創散】"));
 });
 
 test("early choices pay off during the ambush", () => {
@@ -264,7 +275,7 @@ test("betrayal and maiming alter later options and encounters", () => {
   turn = resolveTurn(turn.state, "F. [自訂手段] 出賣陸千帆，打斷張斷骨右手", false);
   assert.ok(turn.state.worldFlags.includes("出賣陸千帆"));
   assert.ok(turn.state.worldFlags.includes("打斷張斷骨右手"));
-  assert.ok(turn.state.inventory.includes("【金創散】"));
+  assert.ok(turn.state.inventory.includes("【止血膏藥】"));
   assert.ok(turn.options.every((option) => !option.includes("陸千帆")));
   assert.equal(turn.state.combat.allyPresent, false);
   turn = finishCombat(turn);
@@ -285,9 +296,9 @@ test("sandbox travel stays inside seven landmarks and resources have a ledger", 
   turn = resolveTurn(turn.state, "F. [前往] 晚秋茶寮", false);
   if (turn.state.flags.pendingIncident) turn = resolveTurn(turn.state, turn.options[0], false);
   if (turn.state.currentLocation !== "晚秋茶寮") turn = resolveTurn(turn.state, "F. [前往] 晚秋茶寮", false);
-  const beforeMedicine = turn.state.silver;
-  turn = resolveTurn(turn.state, "A. [買藥] 花十文私銀買金創散並敷藥。", false);
-  assert.equal(turn.state.silver, beforeMedicine - 10);
+  const beforeMessage = turn.state.silver;
+  turn = resolveTurn(turn.state, availableOptions(turn.state).find((option) => option.startsWith("A. [買消息]")), false);
+  assert.equal(turn.state.silver, beforeMessage - 10);
   assert.ok(turn.moneyNote.includes("私銀減少10文"));
   for (const place of LANDMARKS) {
     if (turn.state.flags.pendingIncident) turn = resolveTurn(turn.state, turn.options[0], false);
@@ -351,12 +362,15 @@ test("later incidents change options and preserve resource consequences", () => 
 });
 
 test("repeated inquiries acknowledge that no new lead was found", () => {
-  let turn = resolveTurn({ ...newGame(), questStep: "sandbox", currentLocation: "晚秋茶寮", turn: 5 }, "B. [打探] 問容晚秋城西傳聞。", false);
+  const state = { ...newGame(), questStep: "sandbox", currentLocation: "晚秋茶寮", turn: 5, silver: 20 };
+  const action = availableOptions(state).find((option) => option.startsWith("A. [買消息]"));
+  let turn = resolveTurn(state, action, false);
   const firstReply = turn.npcReply.line;
-  turn = resolveTurn(turn.state, "B. [打探] 問容晚秋城西傳聞。", false);
-  assert.match(turn.event, /沒有新的線索/);
+  turn = resolveTurn(turn.state, action, false);
+  assert.match(turn.event, /暫無新消息/);
   assert.notEqual(turn.npcReply.line, firstReply);
   assert.equal(turn.state.flags.repeatedActionCount, 1);
+  assert.equal(turn.state.silver, 10);
 });
 
 test("an older sandbox save past turn eight receives the first incident on its next turn", () => {
@@ -392,12 +406,80 @@ test("older saves keep their location and consequences after the world rename", 
 });
 
 test("named NPCs have distinct guidance and repeat replies", () => {
-  const names = ["何不歸", "容晚秋", "陸千帆", "祁觀衡", "衛沉岳", "顧忘生", "柳照霜", "霍破陣", "張斷骨"];
+  const names = ["何不歸", "容晚秋", "陸千帆", "祁觀衡", "衛沉岳", "顧忘生", "柳照霜", "霍破陣", "張斷骨", "裴無鋒", "黃萬鈞", "燕鎮嶽", "玄渡"];
   assert.deepEqual(Object.keys(NPC_VOICES), names);
   assert.equal(new Set(names.map((name) => npcVoiceGuide(name))).size, names.length);
   assert.equal(new Set(names.map((name) => repeatedNpcLine(name, 1))).size, names.length);
   assert.match(npcVoiceGuide("衛沉岳"), /短句/);
   assert.match(npcVoiceGuide("祁觀衡"), /帳房/);
+  assert.match(npcVoiceGuide("裴無鋒"), /何堂主.*黃大莊主.*城主大人.*主人/);
+});
+
+test("Rong Wanqiu only sells paid street intelligence and a Night Rain Tower shortcut", () => {
+  const state = { ...newGame(), questStep: "sandbox", currentLocation: "晚秋茶寮", silver: 0 };
+  const options = availableOptions(state).filter((option) => /^[A-E]\./.test(option));
+  assert.equal(options.length, 2);
+  assert.ok(options.every((option) => /買消息|買暗道/.test(option)));
+  const message = options[0];
+  const route = options[1];
+  const refused = resolveTurn(state, message, false);
+  assert.equal(refused.state.silver, 0);
+  assert.equal(refused.state.worldFlags.includes("街面有備"), false);
+  const paid = resolveTurn({ ...refused.state, silver: 10 }, message, false);
+  assert.equal(paid.state.silver, 0);
+  assert.equal(paid.state.worldFlags.includes("街面有備"), true);
+  const repeated = resolveTurn(paid.state, availableOptions(paid.state).find((option) => option.startsWith("A. [買消息]")), false);
+  assert.equal(repeated.state.silver, 0);
+  assert.match(repeated.event, /沒有收你的錢/);
+  const routeRefused = resolveTurn(state, route, false);
+  assert.equal(routeRefused.state.worldFlags.includes("茶寮暗道已知"), false);
+  const routePaid = resolveTurn({ ...state, silver: 15 }, route, false);
+  assert.equal(routePaid.state.silver, 0);
+  assert.equal(routePaid.state.worldFlags.includes("茶寮暗道已知"), true);
+  assert.equal(travelChoices(routePaid.state, "夜雨樓").some((choice) => choice.kind === "shortcut"), true);
+  const routeRepeated = resolveTurn(routePaid.state, availableOptions(routePaid.state).find((option) => option.startsWith("B. [買暗道]")), false);
+  assert.equal(routeRepeated.state.silver, 0);
+});
+
+test("daily recovery costs one turn and follows each maximum", () => {
+  const base = { ...newGame(), questStep: "sandbox", maxHp: 101, playerHp: 50,
+    maxMp: 51, playerMp: 10, silver: 10 };
+  const hall = resolveTurn(base, availableOptions(base)[0], false);
+  assert.equal(hall.state.turn, base.turn + 1);
+  assert.equal(hall.state.silver, 10);
+  assert.equal(hall.state.playerHp, 71);
+  assert.equal(hall.state.playerMp, 21);
+
+  const clinic = { ...base, currentLocation: "苦煙館" };
+  const paid = resolveTurn(clinic, availableOptions(clinic)[0], false);
+  assert.equal(paid.state.turn, base.turn + 1);
+  assert.equal(paid.state.silver, 0);
+  assert.equal(paid.state.playerHp, 86);
+  assert.equal(paid.state.playerMp, 28);
+
+  const refused = resolveTurn({ ...clinic, silver: 9 }, availableOptions(clinic)[0], false);
+  assert.equal(refused.state.silver, 9);
+  assert.equal(refused.state.playerHp, 50);
+  assert.equal(refused.state.playerMp, 10);
+
+  const nearFull = { ...clinic, playerHp: 100, playerMp: 50 };
+  const capped = resolveTurn(nearFull, availableOptions(nearFull)[0], false);
+  assert.equal(capped.state.playerHp, 101);
+  assert.equal(capped.state.playerMp, 51);
+
+  const full = { ...clinic, playerHp: 101, playerMp: 51 };
+  const unneeded = resolveTurn(full, availableOptions(full)[0], false);
+  assert.equal(unneeded.state.silver, 10);
+  assert.equal(unneeded.state.playerHp, 101);
+  assert.equal(unneeded.state.playerMp, 51);
+
+  for (const [currentLocation, tag] of [["黑泥街", "問張斷骨"], ["夜雨樓", "聽曲"]]) {
+    const state = { ...base, currentLocation };
+    const option = availableOptions(state).find((text) => text.includes(`[${tag}]`));
+    const result = resolveTurn(state, option, false);
+    assert.equal(result.state.playerHp, state.playerHp);
+    assert.equal(result.state.playerMp, state.playerMp);
+  }
 });
 
 test("sect members call He Bugui 堂主 while outsiders may use his name", () => {
@@ -414,7 +496,7 @@ test("sect members call He Bugui 堂主 while outsiders may use his name", () =>
 test("incident replies use the speaker involved in each branch", () => {
   const state = { ...newGame(), questStep: "sandbox", turn: 13, flags: { ...newGame().flags, pendingIncident: "missing_ledger" } };
   assert.equal(resolveTurn(state, "A. [查賭檔] 到鬼骰坊核對缺失的規費帳。", false).npcReply.speaker, "祁觀衡");
-  assert.equal(resolveTurn(state, "B. [問容晚秋] 問容晚秋誰曾帶走帳簿。", false).npcReply.speaker, "容晚秋");
+  assert.equal(resolveTurn(state, availableOptions(state)[1], false).npcReply.speaker, "容晚秋");
   assert.equal(resolveTurn(state, "E. [告知堂主] 把帳目破綻交給堂主處置。", false).npcReply.speaker, "何不歸");
 });
 

@@ -65,7 +65,7 @@ export const MISSIONS = [
   { id: "arena_probe", title: "踢館試探", giver: "衛沉岳與霍破陣", origin: "裂石擂", target: "黑泥街", pay: 18,
     clue: "前線守備有序", good: "你照衛沉岳的吩咐佈好退路，將踢館者逼出街口。", bad: "你跟霍破陣追著踢館者打，贏了眼前一仗，也惹來更多刀手。" },
   { id: "tainted_medicine", title: "換封傷藥", giver: "顧忘生", origin: "苦煙館", target: "晚秋茶寮", pay: 14,
-    clue: "傷藥來源已查", good: "你與容晚秋逐包驗藥，查出換封的人，傷者不再誤用毒藥。", bad: "你把可疑藥包盡數燒毀，止住眼前禍患，仍不知誰曾經手。" },
+    clue: "傷藥來源已查", good: "你依顧忘生辨過的封口追問容晚秋，查出在茶寮歇腳的送藥人曾讓誰碰過藥包；傷者不再誤用毒藥。", bad: "你將送藥人遺下的可疑藥包帶回苦煙館銷毀，止住眼前禍患，仍不知誰曾經手。" },
   { id: "hidden_spy", title: "陌生恩客", giver: "柳照霜", origin: "夜雨樓", target: "鬼骰坊", pay: 16,
     clue: "城東耳目已識破", good: "你循賭坊的換錢記錄認出城東耳目，摸清對方盯著哪處據點。", bad: "你當面揭穿耳目，對方逃走，夜雨樓暫時清靜。" },
 ] as const satisfies readonly { id: string; title: string; giver: string; origin: Landmark; target: Landmark; pay: number; clue: string; good: string; bad: string }[];

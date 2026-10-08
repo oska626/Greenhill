@@ -31,7 +31,7 @@ const BUSINESS_HINTS: Record<Business, string> = {
   夜雨樓: "樓裏的酒車沒來，夜裏的燈也早早熄了。",
 };
 const REST_OPTIONS = [
-  "A. [療傷調息] 在總壇休整一回合，回復氣血與內力。",
+  "A. [療傷調息] 在總壇休整一回合，氣血與內力各回復上限的20%。",
   "B. [會見同伴] 與仍願接應的同伴談近況，為後事留人手。",
   "C. [核對貨帳] 先看城西貨運帳，記下糧藥應到的日期。",
   "D. [照料街坊] 請堂主從公款撥五文助傷者，鞏固街坊信任。",
@@ -124,7 +124,13 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
   chapter.turns += 1;
   let event = "";
   if (chapter.stage === "rest") {
-    if (choice === 0) { state.playerHp = Math.min(state.maxHp, state.playerHp + 8); state.playerMp = Math.min(state.maxMp, state.playerMp + 8); event = "你在總壇換藥調息，氣血與內力各回復至多八點。"; }
+    if (choice === 0) {
+      const hpRestored = Math.min(Math.ceil(state.maxHp * 0.2), state.maxHp - state.playerHp);
+      const mpRestored = Math.min(Math.ceil(state.maxMp * 0.2), state.maxMp - state.playerMp);
+      state.playerHp += hpRestored;
+      state.playerMp += mpRestored;
+      event = `你在總壇休養調息，氣血回復${hpRestored}，內力回復${mpRestored}。`;
+    }
     if (choice === 1) { chapter.allies += state.flags.prologueCompanionLeads?.length ? 1 : 0; event = chapter.allies ? "你與仍願接應的舊識談妥，若城西再有事，他們肯替你傳信。" : "你問過幾位舊識，眼下尚無人答應跟你走下一趟。"; }
     if (choice === 2) { chapter.evidence += 1; event = "你對照城西貨帳，記下糧米與傷藥應到的日期。"; }
     if (choice === 3) { if (state.factionFunds >= 5) { addFunds(state, -5, "堂主撥公款照料傷者"); state.sectLifeline = Math.min(100, state.sectLifeline + 2); event = "何不歸從公款撥出五文照料傷者，街坊見青鋒堂仍肯護人，命脈升二。"; } else event = "堂口一時拿不出五文，何不歸只得先把現有傷藥分給街坊。"; }
@@ -134,7 +140,7 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
       event += `玄武樓趁城西休整，奪下青山城碼頭並扣住送往城西的糧藥。${BUSINESS_HINTS[chapter.affectedBusiness]}`;
       event += collectPressure(state, chapter, 6);
       event += "\n\n市販見貨車不來，開始問青鋒堂能否再護住生意。你須查出哪處地標先受衝擊，才能追到截貨的路。";
-    } else event += "\n\n城西今日尚能開市，茶寮也肯替傷者留藥。你趁這幾日喘息，仍可再作準備。";
+    } else event += "\n\n城西今日尚能開市，苦煙館仍替傷者備藥。你趁這幾日喘息，仍可再作準備。";
   } else if (chapter.stage === "shortage") {
     const chosen = choice < 4 ? BUSINESSES[choice] : undefined;
     const pressure = collectPressure(state, chapter, 6);

@@ -18,7 +18,7 @@ const SPEAKER: Record<Landmark, string> = {
 
 function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker: string; line: string }, combatTurn = false): string {
   if (state.questStep === "prologue_briefing" && npcReply?.speaker === "何不歸") {
-    const detail = "你看見何不歸指節上的舊傷，也看見藥包旁那本未合上的帳。";
+    const detail = "你看見何不歸指節上的舊傷，也看見傷勢記錄旁那本未合上的帳。";
     return `${OPENING_CITY_NARRATION}\n\n${event}${detail}\n何不歸：「${npcReply.line}」`;
   }
   if (combatTurn) {
@@ -40,7 +40,7 @@ function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker
   const visibleLength = (text: string) => Array.from(text.replace(/\s/g, "")).length;
   const sandboxDetail: Record<Landmark, string[]> = {
     "青鋒堂總壇": ["你翻看堂口帳簿，知道一文公款也不能亂花。", "你記住何不歸的臉色，堂口還要有人守。"],
-    "晚秋茶寮": ["你掂量藥價，也記住容晚秋提醒過的刀手。", "你收好錢袋，沒有忘記市集的傷號。"],
+    "晚秋茶寮": ["你記下街口消息的價錢，也留心容晚秋指過的暗巷。", "你收好錢袋，還得選一條避開眼線的路。"],
     "黑泥街": ["你盯住肉檔與巷口，防著舊仇再來。", "你掂量今日規費，沒有把公款當私銀。"],
     "鬼骰坊": ["鬼骰坊的叫喝聲不曾停。你收好錢袋，知道每一筆都有人記著。", "桌上的銅錢仍在移動，你卻得先算清下一筆帳。"],
     "裂石擂": ["你揉了揉傷處，還記得擂台上的硬拳。", "你握緊拳頭，掂量下一場的代價。"],
@@ -48,7 +48,8 @@ function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker
     "夜雨樓": ["你聽著樓裡閒話，暗記可疑客人的口音。", "你留心席間眼色，不急著露出底牌。"],
   };
   const detail: Record<GameState["questStep"], string[]> = {
-    prologue_briefing: ["你攥緊藥包，沒有應聲。", "你看見何不歸的手壓著帳簿，知道五十文也要帶回。"],
+    prologue_briefing: ["你記牢何不歸交代的傷勢，沒有應聲。", "你看見何不歸的手壓著帳簿，知道五十文也要帶回。"],
+    kuyan_medicine: ["你記著陸千帆的傷勢，等顧忘生取出膏藥。", "藥罐尚未封口，你先記下趕往市集的路。"],
     yung_tea_stall: ["你護住懷裡的草藥，將容晚秋的警訊記在心裡。", "你聽見街口腳步，又把袖口攏緊。"],
     market_collection: ["你按住藥包，沒有忘記肉檔欠下的規費。", "你留意巷口動靜，準備先救人再收錢。"],
     huizhi_ambush: ["你收緊刀柄，將身邊同門護在側後。", "你聽見巷尾腳步，知道眼前再無退路。"],
@@ -57,6 +58,7 @@ function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker
   };
   const speech: Record<Exclude<GameState["questStep"], "sandbox">, string> = {
     prologue_briefing: "藥先送到。五十文的帳，我替你看著。",
+    kuyan_medicine: "傷口如何，我聽清了。膏藥拿穩，先去救人。",
     yung_tea_stall: "藥拿穩。市集那邊，少走明路。",
     market_collection: "我這傷還撐得住。你先看巷口。",
     huizhi_ambush: "我往左。你別讓他們抄後路。",
@@ -64,7 +66,7 @@ function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker
   };
   const sandboxSpeech: Record<Landmark, string> = {
     "青鋒堂總壇": "這道門我先守著。你去看街上的事。",
-    "晚秋茶寮": "茶給你留著。傷口先別沾水。",
+    "晚秋茶寮": "消息與暗道都在這裏。先說你要哪一樣。",
     "黑泥街": "我看巷口。你先把腳下踩穩。",
     "鬼骰坊": "進門先數錢，出門再數一遍。",
     "裂石擂": "站穩。肘收回來。",

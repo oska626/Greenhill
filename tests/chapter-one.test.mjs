@@ -66,6 +66,14 @@ test("three calm turns lead to a fixed saved business loss", () => {
   assert.ok(found.state.sectLifeline < restored.sectLifeline, "three deficit turns damage lifeline");
 });
 
+test("chapter-one rest restores twenty percent of both maximums", () => {
+  const start = choose(finished(), "A");
+  const rest = choose(start.state, "A");
+  assert.equal(rest.state.turn, start.state.turn + 1);
+  assert.equal(rest.state.playerHp, 95);
+  assert.equal(rest.state.playerMp, 45);
+});
+
 test("evidence and a companion can restore dock logistics", () => {
   let turn = inspectAffected(calmToShortage().state);
   turn = choose(turn.state, "B");
