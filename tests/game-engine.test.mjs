@@ -476,7 +476,7 @@ test("new martial arts alter existing combat actions", () => {
   assert.ok(point.combat.enemyHp < feint.combat.enemyHp);
 });
 
-test("zero lifeline opens a final choice and the ending closes the game", () => {
+test("zero lifeline opens a final choice and failed ending closes chapter access", () => {
   const prepared = { ...newGame(), questStep: "sandbox", turn: 69, sectLifeline: 1,
     worldFlags: MISSIONS.slice(0, 3).map((mission) => mission.clue) };
   const crisis = resolveTurn(prepared, "C. [盤點] 清點堂口帳目。", false);

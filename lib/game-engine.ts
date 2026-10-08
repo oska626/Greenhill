@@ -5,13 +5,14 @@ import { ENDING_OPTIONS, MISSIONS, missionOptions, resolveEnding, resolveMission
 import { COMPANION_IDS, applyMissionRelationship, changeTrust, companionLeads, newRelationships, normalizeRelationships,
   type CompanionId, type CompanionRelationships } from "./companion-relations.ts";
 import { CREATIVE_GOALS, CUSTOM_ACTION_MAX, negatesIrreversibleAction, type CreativeAction } from "./custom-action.ts";
+import { chapterOneOptions, resolveChapterOne, type Business, type ChapterOneState } from "./chapter-one.ts";
 
 export const LANDMARKS = [
   "青鋒堂總壇", "晚秋茶寮", "黑泥街", "鬼骰坊", "裂石擂", "苦煙館", "夜雨樓",
 ] as const;
 
 export type Landmark = typeof LANDMARKS[number];
-export type QuestStep = "prologue_briefing" | "yung_tea_stall" | "market_collection" | "huizhi_ambush" | "sandbox";
+export type QuestStep = "prologue_briefing" | "yung_tea_stall" | "market_collection" | "huizhi_ambush" | "sandbox" | "chapter_one";
 export type Incident = "market_raid" | "missing_ledger" | "tainted_medicine";
 type CustomEcho = CreativeAction & { location: Landmark; dueTurn: number };
 export const CUSTOM_ACTION_START = CUSTOM_ACTION_MAX;
@@ -59,6 +60,10 @@ export interface GameState {
     finalGuardLayers?: number;
     finalSupport?: number;
     prologueCompanionLeads?: CompanionId[];
+    chapterOne?: ChapterOneState;
+    treasuryChange?: { delta: number; reason: string; turn: number };
+    checkpointReady?: boolean;
+    midpointBriefed?: boolean;
     lastJobTurn?: number;
     loanDueTurn?: number;
     customEchoes?: CustomEcho[];
@@ -94,7 +99,7 @@ const MARKET_OPTIONS = [
   "D. [容許緩交] 先救人，收二十文，准張斷骨餘下三十文日後補交。",
   "E. [護人撤離] 先帶陸千帆離開肉檔；五十文規費暫時收不到。",
 ];
-const TUTORIAL_FLAVOR: Record<Exclude<QuestStep, "sandbox" | "huizhi_ambush">, string[]> = {
+const TUTORIAL_FLAVOR: Record<Exclude<QuestStep, "sandbox" | "huizhi_ambush" | "chapter_one">, string[]> = {
   prologue_briefing: ["你接過藥包，立即動身。", "你向何不歸討路費，才接過藥包。", "你問清刀手路線，記住他們慣用的兵刃。", "你拆開藥包，驗過草藥才領命。", "你認清通往市集的暗巷，再帶藥離開。"],
   yung_tea_stall: ["你請容晚秋先配傷藥，趕在刀手前動身。", "你問清刀手裝束，請容晚秋換藥。", "你飲過熱茶，調勻氣息才換藥。", "你跟容晚秋認清藥封，再收下金創散。", "你託容晚秋向堂口傳信，換藥後趕往市集。"],
   market_collection: ["你先救陸千帆，再逼張斷骨交錢。", "你先向張斷骨索錢，讓陸千帆帶傷等候。", "你先查巷口刀手，回頭救人時已收不齊規費。", "你先救人，允張斷骨緩交餘款。", "你護陸千帆離開肉檔，暫且放下規費。"],
@@ -309,12 +314,15 @@ export function normalizeState(raw: unknown): GameState | null {
   if (typeof value.playerName !== "string" || typeof value.background !== "string" || typeof value.trait !== "string") return null;
   const background = value.background === "爛賭收數佬" ? "賭坊收帳人"
     : value.background === "濕鳩武館棄徒" ? "落魄武館棄徒" : value.background;
-  const steps: QuestStep[] = ["prologue_briefing", "yung_tea_stall", "market_collection", "huizhi_ambush", "sandbox"];
+  const steps: QuestStep[] = ["prologue_briefing", "yung_tea_stall", "market_collection", "huizhi_ambush", "sandbox", "chapter_one"];
   if (!steps.includes(value.questStep as QuestStep)) return null;
   const stats = aptitude(value.playerName, background, value.trait);
   const maxHp = finite(value.maxHp, stats.hp, 1, 170);
   const maxMp = finite(value.maxMp, stats.mp, 1, 170);
   const flags = value.flags || { tookHerbs: false, visitedYung: false, collectedMarketFee: false, marketAmbushTriggered: false };
+  if (value.questStep === "chapter_one" && (flags.ending !== "守住城西" || !flags.chapterOne
+    || !["rest", "shortage", "dock", "complete"].includes(flags.chapterOne.stage)
+    || !["黑泥街", "鬼骰坊", "苦煙館", "夜雨樓"].includes(flags.chapterOne.affectedBusiness))) return null;
   const pendingIncident = INCIDENTS.includes(flags.pendingIncident as Incident) ? flags.pendingIncident as Incident : undefined;
   const worldFlags = Array.isArray(value.worldFlags) ? value.worldFlags.filter((flag): flag is string => typeof flag === "string").slice(0, 100).map((flag) => renameLegacyWorldNames(flag).slice(0, 30)) : [];
   const relationships = value.relationships && typeof value.relationships === "object"
@@ -381,6 +389,22 @@ export function normalizeState(raw: unknown): GameState | null {
         ? flags.prologueCompanionLeads.filter((name): name is CompanionId => typeof name === "string" && COMPANION_IDS.some((id) => id === name))
         : flags.ending ? companionLeads(relationships, flags.ending) : undefined,
       ending: typeof flags.ending === "string" && ["守住城西", "城西陷落", "割地求存", "獨自撤走"].includes(flags.ending) ? flags.ending : undefined,
+      chapterOne: flags.ending === "守住城西" && flags.chapterOne
+        && ["rest", "shortage", "dock", "complete"].includes(flags.chapterOne.stage)
+        && ["黑泥街", "鬼骰坊", "苦煙館", "夜雨樓"].includes(flags.chapterOne.affectedBusiness)
+        ? { stage: flags.chapterOne.stage, turns: finite(flags.chapterOne.turns, 0, 0, 100),
+          evidence: finite(flags.chapterOne.evidence, 0, 0, 10), allies: finite(flags.chapterOne.allies, 0, 0, 8),
+          affectedBusiness: flags.chapterOne.affectedBusiness as Business,
+          deficitStreak: finite(flags.chapterOne.deficitStreak, 0, 0, 100),
+          tribute: ["pending", "paid", "missed"].includes(flags.chapterOne.tribute) ? flags.chapterOne.tribute : "pending",
+          manifestFound: flags.chapterOne.manifestFound === true, crewHired: flags.chapterOne.crewHired === true,
+          dockRouteKnown: flags.chapterOne.dockRouteKnown === true, petitionHeard: flags.chapterOne.petitionHeard === true,
+          result: typeof flags.chapterOne.result === "string" ? flags.chapterOne.result.slice(0, 30) : undefined } : undefined,
+      treasuryChange: flags.treasuryChange && typeof flags.treasuryChange.reason === "string"
+        ? { delta: finite(flags.treasuryChange.delta, 0, -100000, 100000), reason: flags.treasuryChange.reason.slice(0, 100),
+          turn: finite(flags.treasuryChange.turn, 0, 0, 100000) } : undefined,
+      checkpointReady: flags.checkpointReady === true,
+      midpointBriefed: flags.midpointBriefed === true,
     },
   };
 }
@@ -493,11 +517,14 @@ function resolveIncident(state: GameState, incident: Incident, choice: number): 
 export function resolveTurn(rawState: GameState, action: string, opening: boolean, creative?: CreativeAction, spendCustomUse = false): TurnResult {
   const state = normalizeState(rawState);
   if (!state) throw new Error("遊戲狀態無效");
-  if (state.flags.ending) return { state, options: [], event: `青山城的這段故事已結束：${state.flags.ending}。`, moneyNote: "" };
+  if (state.questStep === "chapter_one" || state.flags.ending) {
+    return resolveChapterOne(state, action, spendCustomUse);
+  }
   const usesCustomAction = customAction(action) || spendCustomUse;
   if (state.flags.finalCrisis) {
     if (!ENDING_OPTIONS.includes(action)) return { state, options: ENDING_OPTIONS, event: "玄武樓已壓到城西門前。你須決定青鋒堂最後的去路。", moneyNote: "" };
-    return { state, options: [], event: resolveEnding(state, action), moneyNote: "" };
+    const event = resolveEnding(state, action);
+    return { state, options: chapterOneOptions(state), event, moneyNote: "" };
   }
   if (action.startsWith("N. [請堂主授機變]") && state.customActionUses >= CUSTOM_ACTION_MAX)
     return { state, options: availableOptions(state), event: "機變已儲滿兩次，毋須再付私銀。", moneyNote: "" };
@@ -511,7 +538,7 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
   let travelTurns = 1;
   const absurd = customAction(action) && /槍械|手槍|步槍|機關槍|超人|神仙|飛天|激光|雷射|核彈|手機|電腦|修仙|法術/.test(action);
   const choice = /^[A-E]\./.test(action) ? action.charCodeAt(0) - 65 : -1;
-  const flavor = (step: Exclude<QuestStep, "sandbox" | "huizhi_ambush">) => choice >= 0 ? TUTORIAL_FLAVOR[step][choice] : "你自定手段，仍把眼前差事辦下去。";
+  const flavor = (step: Exclude<QuestStep, "sandbox" | "huizhi_ambush" | "chapter_one">) => choice >= 0 ? TUTORIAL_FLAVOR[step][choice] : "你自定手段，仍把眼前差事辦下去。";
   if (!opening) state.turn += 1;
   if (absurd) {
     state.playerHp = Math.max(0, state.playerHp - 15);
@@ -723,6 +750,16 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
       event += resolved.event;
       npcReply = resolved.reply;
       travelTurns = resolved.turns;
+      if (pendingIncident === "tainted_medicine" && state.flags.incidentCount === 3 && !state.flags.midpointBriefed) {
+        state.flags.checkpointReady = true;
+        event += "三件城西急事暫告一段落。你應回總壇向堂主交代，再商量守城後半程。";
+      }
+    } else if (state.flags.checkpointReady && state.currentLocation === "青鋒堂總壇"
+      && action.startsWith("O. [向堂主交代]")) {
+      state.flags.checkpointReady = false;
+      state.flags.midpointBriefed = true;
+      event += "你將市集插旗、規費帳失頁與換封傷藥逐件交代。何不歸翻過帳頁，讓你看清還有多少人手肯守街。";
+      npcReply = { speaker: "何不歸", line: "前頭的帳已記下。後半程，你要把沒查完的差事補上。" };
     } else if (creative && customAction(action)) {
       const flag = `${state.currentLocation}機變${creative.goal}`;
       if (state.worldFlags.includes(flag)) {
@@ -1055,12 +1092,15 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
 
   const changes: string[] = [];
   if (state.silver !== oldSilver) changes.push(`私銀${state.silver > oldSilver ? "增加" : "減少"}${Math.abs(state.silver - oldSilver)}文`);
-  if (state.factionFunds !== oldFunds) changes.push(`公款${state.factionFunds > oldFunds ? "增加" : "減少"}${Math.abs(state.factionFunds - oldFunds)}文`);
+  if (state.factionFunds !== oldFunds) {
+    changes.push(`公款${state.factionFunds > oldFunds ? "增加" : "減少"}${Math.abs(state.factionFunds - oldFunds)}文`);
+    state.flags.treasuryChange = { delta: state.factionFunds - oldFunds, reason: "本回合公款收支", turn: state.turn };
+  }
   return { state, options: availableOptions(state), event: event.trim(), moneyNote: changes.join("，"), npcReply };
 }
 
 export function availableOptions(state: GameState): string[] {
-  if (state.flags.ending) return [];
+  if (state.questStep === "chapter_one" || state.flags.ending) return chapterOneOptions(state);
   if (state.flags.finalCrisis) return ENDING_OPTIONS;
   if (state.combat || state.questStep === "huizhi_ambush") {
     const combat = state.combat || createCombat("market_ambush", !state.worldFlags.includes("出賣陸千帆"));
@@ -1142,5 +1182,7 @@ export function availableOptions(state: GameState): string[] {
     sideWork.push("M. [為陸千帆求藥] 自掏十文私銀請顧忘生療傷；傷勢穩定後可再同行。");
   if (state.currentLocation === "青鋒堂總壇" && state.customActionUses < CUSTOM_ACTION_MAX)
     sideWork.push(`N. [請堂主授機變] 付${CUSTOM_ACTION_PRICE}文私銀，請堂主補給一次機變；公款不動。`);
+  if (state.currentLocation === "青鋒堂總壇" && state.flags.checkpointReady && !state.flags.midpointBriefed)
+    sideWork.push("O. [向堂主交代] 整理首輪三件城西急事，留下後半程的中期存檔。");
   return [...base, ...missionOptions(state), ...training, ...sideWork];
 }

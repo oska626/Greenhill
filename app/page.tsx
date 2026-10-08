@@ -3,11 +3,12 @@
 import { useEffect, useState, useRef } from "react";
 import { aptitude, availableOptions, CUSTOM_ACTION_START, LANDMARKS, normalizeState, type GameState, type Landmark } from "@/lib/game-engine";
 import { CUSTOM_ACTION_MAX } from "@/lib/custom-action";
-import { guardLayersForLifeline, travelChoices } from "@/lib/city-progression";
+import { guardLayersForLifeline, MISSIONS, travelChoices } from "@/lib/city-progression";
 import { newRelationships } from "@/lib/companion-relations";
 import { renameLegacyWorldNames } from "@/lib/npc-voices";
 import { createPrologueHandoff, type PrologueHandoff } from "@/lib/prologue-handoff";
 import { MapModal } from "@/components/game/map-modal";
+import { shouldCapturePrologueCheckpoint } from "@/lib/prologue-checkpoint";
 
 interface ApiResponse {
   narrative: string;
@@ -23,9 +24,11 @@ interface SavedGameData {
   narrative: string;
   options: string[];
   handoff?: PrologueHandoff;
+  checkpoint?: { version: 1; state: GameState; narrative: string; options: string[] };
 }
 
 const SAVE_KEY = "qingshan_game_save_v1";
+const READ_KEY = "qingshan_read_narratives_v1";
 
 const BACKGROUNDS = [
   {
@@ -94,6 +97,9 @@ export default function GamePage() {
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [selectedDestination, setSelectedDestination] = useState<Landmark | null>(null);
   const [mapOpen, setMapOpen] = useState(false);
+  const [skipRead, setSkipRead] = useState(false);
+  const [previouslyRead, setPreviouslyRead] = useState(false);
+  const [showReadNarrative, setShowReadNarrative] = useState(false);
 
   const narrativeEndRef = useRef<HTMLDivElement>(null);
   const narrativeScrollRef = useRef<HTMLDivElement>(null);
@@ -108,9 +114,14 @@ export default function GamePage() {
         if (state && typeof parsed?.narrative === "string" && Array.isArray(parsed?.options)) {
           const storedHandoff = parsed.handoff?.version === 1 && parsed.handoff.ending === state.flags.ending
             && typeof parsed.handoff.summary === "string" ? parsed.handoff : undefined;
+          const checkpointState = parsed.checkpoint?.version === 1 ? normalizeState(parsed.checkpoint.state) : null;
+          const checkpoint = checkpointState?.questStep === "sandbox" && !checkpointState.flags.ending
+            && !checkpointState.flags.finalCrisis && typeof parsed.checkpoint?.narrative === "string"
+            ? { version: 1 as const, state: checkpointState, narrative: parsed.checkpoint.narrative,
+              options: availableOptions(checkpointState) } : undefined;
           const restored: SavedGameData = { saveVersion: 2, state,
             narrative: renameLegacyWorldNames(parsed.narrative), options: availableOptions(state),
-            handoff: storedHandoff || createPrologueHandoff(state) || undefined };
+            handoff: storedHandoff || createPrologueHandoff(state) || undefined, checkpoint };
           setSavedGame(restored);
           if (state.flags.ending && !storedHandoff) localStorage.setItem(SAVE_KEY, JSON.stringify(restored));
         }
@@ -128,10 +139,28 @@ export default function GamePage() {
     }
   }, [narrative, loading, gameState?.turn, gameState?.questStep]);
 
+  useEffect(() => {
+    if (!narrative) return;
+    try {
+      const stored = JSON.parse(localStorage.getItem(READ_KEY) || "[]");
+      const read: string[] = Array.isArray(stored) ? stored.filter((item): item is string => typeof item === "string") : [];
+      setPreviouslyRead(read.includes(narrative));
+      setShowReadNarrative(false);
+      if (!read.includes(narrative)) localStorage.setItem(READ_KEY, JSON.stringify([...read.slice(-199), narrative]));
+    } catch {
+      setPreviouslyRead(false);
+    }
+  }, [narrative]);
+
   const saveToLocalStorage = (state: GameState, narr: string, opts: string[]) => {
     try {
+      const reachedCheckpoint = !savedGame?.checkpoint && shouldCapturePrologueCheckpoint(gameState, state);
+      const checkpoint = reachedCheckpoint
+        ? { version: 1 as const, state, narrative: narr, options: opts } : savedGame?.checkpoint;
+      const handoff = savedGame?.handoff?.ending === state.flags.ending
+        ? savedGame?.handoff : createPrologueHandoff(state) || undefined;
       const payload: SavedGameData = { saveVersion: 2, state, narrative: narr, options: opts,
-        handoff: createPrologueHandoff(state) || undefined };
+        handoff, checkpoint };
       localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
       setSavedGame(payload);
     } catch (e) {
@@ -144,6 +173,22 @@ export default function GamePage() {
     setGameState(savedGame.state);
     setNarrative(savedGame.narrative);
     setOptions(savedGame.options);
+    setView("game");
+  };
+
+  const handleLoadCheckpoint = () => {
+    const checkpoint = savedGame?.checkpoint;
+    if (!checkpoint || !window.confirm("由序章中期存檔重試？之後的進度會被覆蓋。")) return;
+    const restored: SavedGameData = { saveVersion: 2, state: checkpoint.state,
+      narrative: checkpoint.narrative, options: availableOptions(checkpoint.state), checkpoint };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(restored));
+    setSavedGame(restored);
+    setGameState(restored.state);
+    setNarrative(restored.narrative);
+    setOptions(restored.options);
+    setSelectedDestination(null);
+    setCustomInput("");
+    setErrorMsg("");
     setView("game");
   };
 
@@ -312,6 +357,11 @@ export default function GamePage() {
 
   const handoff = gameState?.flags.ending && savedGame?.state.flags.ending === gameState.flags.ending
     ? savedGame.handoff || createPrologueHandoff(gameState) : gameState ? createPrologueHandoff(gameState) : null;
+  const supportCount = gameState ? MISSIONS.filter((mission) => gameState.worldFlags.includes(mission.clue)).length : 0;
+  const unfinishedSupport = gameState ? MISSIONS.filter((mission) => !gameState.worldFlags.includes(mission.clue)
+    && !gameState.worldFlags.includes(`${mission.title}完成`)).map((mission) => mission.title) : [];
+  const treasuryChange = gameState?.flags.treasuryChange?.turn === gameState?.turn
+    ? gameState?.flags.treasuryChange : undefined;
 
   if (view === "creation") {
     const curBg = BACKGROUNDS.find((b) => b.id === selectedBgId) || BACKGROUNDS[0];
@@ -443,7 +493,7 @@ export default function GamePage() {
             <span className="text-stone-500 text-[11px]">({gameState?.background}{gameState?.gender ? ` · ${gameState.gender}` : ""})</span>
             <span className="text-stone-500">|</span>
             <span className="text-stone-400">當前地標:</span>
-            <span className="text-stone-100 font-semibold">{gameState?.currentLocation}</span>
+            <span className="text-stone-100 font-semibold">{gameState?.questStep === "chapter_one" && gameState.flags.chapterOne?.stage === "dock" ? "青山城碼頭周邊" : gameState?.currentLocation}</span>
             <span className="bg-stone-800 text-stone-400 px-2 py-0.5 rounded text-[11px]">
               第 {gameState?.turn || 1} 回合
             </span>
@@ -453,10 +503,6 @@ export default function GamePage() {
             <div>
               <span className="text-stone-500 mr-1">私銀:</span>
               <span className="text-amber-400 font-mono font-medium">{gameState?.silver ?? 0}</span> 文
-            </div>
-            <div>
-              <span className="text-stone-500 mr-1">門派流動金:</span>
-              <span className="text-emerald-400 font-mono font-medium">{gameState?.factionFunds ?? 0}</span> 文
             </div>
             <div>
               <span className="text-stone-500 mr-1">青鋒堂命脈:</span>
@@ -475,6 +521,18 @@ export default function GamePage() {
                 <span className="ml-2 text-stone-400 text-[11px]" title="命脈60起每10點增加一層守備；每層抵銷5點終局攻勢">
                   守備{gameState.flags.finalGuardLayers ?? guardLayersForLifeline(gameState.sectLifeline)}層
                 </span>
+              )}
+            </div>
+            <div title={treasuryChange?.reason || "青鋒堂公帳結餘"}>
+              <span className="text-stone-500 mr-1">青鋒堂公款:</span>
+              <span className="text-emerald-400 font-mono font-medium">{gameState?.factionFunds ?? 0}</span> 文
+              {treasuryChange && treasuryChange.delta !== 0 && (
+                <span className={`ml-1 text-xs font-semibold ${treasuryChange.delta < 0 ? "text-rose-400" : "text-emerald-400"}`}>
+                  {treasuryChange.delta < 0 ? "↓" : "↑"}{Math.abs(treasuryChange.delta)}
+                </span>
+              )}
+              {treasuryChange && (
+                <span className="block text-[10px] text-stone-500">{treasuryChange.reason}</span>
               )}
             </div>
 
@@ -505,11 +563,18 @@ export default function GamePage() {
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="space-y-5 text-sm md:text-base leading-relaxed tracking-wide text-stone-200 font-serif">
-                  {narrative.split(/\n\s*\n/).map((paragraph, index) => (
-                    <p key={index} className="whitespace-pre-line">{paragraph}</p>
-                  ))}
+                <div className="flex justify-end gap-3 text-[11px] text-stone-400">
+                  <label className="flex items-center gap-1"><input type="checkbox" checked={skipRead} onChange={(event) => setSkipRead(event.target.checked)} />略過已讀敘事</label>
                 </div>
+                {skipRead && previouslyRead && !showReadNarrative ? (
+                  <button type="button" onClick={() => setShowReadNarrative(true)} className="text-left text-sm text-stone-400 underline">這段敘事已讀過；按此重看</button>
+                ) : (
+                  <div className="space-y-5 text-sm md:text-base leading-relaxed tracking-wide text-stone-200 font-serif">
+                    {narrative.split(/\n\s*\n/).map((paragraph, index) => (
+                      <p key={index} className="whitespace-pre-line">{paragraph}</p>
+                    ))}
+                  </div>
+                )}
                 {loading && (
                   <div className="flex items-center gap-2 text-xs text-amber-500/80 pt-2">
                     <span className="animate-spin text-base">⚙</span> 局勢變化中...
@@ -524,7 +589,10 @@ export default function GamePage() {
             <div className="bg-amber-950/25 border border-amber-700/50 rounded-lg p-4 space-y-2">
               <div className="text-sm font-semibold text-amber-300">第一章承接文字</div>
               <p className="text-sm leading-relaxed text-stone-200 select-text">{handoff.summary}</p>
-              <p className="text-xs text-stone-400">已連同完整狀態存於此瀏覽器；第一章尚未開放。</p>
+              <p className="text-xs text-stone-400">已連同完整狀態存於此瀏覽器；{gameState?.flags.chapterOne?.stage === "complete" ? `第一章〈碼頭斷貨〉已結束：${gameState.flags.chapterOne.result}。` : gameState?.questStep === "chapter_one" ? "第一章〈碼頭斷貨〉進行中。" : gameState?.flags.ending === "守住城西" ? "可從下方踏入第一章〈碼頭斷貨〉。" : "此結局未能進入第一章；可由中期存檔重試或重新開始。"}</p>
+              {gameState?.flags.ending && gameState.flags.ending !== "守住城西" && savedGame?.checkpoint && (
+                <button type="button" onClick={handleLoadCheckpoint} className="rounded border border-amber-700 px-3 py-1.5 text-xs text-amber-200 hover:bg-amber-900/30">由中期存檔重試</button>
+              )}
             </div>
           )}
 
@@ -542,6 +610,23 @@ export default function GamePage() {
             {gameState?.questStep === "sandbox" && !gameState.flags.ending && (
               <div className="text-[11px] text-stone-500">行路耗時，玄武樓持續施壓；差事、線索與欠帳都會留到終局。</div>
             )}
+            {gameState?.questStep === "sandbox" && gameState.flags.checkpointReady && !gameState.flags.midpointBriefed && (
+              <div className="rounded border border-amber-800/60 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">首輪三件急事已處理；返回青鋒堂總壇向堂主交代，即可留下中期存檔。</div>
+            )}
+            {gameState?.questStep === "sandbox" && savedGame?.checkpoint && (
+              <div className="text-[11px] text-emerald-500">序章中期存檔已建立。</div>
+            )}
+            {gameState?.questStep === "sandbox" && (gameState.turn >= 20 || gameState.flags.finalCrisis) && (
+              <div className="rounded border border-amber-900/50 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
+                守城支援：{supportCount}/3 項；命脈 {gameState.sectLifeline}/100。{supportCount < 3 && unfinishedSupport.length > 0
+                  ? `尚可細查：${unfinishedSupport.join("、")}。` : supportCount < 3 ? "現有差事未留下足夠支援。" : "支援已齊，仍須守住足夠命脈。"}
+              </div>
+            )}
+            {gameState?.questStep === "chapter_one" && gameState.flags.chapterOne?.stage === "shortage" && (
+              <div className="rounded border border-rose-900/60 bg-rose-950/25 px-3 py-2 text-xs text-rose-200">
+                城西生意連續欠收 {gameState.flags.chapterOne.deficitStreak} 回合；每累積三回合，青鋒堂命脈會受損。
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {options.map((opt, idx) => (
                 <button
@@ -555,10 +640,11 @@ export default function GamePage() {
               ))}
             </div>
 
-            {!gameState?.flags.finalCrisis && !gameState?.flags.ending && <form onSubmit={handleCustomSubmit} className="mt-2 pt-3 border-t border-stone-800 flex flex-col gap-1.5">
+            {((gameState?.questStep === "chapter_one" && gameState.flags.chapterOne?.stage !== "complete")
+              || (!gameState?.flags.finalCrisis && !gameState?.flags.ending)) && <form onSubmit={handleCustomSubmit} className="mt-2 pt-3 border-t border-stone-800 flex flex-col gap-1.5">
               <div className="text-xs font-semibold text-amber-400/90 tracking-wider flex items-center gap-1.5">
                 <span>F. [自訂手段] {gameState?.customActionUses ?? 0}/{CUSTOM_ACTION_MAX}</span>
-                <span className="text-[11px] text-stone-500 font-normal">限 50 字；完成差事或到總壇付 50 文私銀補給</span>
+                <span className="text-[11px] text-stone-500 font-normal">{gameState?.questStep === "chapter_one" ? "限 50 字；提出可行手段，碼頭查證後亦可爭取城主介入" : "限 50 字；完成差事或到總壇付 50 文私銀補給"}</span>
               </div>
               <div className="flex gap-2">
                 <input
