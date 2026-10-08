@@ -108,7 +108,7 @@ test("custom action charges start at two, spend only on a settled F turn, and ca
   assert.equal(bought.state.silver, 0);
   assert.equal(bought.state.factionFunds, empty.factionFunds);
   assert.equal(bought.state.customActionUses, 1);
-  const used = resolveTurn(bought.state, "A. [休整] 靜坐調息，回復氣血與內力。", false, undefined, true);
+  const used = resolveTurn(bought.state, "A. [休整] 靜坐調息，回復氣血與精力。", false, undefined, true);
   assert.equal(used.state.customActionUses, 0);
 });
 

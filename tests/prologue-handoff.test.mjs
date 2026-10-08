@@ -26,6 +26,6 @@ test("handoff paragraph carries relevant consequences without declaring companio
   assert.match(handoff.summary, /容晚秋；他們尚未答應同行/);
   assert.match(handoff.summary, /守街名冊/);
   assert.match(handoff.summary, /陸千帆與你決裂/);
-  assert.match(handoff.summary, /私銀21文，氣血73\/100，內力42\/50/);
+  assert.match(handoff.summary, /私銀21文，氣血73\/100，精力42\/50/);
   assert.equal(handoff.summary.includes("\n"), false);
 });

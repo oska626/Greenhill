@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { aptitude, availableOptions, LANDMARKS, normalizeState, OPENING_CITY_NARRATION, resolveTurn } from "../lib/game-engine.ts";
+import { aptitude, availableOptions, PROLOGUE_LANDMARKS, normalizeState, OPENING_CITY_NARRATION, resolveTurn } from "../lib/game-engine.ts";
 import { NPC_VOICES, hasSectAddressViolation, npcVoiceGuide, renameLegacyWorldNames, repeatedNpcLine, sectMemberAddress } from "../lib/npc-voices.ts";
 import { createCombat, resolveCombatRound, trainMove } from "../lib/combat-engine.ts";
 import { ENDING_OPTIONS, MISSIONS, guardLayersForLifeline, missionOptions, travelChoices } from "../lib/city-progression.ts";
 import { companionLeads, newRelationships } from "../lib/companion-relations.ts";
+import { PACKED_MEDICINE, USE_PACKED_MEDICINE } from "../lib/recovery.ts";
+import { actionEnergyCost, FATIGUE_THRESHOLD, MAX_ENERGY } from "../lib/energy.ts";
 
 function newGame() {
   const stats = aptitude("阿七", "賭坊收帳人", "察言觀色");
@@ -23,6 +25,80 @@ function finishCombat(turn) {
   assert.equal(turn.state.combat, undefined, "combat must resolve within four rounds");
   return turn;
 }
+
+test("creation varies only health, while every background starts with fifty energy", () => {
+  const builds = [
+    ["賭坊收帳人", "察言觀色"], ["城西街童扒手", "手疾眼快"],
+    ["落魄武館棄徒", "皮糙肉厚"], ["黑市醫道學徒", "辨毒識藥"],
+    ["自定義市井流民", "使短刀"],
+  ].map(([background, trait]) => aptitude("阿七", background, trait));
+  assert.deepEqual(new Set(builds.map((stats) => stats.mp)), new Set([MAX_ENERGY]));
+  assert.ok(new Set(builds.map((stats) => stats.hp)).size > 1);
+  for (const stats of builds) {
+    const opened = resolveTurn({ ...newGame(), maxHp: stats.hp, maxMp: stats.mp }, "[初入堂口] 阿七", true);
+    assert.equal(opened.state.playerMp, MAX_ENERGY);
+  }
+});
+
+test("older saves keep their energy ratio when normalized to the shared maximum", () => {
+  const old = { ...newGame(), questStep: "sandbox", maxMp: 75, playerMp: 30, playerHp: 47 };
+  const migrated = normalizeState(old);
+  assert.equal(migrated.maxMp, MAX_ENERGY);
+  assert.equal(migrated.playerMp, 20);
+  assert.equal(migrated.playerHp, 47);
+  assert.equal(normalizeState(migrated).playerMp, 20);
+});
+
+test("fatigue raises investigation cost, while exhaustion leaves basic action, travel and rest possible", () => {
+  const base = { ...newGame(), questStep: "sandbox", currentLocation: "黑泥街", playerHp: 50, playerMp: FATIGUE_THRESHOLD, turn: 2 };
+  const track = availableOptions(base).find((option) => option.includes("[盯梢]"));
+  assert.equal(actionEnergyCost(base, track), 3);
+  assert.equal(actionEnergyCost({ ...base, playerMp: FATIGUE_THRESHOLD + 1 }, track), 2);
+  assert.equal(resolveTurn(base, track, false).state.playerMp, 7);
+
+  const empty = { ...base, playerMp: 0 };
+  assert.equal(availableOptions(empty).some((option) => option.includes("[盯梢]")), false);
+  const talk = availableOptions(empty).find((option) => option.includes("[問張斷骨]"));
+  const spoken = resolveTurn(empty, talk, false);
+  assert.equal(spoken.state.playerHp, 48);
+  assert.equal(spoken.state.playerMp, 0);
+  const route = travelChoices(empty, "夜雨樓")[0];
+  assert.equal(route.turns, 3);
+  const travelled = resolveTurn(empty, route.label, false);
+  assert.equal(travelled.state.currentLocation, "夜雨樓");
+  assert.equal(travelled.state.turn, 5);
+  assert.equal(travelled.state.playerHp, 44);
+  const hall = { ...empty, currentLocation: "青鋒堂總壇" };
+  const rested = resolveTurn(hall, availableOptions(hall)[0], false);
+  assert.equal(rested.state.playerMp, 10);
+  assert.equal(rested.state.playerHp, 50 + Math.ceil(hall.maxHp * 0.2));
+});
+
+test("fatigue adds two injury only when a combat hit lands", () => {
+  const combat = createCombat("arena");
+  const input = { combat, action: "A. [正面進擊]", playerHp: 80, playerMp: 10,
+    weapon: "fists", weaponDurability: 0, knownMoves: {} };
+  const normal = resolveCombatRound(input);
+  const tired = resolveCombatRound({ ...input, fatigued: true });
+  assert.equal(normal.playerMp, 9);
+  assert.equal(tired.playerMp, 9);
+  assert.equal(tired.playerHp, normal.playerHp - 2);
+});
+
+test("zero-energy combat keeps basic moves and invalid commands spend nothing", () => {
+  const scene = { ...newGame(), questStep: "sandbox", currentLocation: "裂石擂",
+    playerHp: 50, playerMp: 0, combat: createCombat("arena") };
+  const options = availableOptions(scene);
+  assert.equal(options.some((option) => option.startsWith("A. [正面進擊]")), true);
+  assert.equal(options.some((option) => option.startsWith("C. [借地形]")), false);
+  const fought = resolveTurn(scene, options[0], false);
+  assert.equal(fought.state.playerMp, 0);
+  assert.match(fought.event, /精力耗盡.*氣血減2/);
+  const refused = resolveTurn(scene, "C. [借地形]", false);
+  assert.equal(refused.state.turn, scene.turn);
+  assert.equal(refused.state.playerHp, scene.playerHp);
+  assert.equal(refused.state.playerMp, scene.playerMp);
+});
 
 test("opening gives each created background a concrete character detail", () => {
   const portraits = [
@@ -80,7 +156,7 @@ test("custom opening turns profile details into He Bugui's judgement rather than
 });
 
 test("every sandbox choice has a distinct event and NPC reply", () => {
-  for (const location of LANDMARKS) {
+  for (const location of PROLOGUE_LANDMARKS) {
     const state = { ...newGame(), questStep: "sandbox", currentLocation: location, silver: 100, factionFunds: 100 };
     const options = resolveTurn(state, `F. [前往] ${location}`, false).options;
     const events = new Set();
@@ -279,7 +355,8 @@ test("betrayal and maiming alter later options and encounters", () => {
   assert.ok(turn.options.every((option) => !option.includes("陸千帆")));
   assert.equal(turn.state.combat.allyPresent, false);
   turn = finishCombat(turn);
-  turn = resolveTurn(turn.state, "F. [前往] 黑泥街", false);
+  turn = resolveTurn(turn.state, travelChoices(turn.state, "晚秋茶寮")[0].label, false);
+  turn = resolveTurn(turn.state, turn.options[0], false);
   assert.ok(turn.state.worldFlags.includes("屠戶避讓"));
   assert.ok(turn.options.every((option) => !option.includes("找陸千帆")));
 });
@@ -300,7 +377,7 @@ test("sandbox travel stays inside seven landmarks and resources have a ledger", 
   turn = resolveTurn(turn.state, availableOptions(turn.state).find((option) => option.startsWith("A. [買消息]")), false);
   assert.equal(turn.state.silver, beforeMessage - 10);
   assert.ok(turn.moneyNote.includes("私銀減少10文"));
-  for (const place of LANDMARKS) {
+  for (const place of PROLOGUE_LANDMARKS) {
     if (turn.state.flags.pendingIncident) turn = resolveTurn(turn.state, turn.options[0], false);
     turn = resolveTurn(turn.state, `F. [前往] ${place}`, false);
     assert.equal(turn.state.currentLocation, place);
@@ -394,7 +471,7 @@ test("older saves keep their location and consequences after the world rename", 
   assert.equal(renameLegacyWorldNames("何仔叫我去容姐茶檔救域卡度。"), "何不歸叫我去晚秋茶寮救陸千帆。");
   const oldLocations = ["明心閣總壇", "容晚秋茶檔", "泥濘市集", "聚財坊", "黑市武館", "仙館", "怡紅院"];
   for (const [index, oldLocation] of oldLocations.entries()) {
-    assert.equal(normalizeState({ ...newGame(), currentLocation: oldLocation }).currentLocation, LANDMARKS[index]);
+    assert.equal(normalizeState({ ...newGame(), currentLocation: oldLocation }).currentLocation, PROLOGUE_LANDMARKS[index]);
   }
   assert.equal(renameLegacyWorldNames("明心閣與匯智樓爭地，青山資產管理坐收漁利。"),
     "青鋒堂與玄武樓爭地，金冊莊坐收漁利。");
@@ -443,12 +520,12 @@ test("Rong Wanqiu only sells paid street intelligence and a Night Rain Tower sho
 
 test("daily recovery costs one turn and follows each maximum", () => {
   const base = { ...newGame(), questStep: "sandbox", maxHp: 101, playerHp: 50,
-    maxMp: 51, playerMp: 10, silver: 10 };
+    maxMp: 50, playerMp: 10, silver: 10 };
   const hall = resolveTurn(base, availableOptions(base)[0], false);
   assert.equal(hall.state.turn, base.turn + 1);
   assert.equal(hall.state.silver, 10);
   assert.equal(hall.state.playerHp, 71);
-  assert.equal(hall.state.playerMp, 21);
+  assert.equal(hall.state.playerMp, 20);
 
   const clinic = { ...base, currentLocation: "苦煙館" };
   const paid = resolveTurn(clinic, availableOptions(clinic)[0], false);
@@ -462,24 +539,46 @@ test("daily recovery costs one turn and follows each maximum", () => {
   assert.equal(refused.state.playerHp, 50);
   assert.equal(refused.state.playerMp, 10);
 
-  const nearFull = { ...clinic, playerHp: 100, playerMp: 50 };
+  const nearFull = { ...clinic, playerHp: 100, playerMp: 49 };
   const capped = resolveTurn(nearFull, availableOptions(nearFull)[0], false);
   assert.equal(capped.state.playerHp, 101);
-  assert.equal(capped.state.playerMp, 51);
+  assert.equal(capped.state.playerMp, 50);
 
-  const full = { ...clinic, playerHp: 101, playerMp: 51 };
+  const full = { ...clinic, playerHp: 101, playerMp: 50 };
   const unneeded = resolveTurn(full, availableOptions(full)[0], false);
   assert.equal(unneeded.state.silver, 10);
   assert.equal(unneeded.state.playerHp, 101);
-  assert.equal(unneeded.state.playerMp, 51);
+  assert.equal(unneeded.state.playerMp, 50);
 
   for (const [currentLocation, tag] of [["黑泥街", "問張斷骨"], ["夜雨樓", "聽曲"]]) {
     const state = { ...base, currentLocation };
     const option = availableOptions(state).find((text) => text.includes(`[${tag}]`));
     const result = resolveTurn(state, option, false);
     assert.equal(result.state.playerHp, state.playerHp);
-    assert.equal(result.state.playerMp, state.playerMp);
+    assert.equal(result.state.playerMp, state.playerMp - 1);
   }
+});
+
+test("clinic medicine can be carried, consumes a slot, and heals when used", () => {
+  const clinic = { ...newGame(), questStep: "sandbox", currentLocation: "苦煙館",
+    playerHp: 50, playerMp: 10, silver: 20 };
+  const buy = availableOptions(clinic).find((option) => option.includes("[買藥帶走]"));
+  const stocked = resolveTurn(clinic, buy, false);
+  assert.equal(stocked.state.silver, 10);
+  assert.equal(stocked.state.inventory.includes(PACKED_MEDICINE), true);
+  assert.equal(stocked.state.inventory.length, clinic.inventory.length + 1);
+  assert.equal(stocked.state.playerHp, 50);
+  assert.equal(stocked.options.includes(USE_PACKED_MEDICINE), true);
+  const healed = resolveTurn(stocked.state, USE_PACKED_MEDICINE, false);
+  assert.equal(healed.state.turn, stocked.state.turn + 1);
+  assert.equal(healed.state.inventory.includes(PACKED_MEDICINE), false);
+  assert.equal(healed.state.playerHp, 50 + Math.ceil(clinic.maxHp * 0.35));
+  assert.equal(healed.state.playerMp, 9 + Math.ceil(clinic.maxMp * 0.35));
+
+  const fullBag = { ...clinic, inventory: Array(clinic.maxInventory).fill("【雜物】") };
+  const refused = resolveTurn(fullBag, buy, false);
+  assert.equal(refused.state.silver, 20);
+  assert.equal(refused.state.inventory.includes(PACKED_MEDICINE), false);
 });
 
 test("sect members call He Bugui 堂主 while outsiders may use his name", () => {
@@ -532,7 +631,7 @@ test("roads cost time and discovered shortcuts carry risk", () => {
 });
 
 test("every landmark mission pays once and careful work helps the finale", () => {
-  assert.equal(MISSIONS.length, LANDMARKS.length);
+  assert.equal(MISSIONS.length, PROLOGUE_LANDMARKS.length);
   for (const mission of MISSIONS) {
     const origin = { ...newGame(), questStep: "sandbox", currentLocation: mission.origin };
     const offer = missionOptions(origin).find((option) => option.includes(mission.title));

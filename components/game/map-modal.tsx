@@ -26,16 +26,19 @@ const MAP_AREAS = [
   { name: '裂石擂', desc: '地下拳館與打手據點', x: 78, y: 66 },
   { name: '苦煙館', desc: '禁藥與黑市消息集散處', x: 46, y: 76 },
   { name: '夜雨樓', desc: '風月場所，亦是情報樞紐', x: 13, y: 86 },
+  { name: '碼頭', desc: '城西糧藥入城的水路，第一章斷貨後可前往', x: 85, y: 17 },
 ];
 
 export function MapModal({ open, onOpenChange, state }: MapModalProps) {
+  const areas = state?.questStep === 'chapter_one' ? MAP_AREAS : MAP_AREAS.filter((area) => area.name !== '碼頭');
+  const lostLandmarks = new Set(state?.flags.chapterOne?.lostLandmarks || []);
   const position = (name: string) => MAP_AREAS.find((area) => area.name === name)!;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl border-zinc-800 bg-zinc-950 p-0 overflow-hidden">
         <DialogHeader className="px-6 pt-5 pb-3 border-b border-zinc-800">
           <DialogTitle className="text-lg font-semibold text-zinc-100">
-            青山城 · 城西七處據點
+            青山城 · {state?.questStep === 'chapter_one' ? '城西七處據點與碼頭' : '城西七處據點'}
           </DialogTitle>
           <DialogDescription className="text-sm text-zinc-500">
             江湖路險，步步為營
@@ -60,7 +63,8 @@ export function MapModal({ open, onOpenChange, state }: MapModalProps) {
               <div className="absolute inset-2 border-2 border-dashed border-zinc-700/60 rounded-lg" />
 
               <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="城西明路與已發現暗道">
-                {ROAD_LINKS.map((road) => <line key={`${road.from}-${road.to}`} x1={position(road.from).x} y1={position(road.from).y}
+                {ROAD_LINKS.filter((road) => areas.some((area) => area.name === road.from)
+                  && areas.some((area) => area.name === road.to)).map((road) => <line key={`${road.from}-${road.to}`} x1={position(road.from).x} y1={position(road.from).y}
                   x2={position(road.to).x} y2={position(road.to).y} stroke="#a8a29e" strokeOpacity="0.55" strokeWidth="0.6" />)}
                 {SECRET_LINKS.filter((route) => state?.worldFlags.includes(route.flag)).map((route) =>
                   <line key={`${route.from}-${route.to}`} x1={position(route.from).x} y1={position(route.from).y}
@@ -68,7 +72,7 @@ export function MapModal({ open, onOpenChange, state }: MapModalProps) {
               </svg>
 
               {/* Area markers */}
-              {MAP_AREAS.map((area, i) => (
+              {areas.map((area, i) => (
                 <div
                   key={i}
                   className="absolute flex flex-col items-center gap-1"
@@ -79,23 +83,24 @@ export function MapModal({ open, onOpenChange, state }: MapModalProps) {
                   }}
                 >
                   <div className="relative">
-                    <div className="h-3 w-3 rounded-full bg-amber-600/80 ring-2 ring-amber-900/40 shadow-[0_0_8px_rgba(217,119,6,0.4)]" />
+                    <div className={`h-3 w-3 rounded-full ring-2 ${lostLandmarks.has(area.name as GameState['currentLocation'])
+                      ? 'bg-rose-600 ring-rose-900/70' : 'bg-amber-600/80 ring-amber-900/40 shadow-[0_0_8px_rgba(217,119,6,0.4)]'}`} />
                     <span className="absolute -top-4 left-1/2 -translate-x-1/2 text-[10px] font-mono text-zinc-500">
                       {i + 1}
                     </span>
                   </div>
                   <span className="whitespace-nowrap text-[11px] font-medium text-zinc-300 bg-zinc-900/80 px-1.5 py-0.5 rounded">
-                    {area.name}
+                    {area.name}{lostLandmarks.has(area.name as GameState['currentLocation']) ? ' · 失守' : ''}
                   </span>
                 </div>
               ))}
             </div>
           </div>
-          <p className="text-xs text-zinc-400">灰線：明路；金色虛線：已發現暗道。選目的地後可比較路程與風險。</p>
+          <p className="text-xs text-zinc-400">灰線：明路；金色虛線：已發現暗道；紅點：失守地標。選目的地後可比較路程與風險。</p>
 
           {/* Area legend */}
           <div className="grid grid-cols-2 gap-2">
-            {MAP_AREAS.map((area, i) => (
+            {areas.map((area, i) => (
               <div
                 key={i}
                 className="flex items-start gap-2 rounded-md border border-zinc-800 bg-zinc-900/40 px-3 py-2"
@@ -104,7 +109,9 @@ export function MapModal({ open, onOpenChange, state }: MapModalProps) {
                   {i + 1}
                 </span>
                 <div className="min-w-0">
-                  <div className="text-xs font-medium text-zinc-200">{area.name}</div>
+                  <div className={`text-xs font-medium ${lostLandmarks.has(area.name as GameState['currentLocation']) ? 'text-rose-300' : 'text-zinc-200'}`}>
+                    {area.name}{lostLandmarks.has(area.name as GameState['currentLocation']) ? ' · 失守' : ''}
+                  </div>
                   <div className="text-[11px] text-zinc-500 leading-snug">{area.desc}</div>
                 </div>
               </div>

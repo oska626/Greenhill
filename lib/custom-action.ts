@@ -10,6 +10,7 @@ export const SCENE_ANCHORS: Record<Landmark, readonly string[]> = {
   "裂石擂": ["圍欄", "沙袋", "衛沉岳", "霍破陣"],
   "苦煙館": ["藥櫃", "藥包", "顧忘生"],
   "夜雨樓": ["屏風", "側門", "柳照霜"],
+  "碼頭": ["貨單", "貨箱", "船工", "碼頭守衛"],
 };
 
 export const CREATIVE_GOALS = ["查線索", "護人", "做工", "牽制", "交涉"] as const;

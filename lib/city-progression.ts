@@ -13,6 +13,7 @@ const ROADS: Route[] = [
   { from: "苦煙館", to: "夜雨樓", turns: 1 },
   { from: "苦煙館", to: "裂石擂", turns: 2 },
   { from: "黑泥街", to: "裂石擂", turns: 2 },
+  { from: "黑泥街", to: "碼頭", turns: 1 },
 ];
 const SHORTCUTS: (Route & { flag: string; danger: string; riskPeriod: number; riskDamage: number; riskLifeline: number })[] = [
   { from: "青鋒堂總壇", to: "黑泥街", turns: 1, flag: "熟記市集暗巷", danger: "玄武樓刀手可能埋伏", riskPeriod: 3, riskDamage: 6, riskLifeline: 0 },
@@ -41,9 +42,16 @@ function roadDistance(from: Landmark, to: Landmark): number {
 export type TravelChoice = { destination: Landmark; kind: "road" | "shortcut"; turns: number; label: string; danger: string; riskPeriod: number; riskDamage: number; riskLifeline: number };
 export function travelChoices(state: GameState, destination: Landmark): TravelChoice[] {
   if (destination === state.currentLocation) return [];
+  if (state.questStep === "chapter_one") {
+    if (state.flags.chapterOne?.stage !== "dock"
+      || !["青鋒堂總壇", "碼頭"].includes(destination)
+      || !["青鋒堂總壇", "碼頭"].includes(state.currentLocation)) return [];
+  } else if (destination === "碼頭" || state.currentLocation === "碼頭") return [];
   const road = Math.min(3, roadDistance(state.currentLocation, destination));
+  const roadNote = state.questStep === "chapter_one"
+    ? "斷貨公款每回合最多減4文；貢款期限照走" : "人多較安全";
   const choices: TravelChoice[] = [{ destination, kind: "road", turns: road,
-    label: `F. [明路前往] ${destination}（${road}回合；人多較安全）`, danger: "", riskPeriod: 0, riskDamage: 0, riskLifeline: 0 }];
+    label: `F. [明路前往] ${destination}（${road}回合；${roadNote}）`, danger: "", riskPeriod: 0, riskDamage: 0, riskLifeline: 0 }];
   const shortcut = SHORTCUTS.find((route) =>
     ((route.from === state.currentLocation && route.to === destination) || (route.to === state.currentLocation && route.from === destination))
     && state.worldFlags.includes(route.flag));

@@ -28,6 +28,6 @@ export function createPrologueHandoff(state: GameState): PrologueHandoff | null 
     state.worldFlags.includes("城東記恨暗殺") ? "城東認出了你的暗殺手法" : "",
   ].filter(Boolean);
   const oldDebts = burdens.length ? `此外，${burdens.join("，")}。` : "";
-  const summary = `城西序章於第${state.turn}回合收束。${OUTCOMES[ending]}${help}${evidence}${oldDebts}你現有私銀${state.silver}文，氣血${state.playerHp}/${state.maxHp}，內力${state.playerMp}/${state.maxMp}；其餘傷勢、所學、物件與人情仍按存檔延續。`;
+  const summary = `城西序章於第${state.turn}回合收束。${OUTCOMES[ending]}${help}${evidence}${oldDebts}你現有私銀${state.silver}文，氣血${state.playerHp}/${state.maxHp}，精力${state.playerMp}/${state.maxMp}；其餘傷勢、所學、物件與人情仍按存檔延續。`;
   return { version: 1, ending, summary };
 }

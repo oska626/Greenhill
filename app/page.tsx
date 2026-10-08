@@ -9,6 +9,8 @@ import { renameLegacyWorldNames } from "@/lib/npc-voices";
 import { createPrologueHandoff, type PrologueHandoff } from "@/lib/prologue-handoff";
 import { MapModal } from "@/components/game/map-modal";
 import { shouldCapturePrologueCheckpoint } from "@/lib/prologue-checkpoint";
+import { chapterPressureForecast } from "@/lib/chapter-one";
+import { actionEnergyCost, FATIGUE_THRESHOLD, MAX_ENERGY } from "@/lib/energy";
 
 interface ApiResponse {
   narrative: string;
@@ -37,8 +39,6 @@ const BACKGROUNDS = [
     desc: "你在鬼骰坊替人追帳，認得欠債人的眼神，也認得藏在袖中的刀。",
     trait: "察言觀色（交涉與洞察提升）",
     startingItems: ["【灌鉛假骰】"],
-    hp: 100,
-    mp: 50,
   },
   {
     id: "pickpocket",
@@ -46,8 +46,6 @@ const BACKGROUNDS = [
     desc: "你在黑泥街長大。攤販記不住你的臉，守門人卻總比你慢一步。",
     trait: "手疾眼快（身法與偷襲提升）",
     startingItems: ["【生石灰粉】"],
-    hp: 90,
-    mp: 60,
   },
   {
     id: "martial_dropout",
@@ -55,8 +53,6 @@ const BACKGROUNDS = [
     desc: "你被裂石擂逐出門牆。拳路仍在，肩上的舊傷也還在。",
     trait: "皮糙肉厚（受擊傷害抗性）",
     startingItems: ["【粗鐵護腕】"],
-    hp: 120,
-    mp: 40,
   },
   {
     id: "doc_assistant",
@@ -64,8 +60,6 @@ const BACKGROUNDS = [
     desc: "你曾在苦煙館熬藥洗傷。藥味留在指縫，傷口的顏色瞞不過你。",
     trait: "辨毒識藥（毒傷與異常抗性）",
     startingItems: ["【止血散】"],
-    hp: 95,
-    mp: 55,
   },
   {
     id: "custom",
@@ -73,8 +67,6 @@ const BACKGROUNDS = [
     desc: "你從未向人說清來歷。青山城也從未追問，只看你能否活過明日。",
     trait: "草莽之軀（屬性均衡）",
     startingItems: [],
-    hp: 100,
-    mp: 50,
   },
 ];
 
@@ -119,11 +111,12 @@ export default function GamePage() {
             && !checkpointState.flags.finalCrisis && typeof parsed.checkpoint?.narrative === "string"
             ? { version: 1 as const, state: checkpointState, narrative: parsed.checkpoint.narrative,
               options: availableOptions(checkpointState) } : undefined;
+          const handoff = createPrologueHandoff(state) || storedHandoff;
           const restored: SavedGameData = { saveVersion: 2, state,
             narrative: renameLegacyWorldNames(parsed.narrative), options: availableOptions(state),
-            handoff: storedHandoff || createPrologueHandoff(state) || undefined, checkpoint };
+            handoff, checkpoint };
           setSavedGame(restored);
-          if (state.flags.ending && !storedHandoff) localStorage.setItem(SAVE_KEY, JSON.stringify(restored));
+          if (state.flags.ending || parsed.state?.maxMp !== MAX_ENERGY) localStorage.setItem(SAVE_KEY, JSON.stringify(restored));
         }
       }
     } catch (e) {
@@ -339,6 +332,7 @@ export default function GamePage() {
       setNarrative(nextNarrative);
       setOptions(nextOptions);
       setCustomInput("");
+      setSelectedDestination(null);
 
       saveToLocalStorage(nextState, nextNarrative, nextOptions);
     } catch (err: unknown) {
@@ -362,6 +356,7 @@ export default function GamePage() {
     && !gameState.worldFlags.includes(`${mission.title}完成`)).map((mission) => mission.title) : [];
   const treasuryChange = gameState?.flags.treasuryChange?.turn === gameState?.turn
     ? gameState?.flags.treasuryChange : undefined;
+  const chapterForecast = gameState ? chapterPressureForecast(gameState) : null;
 
   if (view === "creation") {
     const curBg = BACKGROUNDS.find((b) => b.id === selectedBgId) || BACKGROUNDS[0];
@@ -424,7 +419,7 @@ export default function GamePage() {
                 >
                   <div className="font-semibold text-sm flex justify-between items-center">
                     <span className={selectedBgId === bg.id ? "text-amber-400" : ""}>{bg.name}</span>
-                    <span className="text-[10px] text-stone-500">血:{aptitude(playerName.trim(), bg.name, bg.trait).hp} 氣:{aptitude(playerName.trim(), bg.name, bg.trait).mp}</span>
+                    <span className="text-[10px] text-stone-500">氣血：{aptitude(playerName.trim(), bg.name, bg.trait).hp} · 精力：{MAX_ENERGY}</span>
                   </div>
                   <div className="text-xs text-stone-400 mt-1 line-clamp-2 leading-relaxed">{bg.desc}</div>
                 </button>
@@ -457,7 +452,7 @@ export default function GamePage() {
             <div className="font-semibold text-stone-300">初始命盤預覽</div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-stone-400">
               <div>氣血上限: <span className="font-mono text-rose-400">{curStats.hp}</span></div>
-              <div>內力上限: <span className="font-mono text-sky-400">{curStats.mp}</span></div>
+              <div>精力上限: <span className="font-mono text-sky-400">{curStats.mp}（所有角色相同）</span></div>
               <div>行囊容量: <span className="font-mono text-stone-200">4 格</span></div>
               <div>初期銀兩: <span className="font-mono text-amber-400">0 文</span></div>
             </div>
@@ -493,7 +488,7 @@ export default function GamePage() {
             <span className="text-stone-500 text-[11px]">({gameState?.background}{gameState?.gender ? ` · ${gameState.gender}` : ""})</span>
             <span className="text-stone-500">|</span>
             <span className="text-stone-400">當前地標:</span>
-            <span className="text-stone-100 font-semibold">{gameState?.questStep === "chapter_one" && gameState.flags.chapterOne?.stage === "dock" ? "青山城碼頭周邊" : gameState?.currentLocation}</span>
+            <span className="text-stone-100 font-semibold">{gameState?.currentLocation}</span>
             <span className="bg-stone-800 text-stone-400 px-2 py-0.5 rounded text-[11px]">
               第 {gameState?.turn || 1} 回合
             </span>
@@ -620,11 +615,16 @@ export default function GamePage() {
               <div className="rounded border border-amber-900/50 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
                 守城支援：{supportCount}/3 項；命脈 {gameState.sectLifeline}/100。{supportCount < 3 && unfinishedSupport.length > 0
                   ? `尚可細查：${unfinishedSupport.join("、")}。` : supportCount < 3 ? "現有差事未留下足夠支援。" : "支援已齊，仍須守住足夠命脈。"}
+                {!gameState.flags.finalCrisis && <span className="block mt-1">可到苦煙館買療傷藥放入行囊；進入第一章斷貨後，只能用預先帶備的藥。</span>}
               </div>
             )}
-            {gameState?.questStep === "chapter_one" && gameState.flags.chapterOne?.stage === "shortage" && (
-              <div className="rounded border border-rose-900/60 bg-rose-950/25 px-3 py-2 text-xs text-rose-200">
-                城西生意連續欠收 {gameState.flags.chapterOne.deficitStreak} 回合；每累積三回合，青鋒堂命脈會受損。
+            {gameState?.questStep === "chapter_one" && chapterForecast && (
+              <div className="rounded border border-rose-900/60 bg-rose-950/25 px-3 py-2 text-xs text-rose-200 space-y-1">
+                <div>下回合斷貨壓力：公款{chapterForecast.loss ? `減 ${Math.min(gameState.factionFunds, chapterForecast.loss)} 文（${gameState.factionFunds} → ${Math.max(0, gameState.factionFunds - chapterForecast.loss)}）${gameState.factionFunds < chapterForecast.loss ? `，另欠收 ${chapterForecast.loss - gameState.factionFunds} 文` : ""}` : "暫無欠收"}；行動收支另計。</div>
+                <div>{chapterForecast.tributeIn === null ? `本期貢款：${gameState.flags.chapterOne?.tribute === "paid" ? "已繳" : "逾期"}` : `距離須繳 ${chapterForecast.tributeCost} 文貢款：${chapterForecast.tributeIn} 回合`}。連續欠收 {gameState.flags.chapterOne?.deficitStreak || 0} 回合，每三回合損失命脈。</div>
+                <div className="font-semibold">斷糧 {gameState.flags.chapterOne?.foodShortageDays || 0} 回合；民怨 {gameState.flags.chapterOne?.unrest || 0}/20，下回合預計增加 {chapterForecast.unrestGain}。每到 20，飢民衝擊一處地標。</div>
+                <div>失守地標：{gameState.flags.chapterOne?.lostLandmarks?.join("、") || "無"}（達 3 處或命脈歸零即敗）。</div>
+                <div>同行同伴：{gameState.flags.chapterOne?.selectedCompanion || "未選；只可選一位"}。</div>
               </div>
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -636,15 +636,31 @@ export default function GamePage() {
                   className="text-left text-xs md:text-sm px-3.5 py-2.5 rounded border transition duration-150 disabled:opacity-40 disabled:cursor-not-allowed bg-stone-800/70 hover:bg-stone-700/80 border-stone-700/50 text-stone-200 hover:border-stone-500"
                 >
                   {opt}
+                  {gameState && <span className="block mt-1 text-[11px] text-sky-300">
+                    {(() => {
+                      const turns = Number(/(?:共)?(\d+)回合/.exec(opt)?.[1] || 1);
+                      const cost = actionEnergyCost(gameState, opt, turns);
+                      const travel = /\[(?:明路前往|暗道前往|前往)\]/.test(opt);
+                      return cost === 0 ? "精力 0 · 消耗一回合"
+                        : travel && gameState.playerMp < cost
+                          ? `精力 -${gameState.playerMp} · 氣血 -${2 * (cost - gameState.playerMp)} · ${turns} 回合`
+                        : gameState.playerMp === 0 && cost === 1 ? "精力耗盡 · 氣血 -2"
+                          : `精力 -${cost}${turns > 1 ? ` · ${turns} 回合` : ""}`;
+                    })()}
+                  </span>}
                 </button>
               ))}
             </div>
 
-            {((gameState?.questStep === "chapter_one" && gameState.flags.chapterOne?.stage !== "complete")
+            {((gameState?.questStep === "chapter_one" && gameState.flags.chapterOne?.stage !== "complete" && gameState.flags.chapterOne?.stage !== "failed")
               || (!gameState?.flags.finalCrisis && !gameState?.flags.ending)) && <form onSubmit={handleCustomSubmit} className="mt-2 pt-3 border-t border-stone-800 flex flex-col gap-1.5">
               <div className="text-xs font-semibold text-amber-400/90 tracking-wider flex items-center gap-1.5">
                 <span>F. [自訂手段] {gameState?.customActionUses ?? 0}/{CUSTOM_ACTION_MAX}</span>
-                <span className="text-[11px] text-stone-500 font-normal">{gameState?.questStep === "chapter_one" ? "限 50 字；提出可行手段，碼頭查證後亦可爭取城主介入" : "限 50 字；完成差事或到總壇付 50 文私銀補給"}</span>
+                <span className="text-[11px] text-stone-500 font-normal">{gameState?.questStep === "chapter_one"
+                  ? gameState.currentLocation === "青鋒堂總壇"
+                    ? "限 50 字；提出可行手段，亦可憑貨單向城主呈報"
+                    : "限 50 字；要向城主呈報，先返回總壇整理貨單"
+                  : "限 50 字；完成差事或到總壇付 50 文私銀補給"}</span>
               </div>
               <div className="flex gap-2">
                 <input
@@ -706,11 +722,14 @@ export default function GamePage() {
 
             <div>
               <div className="flex justify-between text-xs mb-1">
-                <span className="text-stone-400">內力</span>
+                <span className="text-stone-400">精力</span>
                 <span className="text-stone-300 font-mono">
                   {gameState?.playerMp ?? 50} / {gameState?.maxMp ?? 50}
                 </span>
               </div>
+              {gameState && gameState.playerMp <= FATIGUE_THRESHOLD && (
+                <div className="mt-1 text-[11px] text-amber-300">疲勞：調查／交涉多耗 1 精力；戰鬥受傷多 2 氣血。</div>
+              )}
               <div className="w-full bg-stone-950 rounded-full h-1.5 overflow-hidden">
                 <div
                   className="bg-sky-600 h-full transition-all duration-300"
@@ -770,19 +789,24 @@ export default function GamePage() {
             <div className="flex items-center justify-between mb-2"><div className="font-semibold text-stone-400">城西地標與路程</div>
               <button type="button" onClick={() => setMapOpen(true)} className="text-amber-400 hover:text-amber-200">查看地圖</button></div>
             <div className="space-y-1.5 text-stone-400">
-              {LANDMARKS.map((location) => (
+              {LANDMARKS.filter((location) => location !== "碼頭" || gameState?.questStep === "chapter_one").map((location) => (
                 <button
                   key={location}
                   type="button"
-                  disabled={loading || gameState?.questStep !== "sandbox" || Boolean(gameState?.flags.pendingIncident) || Boolean(gameState?.flags.finalCrisis) || Boolean(gameState?.flags.ending) || gameState?.currentLocation === location}
+                  disabled={loading || !gameState || Boolean(gameState.flags.pendingIncident) || Boolean(gameState.flags.finalCrisis)
+                    || (gameState.questStep === "sandbox" && Boolean(gameState.flags.ending))
+                    || gameState.currentLocation === location || travelChoices(gameState, location).length === 0}
                   onClick={() => setSelectedDestination(location)}
                   className={`block w-full text-left py-1 px-2 rounded disabled:opacity-45 ${gameState?.currentLocation === location ? "text-amber-300 bg-stone-800" : "hover:bg-stone-800 hover:text-stone-200"}`}
                 >
-                  {location}{gameState && gameState.currentLocation !== location ? ` · ${travelChoices(gameState, location)[0]?.turns || 1}回合` : " · 目前所在"}
+                  {location}{gameState?.flags.chapterOne?.lostLandmarks?.includes(location) ? " · 失守" : ""}{gameState && gameState.currentLocation === location ? " · 目前所在"
+                    : gameState && travelChoices(gameState, location).length > 0
+                      ? ` · ${travelChoices(gameState, location)[0].turns}回合` : " · 尚未開放"}
                 </button>
               ))}
             </div>
-            {gameState && selectedDestination && gameState.currentLocation !== selectedDestination && !gameState.flags.finalCrisis && !gameState.flags.ending && (
+            {gameState && selectedDestination && gameState.currentLocation !== selectedDestination
+              && travelChoices(gameState, selectedDestination).length > 0 && !gameState.flags.finalCrisis && (
               <div className="space-y-1.5 border-t border-stone-700 pt-2">
                 <div className="text-amber-300">前往{selectedDestination}，揀一條路：</div>
                 {travelChoices(gameState, selectedDestination).map((route) => (
