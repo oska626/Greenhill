@@ -17,10 +17,14 @@ export function actionEnergyCost(state: GameState, action: string, turns = 1): n
     if (tag === "運步夜探") cost = 4;
     if (tag === "運勁奪港") cost = 6;
   } else if (state.combat || state.questStep === "huizhi_ambush") {
+    if (tag === "袖藏暗手") cost = 1;
+    if (tag === "全力陰手") cost = 2;
     if (tag === "借地形") cost = 2;
     if (tag === "辨穴陰招" || tag === "佯攻破綻" || tag === "裂石短拳") cost = 4;
     if (/泥鰍卸力|卸力手|泥鰍步/.test(tag)) cost = 3;
   } else {
+    if (tag === "全力陰手") cost = 2;
+    if (tag === "踩籮翻牆" || tag === "踢翻餿水桶" || tag === "硬闖街口") cost = 2;
     if (/查|核|探|追|盯|盤點|巡視|搬貨|做工|牽制|辨認|記住暗巷|問清敵情|詳問傷勢|辦差|速辦/.test(tag)) cost = 2;
     if (tag === "暗查巷口") cost = 3;
     if (/^習/.test(tag)) {

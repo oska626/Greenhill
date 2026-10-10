@@ -1,6 +1,7 @@
 import type { GameState, Landmark } from "./game-engine.ts";
 import { CUSTOM_ACTION_MAX } from "./custom-action.ts";
 import { applyMissionRelationship, companionLeads } from "./companion-relations.ts";
+import { normalizeSceneState, revealEntrance } from "./scene-state.ts";
 
 type Route = { from: Landmark; to: Landmark; turns: number };
 const ROADS: Route[] = [
@@ -17,11 +18,22 @@ const ROADS: Route[] = [
 ];
 const SHORTCUTS: (Route & { flag: string; danger: string; riskPeriod: number; riskDamage: number; riskLifeline: number })[] = [
   { from: "青鋒堂總壇", to: "黑泥街", turns: 1, flag: "熟記市集暗巷", danger: "玄武樓刀手可能埋伏", riskPeriod: 3, riskDamage: 6, riskLifeline: 0 },
-  { from: "晚秋茶寮", to: "夜雨樓", turns: 1, flag: "茶寮暗道已知", danger: "容易被尾隨", riskPeriod: 4, riskDamage: 0, riskLifeline: 3 },
+  { from: "晚秋茶寮", to: "鬼骰坊", turns: 1, flag: "地底暗網", danger: "賬房活門可能有人守", riskPeriod: 4, riskDamage: 0, riskLifeline: 2 },
+  { from: "鬼骰坊", to: "夜雨樓", turns: 1, flag: "地底暗網", danger: "酒窖可能有人巡看", riskPeriod: 4, riskDamage: 0, riskLifeline: 2 },
+  { from: "晚秋茶寮", to: "夜雨樓", turns: 1, flag: "茶寮暗道已知", danger: "經賭坊樞紐，容易被尾隨", riskPeriod: 4, riskDamage: 0, riskLifeline: 3 },
   { from: "鬼骰坊", to: "裂石擂", turns: 1, flag: "賭坊後巷已知", danger: "暗巷有攔路客", riskPeriod: 2, riskDamage: 8, riskLifeline: 0 },
 ];
 export const ROAD_LINKS: readonly Route[] = ROADS;
 export const SECRET_LINKS: readonly (Route & { flag: string; danger: string })[] = SHORTCUTS;
+
+export function shortcutKnown(state: GameState, route: Route & { flag: string }): boolean {
+  if (route.flag === "地底暗網") return Boolean(state.sceneState?.openedEntrances?.includes(route.from as "晚秋茶寮" | "鬼骰坊" | "夜雨樓")
+    && state.sceneState.openedEntrances?.includes(route.to as "晚秋茶寮" | "鬼骰坊" | "夜雨樓"));
+  if (route.flag === "茶寮暗道已知") return state.sceneState
+    ? Boolean(state.sceneState.openedEntrances?.includes("晚秋茶寮") && state.sceneState.openedEntrances?.includes("夜雨樓"))
+    : state.worldFlags.includes(route.flag);
+  return state.worldFlags.includes(route.flag);
+}
 
 function roadDistance(from: Landmark, to: Landmark): number {
   const distances = new Map<Landmark, number>([[from, 0]]);
@@ -54,7 +66,7 @@ export function travelChoices(state: GameState, destination: Landmark): TravelCh
     label: `F. [明路前往] ${destination}（${road}回合；${roadNote}）`, danger: "", riskPeriod: 0, riskDamage: 0, riskLifeline: 0 }];
   const shortcut = SHORTCUTS.find((route) =>
     ((route.from === state.currentLocation && route.to === destination) || (route.to === state.currentLocation && route.from === destination))
-    && state.worldFlags.includes(route.flag));
+    && shortcutKnown(state, route));
   if (shortcut) choices.push({ destination, kind: "shortcut", turns: shortcut.turns,
     label: `F. [暗道前往] ${destination}（${shortcut.turns}回合；${shortcut.danger}）`, danger: shortcut.danger,
     riskPeriod: shortcut.riskPeriod, riskDamage: shortcut.riskDamage, riskLifeline: shortcut.riskLifeline });
@@ -117,9 +129,13 @@ export function resolveMission(state: GameState, action: string): { event: strin
   if (careful) state.sectLifeline = Math.min(100, state.sectLifeline + 5);
   else state.sectLifeline = Math.max(0, state.sectLifeline - 3);
   if (mission.id === "double_dues" && !careful) state.factionFunds += 10;
-  if (mission.id === "missing_courier" && careful) state.worldFlags.push("茶寮暗道已知");
+  if (mission.id === "missing_courier" && careful) {
+    state.worldFlags.push("茶寮暗道已知");
+    state.sceneState = normalizeSceneState(state.sceneState, state.worldFlags);
+    revealEntrance(state.sceneState, "晚秋茶寮");
+    revealEntrance(state.sceneState, "夜雨樓");
+  }
   if (mission.id === "hidden_spy" && careful) state.worldFlags.push("賭坊後巷已知");
-  if (mission.id === "forged_deed" && careful) state.maxInventory = Math.min(6, state.maxInventory + 1);
   applyMissionRelationship(state.relationships, mission.id, careful);
   const contact: Partial<Record<Landmark, string>> = { "青鋒堂總壇": "何不歸", "晚秋茶寮": "容晚秋",
     "黑泥街": state.relationships["陸千帆"].estranged ? "張斷骨" : "陸千帆", "鬼骰坊": "祁觀衡" };

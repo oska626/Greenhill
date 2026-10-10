@@ -1,3 +1,5 @@
+import { dirtyHandVerb, type DarkHandItem, type DirtyHandTier } from "./dirty-hand.ts";
+
 export const WEAPONS = {
   fists: { name: "徒手", power: 0, maxDurability: 0 },
   wooden_stick: { name: "案邊木棍", power: 2, maxDurability: 2 },
@@ -33,6 +35,7 @@ export interface CombatInput {
   weaponDurability: number;
   knownMoves: KnownMoves;
   canTakeStick?: boolean;
+  dirtyHand?: { item: DarkHandItem; tier: DirtyHandTier; guaranteed: boolean };
 }
 
 export interface CombatResolution {
@@ -85,7 +88,8 @@ export function normalizeCombat(raw: unknown): CombatState | undefined {
   };
 }
 
-export function combatOptions(combat: CombatState, weapon: WeaponId, knownMoves: KnownMoves, mp: number, canTakeStick = true): string[] {
+export function combatOptions(combat: CombatState, weapon: WeaponId, knownMoves: KnownMoves, mp: number, canTakeStick = true,
+  darkHand?: DarkHandItem): string[] {
   const shortPunch = weapon === "fists" && (knownMoves.short_punch || 0) > 0 && mp >= 4;
   const mudStep = (knownMoves.mud_step || 0) > 0 && mp >= 3;
   const softParry = (knownMoves.soft_parry || 0) > 0 && mp >= 3;
@@ -106,6 +110,8 @@ export function combatOptions(combat: CombatState, weapon: WeaponId, knownMoves:
       : "D. [佯攻破綻] 最多耗四點精力搶出破綻；下一擊更重，自身也會露空門。",
     combat.allyPresent ? "E. [護人撤離] 帶陸千帆退出肉檔；保住性命，讓出街口。"
       : "E. [抽身退走] 退出這場爭鬥；保住性命，放棄眼前勝負。",
+    ...(darkHand && mp >= 1 ? [`I. [袖藏暗手] ${dirtyHandVerb(darkHand)}；耗一件實物，失手會受反擊。`] : []),
+    ...(darkHand && mp >= 2 ? [`J. [全力陰手] ${dirtyHandVerb(darkHand)}；另耗一點精力，至少奏效但仍可能受傷。`] : []),
   ];
 }
 
@@ -127,6 +133,28 @@ export function resolveCombatRound(input: CombatInput): CombatResolution {
   let weapon = input.weapon;
   let durability = input.weaponDurability;
   const notes: string[] = [];
+
+  if (input.dirtyHand) {
+    mp = Math.max(0, mp - (input.dirtyHand.guaranteed ? 2 : 1));
+    const move = dirtyHandVerb(input.dirtyHand.item);
+    const enemy = combat.scenario === "arena" ? "對手" : "刀手";
+    const retreat = combat.scenario === "arena" ? "翻過圍欄退出擂台" : "帶人撤進巷口";
+    if (input.dirtyHand.tier !== "failed") {
+      const great = input.dirtyHand.tier === "great";
+      if (!great) hp = Math.max(1, hp - 2);
+      return { combat, outcome: "fled", event: great
+        ? `你${move}，${enemy}遮眼失步；你趁空檔${retreat}。`
+        : `你${move}，${enemy}亂了一步，反手仍劃中你；你${retreat}。`,
+        playerHp: hp, playerMp: mp, weapon, weaponDurability: durability };
+    }
+    hp = Math.max(1, hp - 6);
+    if (combat.round >= 4) return { combat, outcome: "lost", event: `你${move}，卻被${enemy}架開；${combat.scenario === "arena" ? "你被打下擂台" : "街口失守"}。`,
+      playerHp: hp, playerMp: mp, weapon, weaponDurability: durability };
+    combat.round += 1;
+    combat.enemyIntent = intentAt(combat.scenario, combat.round, combat.allyPresent);
+    return { combat, outcome: "ongoing", event: `你${move}，${enemy}識破手勢，逼得你後退。${INTENT_WORDS[combat.enemyIntent]}。`,
+      playerHp: hp, playerMp: mp, weapon, weaponDurability: durability };
+  }
 
   const spendBasicEnergy = () => {
     if (mp > 0) { mp -= 1; notes.push("精力減一。"); }

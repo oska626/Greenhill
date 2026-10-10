@@ -11,6 +11,7 @@ import { MapModal } from "@/components/game/map-modal";
 import { shouldCapturePrologueCheckpoint } from "@/lib/prologue-checkpoint";
 import { chapterPressureForecast } from "@/lib/chapter-one";
 import { actionEnergyCost, FATIGUE_THRESHOLD, MAX_ENERGY } from "@/lib/energy";
+import { STARTING_DARK_HAND } from "@/lib/dirty-hand";
 
 interface ApiResponse {
   narrative: string;
@@ -45,7 +46,7 @@ const BACKGROUNDS = [
     name: "城西街童扒手",
     desc: "你在黑泥街長大。攤販記不住你的臉，守門人卻總比你慢一步。",
     trait: "手疾眼快（身法與偷襲提升）",
-    startingItems: ["【生石灰粉】"],
+    startingItems: [],
   },
   {
     id: "martial_dropout",
@@ -227,7 +228,7 @@ export default function GamePage() {
         gender: customGender.trim(), skill: customSkill.trim(), personality: customPersonality.trim(),
       } : {}),
       currentLocation: "青鋒堂總壇",
-      inventory: [...bg.startingItems],
+      inventory: [...bg.startingItems, STARTING_DARK_HAND],
       maxInventory: 4,
       playerHp: stats.hp,
       maxHp: stats.hp,
@@ -248,6 +249,7 @@ export default function GamePage() {
         visitedYung: false,
         collectedMarketFee: false,
         marketAmbushTriggered: false,
+        darkHandInitialized: true,
       },
     };
 
@@ -461,7 +463,7 @@ export default function GamePage() {
             </div>
             {selectedBgId === "custom" && <div className="text-stone-400">性別：{customGender || "待填"} · 性格：{customPersonality || "待填"}</div>}
             <div className="text-stone-400">
-              隨身攜帶: <span className="text-stone-300 font-mono">{curBg.startingItems.length > 0 ? curBg.startingItems.join("、 ") : "身無長物"} ({curBg.startingItems.length}/4 格)</span>
+              隨身攜帶: <span className="text-stone-300 font-mono">{[...curBg.startingItems, STARTING_DARK_HAND].join("、 ")} ({curBg.startingItems.length + 1}/4 格)</span>
             </div>
           </div>
 

@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/game-engine.test.mjs tests/custom-action.test.mjs tests/prologue-handoff.test.mjs tests/chapter-one.test.mjs"
+    "test": "node --test tests/game-engine.test.mjs tests/custom-action.test.mjs tests/prologue-handoff.test.mjs tests/chapter-one.test.mjs tests/scene-system.test.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

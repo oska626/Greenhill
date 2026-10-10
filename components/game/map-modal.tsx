@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { X } from 'lucide-react';
-import { ROAD_LINKS, SECRET_LINKS } from '@/lib/city-progression';
+import { ROAD_LINKS, SECRET_LINKS, shortcutKnown } from '@/lib/city-progression';
 import type { GameState } from '@/lib/game-engine';
 
 interface MapModalProps {
@@ -66,7 +66,7 @@ export function MapModal({ open, onOpenChange, state }: MapModalProps) {
                 {ROAD_LINKS.filter((road) => areas.some((area) => area.name === road.from)
                   && areas.some((area) => area.name === road.to)).map((road) => <line key={`${road.from}-${road.to}`} x1={position(road.from).x} y1={position(road.from).y}
                   x2={position(road.to).x} y2={position(road.to).y} stroke="#a8a29e" strokeOpacity="0.55" strokeWidth="0.6" />)}
-                {SECRET_LINKS.filter((route) => state?.worldFlags.includes(route.flag)).map((route) =>
+                {SECRET_LINKS.filter((route) => state && shortcutKnown(state, route)).map((route) =>
                   <line key={`${route.from}-${route.to}`} x1={position(route.from).x} y1={position(route.from).y}
                     x2={position(route.to).x} y2={position(route.to).y} stroke="#f59e0b" strokeWidth="0.8" strokeDasharray="2 1" />)}
               </svg>

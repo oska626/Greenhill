@@ -12,11 +12,12 @@ function newGame() {
   const stats = aptitude("阿七", "賭坊收帳人", "察言觀色");
   return {
     turn: 1, playerName: "阿七", background: "賭坊收帳人", trait: "察言觀色",
-    currentLocation: "青鋒堂總壇", inventory: ["【灌鉛假骰】"], maxInventory: 4,
+    currentLocation: "青鋒堂總壇", inventory: ["【灌鉛假骰】", "【生石灰包】"], maxInventory: 4,
     playerHp: stats.hp, maxHp: stats.hp, playerMp: stats.mp, maxMp: stats.mp,
     silver: 0, factionFunds: 10, sectLifeline: 60, worldFlags: [], relationships: newRelationships(),
     questStep: "prologue_briefing",
-    flags: { tookHerbs: false, visitedYung: false, collectedMarketFee: false, marketAmbushTriggered: false },
+    flags: { tookHerbs: false, visitedYung: false, collectedMarketFee: false, marketAmbushTriggered: false,
+      darkHandInitialized: true },
   };
 }
 
@@ -235,7 +236,8 @@ test("early choices pay off during the ambush", () => {
 test("ambush tactics have distinct costs and a saved game receives current options", () => {
   const ambush = { ...newGame(), questStep: "huizhi_ambush", currentLocation: "黑泥街" };
   const outcomes = availableOptions(ambush).map((option) => resolveTurn(ambush, option, false));
-  assert.equal(new Set(outcomes.map((result) => `${result.state.playerHp}:${result.state.playerMp}`)).size, 5);
+  assert.ok(new Set(outcomes.map((result) => `${result.state.playerHp}:${result.state.playerMp}`)).size >= 5);
+  assert.ok(availableOptions(ambush).some((option) => option.includes("[袖藏暗手]")));
   assert.ok(outcomes[4].state.worldFlags.includes("市集伏擊撤守"));
   assert.ok(outcomes[4].state.sectLifeline < ambush.sectLifeline);
   const restored = normalizeState({ ...ambush, questStep: "sandbox", worldFlags: ["張斷骨欠費三十文"] });
@@ -513,7 +515,8 @@ test("Rong Wanqiu only sells paid street intelligence and a Night Rain Tower sho
   const routePaid = resolveTurn({ ...state, silver: 15 }, route, false);
   assert.equal(routePaid.state.silver, 0);
   assert.equal(routePaid.state.worldFlags.includes("茶寮暗道已知"), true);
-  assert.equal(travelChoices(routePaid.state, "夜雨樓").some((choice) => choice.kind === "shortcut"), true);
+  assert.equal(travelChoices(routePaid.state, "夜雨樓").some((choice) => choice.kind === "shortcut"), false);
+  assert.equal(availableOptions(routePaid.state).some((option) => option.includes("[移開灶底石板]")), true);
   const routeRepeated = resolveTurn(routePaid.state, availableOptions(routePaid.state).find((option) => option.startsWith("B. [買暗道]")), false);
   assert.equal(routeRepeated.state.silver, 0);
 });
