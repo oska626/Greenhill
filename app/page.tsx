@@ -675,7 +675,7 @@ export default function GamePage() {
               && <form onSubmit={handleCustomSubmit} className="mt-2 pt-3 border-t border-stone-800 flex flex-col gap-1.5">
               <div className="text-xs font-semibold text-amber-400/90 tracking-wider flex items-center gap-1.5">
                 <span>F. [自由行動]</span>
-                <span className="text-[11px] text-stone-500 font-normal">黑泥街對話可寫 300 字；其他行動限 100 字。人物會記住你的話。</span>
+                <span className="text-[11px] text-stone-500 font-normal">黑泥街可直接向在場人物喊話，不必另寫動作；對話限 300 字，其他行動限 100 字。</span>
               </div>
               <div className="flex gap-2">
                 <input
@@ -683,7 +683,7 @@ export default function GamePage() {
                   value={customInput}
                   disabled={loading || !gameState}
                   onChange={(e) => setCustomInput(e.target.value)}
-                  placeholder="寫明眼前人物或物件，同埋你打算點做。"
+                  placeholder={gameState.currentLocation === "黑泥街" ? "直接說話，或寫出你要做的事。" : "寫明眼前人物或物件，以及你要做的事。"}
                   maxLength={gameState.currentLocation === "黑泥街" ? 300 : 100}
                   className="flex-1 bg-stone-950 border border-stone-700/80 rounded px-3 py-2 text-xs md:text-sm focus:outline-none focus:border-amber-600 text-stone-200 placeholder:text-stone-600 disabled:opacity-50"
                 />

@@ -247,6 +247,19 @@ test("speaking to an active knife man consumes a guarded combat round", () => {
   assert.notEqual(result.state.socialMemory["刀手"].stance, "ally");
 });
 
+test("an unaddressed spoken line reaches the knife man during combat", () => {
+  const scene = { ...state(), questStep: "huizhi_ambush", turn: 5,
+    combat: createCombat("market_ambush", true), flags: { ...state().flags, marketAmbushTriggered: true } };
+  const speech = "大家何必動武,兄弟你多年來都辛苦了,爸媽還好嗎?";
+  assert.equal(marketDialogueTarget(scene, speech), "刀手");
+  const result = resolveMarketDialogue(scene, "刀手", speech,
+    { reaction: "talk", reason: "刀手聽到問候，但仍然出刀", memory: "玩家問過他的家人" });
+  assert.equal(result.state.turn, scene.turn + 1);
+  assert.equal(result.state.flags.marketNpcHistory.at(-1).player, speech);
+  assert.ok(result.state.playerHp < scene.playerHp || result.state.playerMp < scene.playerMp);
+  assert.equal(marketDialogueTarget(scene, "如果我翻牆會點?"), undefined);
+});
+
 test("Blackmud NPC keeps an open conversation without a fixed persuasion goal", () => {
   const scene = { ...state(), questStep: "sandbox", turn: 14 };
   const text = "張斷骨，我今日實在難受，只想同你講兩句。";

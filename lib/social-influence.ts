@@ -20,11 +20,21 @@ export type MarketNpcExchange = { turn: number; target: string; player: string; 
 
 export function marketDialogueTarget(state: GameState, playerText: string): string | undefined {
   if (state.currentLocation !== "黑泥街" || state.questStep === "chapter_one") return;
-  const mentioned = socialTargets(state).find((name) => textMentions(name, playerText));
-  if (!mentioned) return;
+  const present = socialTargets(state);
+  const mentioned = present.find((name) => textMentions(name, playerText));
   const addressed = /講|說|問|談|勸|叫|請|告訴|話畀|解釋|傾|辯|嘲|鬧|罵|威脅|承諾|「|“|\bNPC\b/i.test(playerText)
-    || new RegExp(`(?:^|[，。！!])\\s*${mentioned}[，：:！!]`).test(playerText);
-  return addressed ? mentioned : undefined;
+    || mentioned && new RegExp(`(?:^|[，。！!])\\s*${mentioned}[，：:！!]`).test(playerText);
+  if (mentioned) return addressed ? mentioned : undefined;
+  // A spoken line need not name its listener or describe an additional physical action.
+  // In a fight, the active knife man is the listener unless the line points to a wounded ally.
+  const spokenLine = /[？?「」“”]/.test(playerText)
+    || /^(?:大家|各位|兄弟|老兄|朋友|你們?|喂|住手|別動|不要動|唔好動)/.test(playerText);
+  if (!spokenLine || /^(?:如果|假如|若是|假設)我/.test(playerText)) return;
+  if (state.combat?.scenario === "market_ambush" || state.flags.alleyEscape) {
+    if (/你(?:的)?傷|傷口|撐得住/.test(playerText) && present.includes("陸千帆")) return "陸千帆";
+    return present.includes("刀手") ? "刀手" : undefined;
+  }
+  return present.length === 1 ? present[0] : undefined;
 }
 
 function textMentions(name: string, text: string): boolean {
