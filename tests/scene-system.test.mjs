@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { availableOptions, normalizeState, resolveTurn } from "../lib/game-engine.ts";
-import { createCombat } from "../lib/combat-engine.ts";
+import { combatOptions, createCombat } from "../lib/combat-engine.ts";
 import { newRelationships } from "../lib/companion-relations.ts";
 import { darkHandCount, dirtyHandTier, rollD20 } from "../lib/dirty-hand.ts";
 import { hardboiledFallback, validHardboiledNarrative } from "../lib/narrative-style.ts";
@@ -38,11 +38,75 @@ test("market retreat stays in a dead alley until an actual escape", () => {
   assert.equal(escape.state.worldFlags.includes("黑泥街巷尾脫險"), true);
 });
 
+test("market victory requires one aftermath action before ordinary work resumes", () => {
+  const combat = { ...createCombat("market_ambush", true), enemyHp: 1 };
+  const fight = game({ turn: 7, questStep: "huizhi_ambush", combat,
+    worldFlags: ["苦煙館傳信接應"] });
+  const won = resolveTurn(fight, availableOptions(fight).find((option) => option.startsWith("A.")), false);
+  assert.equal(won.state.flags.marketAftermath, true);
+  assert.equal(won.options.some((option) => /搬貨|巡街收規|領差/.test(option)), false);
+  assert.equal(won.options.some((option) => option.includes("[檢視傷勢]")), true);
+  assert.equal(won.options.some((option) => option.includes("[伏巷警戒]")), true);
+  assert.equal(won.options.some((option) => option.includes("[盤問張斷骨]")), true);
+  assert.equal(won.options.some((option) => option.includes("[搜刮殘局]")), true);
+  const prose = hardboiledFallback(won.event, won.state, won.npcReply);
+  assert.equal(validHardboiledNarrative(prose), true, prose);
+  assert.match(prose, /接應|巷口/);
+  const blocked = resolveTurn(won.state, "B. [搬貨] 替商販搬貨", false);
+  assert.equal(blocked.state.turn, won.state.turn);
+  const blockedTravel = resolveTurn(won.state, "F. [前往] 晚秋茶寮", false);
+  assert.equal(blockedTravel.state.currentLocation, "黑泥街");
+  assert.equal(blockedTravel.state.turn, won.state.turn);
+  for (const option of won.options) {
+    const outcome = resolveTurn(won.state, option, false);
+    assert.equal(outcome.state.flags.marketAftermath, false, option);
+    const text = hardboiledFallback(outcome.event, outcome.state, outcome.npcReply);
+    assert.equal(validHardboiledNarrative(text), true, `${option}: ${text}`);
+  }
+  const cleanup = resolveTurn(won.state, won.options.find((option) => option.includes("[搜刮殘局]")), false);
+  assert.equal(cleanup.state.flags.marketAftermath, false);
+  assert.equal(cleanup.state.inventory.includes("【碎骨片】"), true);
+  assert.equal(cleanup.state.playerHp, won.state.playerHp);
+  assert.equal(cleanup.state.sceneState.depletedSources.includes("黑泥街碎骨"), true);
+  assert.equal(cleanup.options.some((option) => option.includes("[搬貨]")), true);
+  assert.equal(cleanup.state.turn, won.state.turn + 1);
+});
+
+test("recent older saves after a market win enter aftermath only once", () => {
+  const saved = game({ turn: 8, worldFlags: ["擊退伏擊刀手"], flags: { ...game().flags, alleyAllyPresent: true } });
+  const restored = normalizeState(saved);
+  assert.equal(restored.flags.marketAftermath, true);
+  const prose = hardboiledFallback("你佯攻搶出破綻。顧忘生傳出的信帶來接應。", restored);
+  assert.equal(validHardboiledNarrative(prose), true, prose);
+  const brokenStick = hardboiledFallback("案邊木棍當場折斷。顧忘生傳出的信帶來接應。", restored);
+  assert.equal(validHardboiledNarrative(brokenStick), true, brokenStick);
+  assert.match(brokenStick, /木棍裂開/);
+  const settled = resolveTurn(restored, availableOptions(restored).find((option) => option.includes("[安頓收隊]")), false);
+  assert.equal(settled.state.flags.marketAftermath, false);
+  assert.equal(normalizeState(settled.state).flags.marketAftermath, false);
+  const solo = normalizeState(game({ turn: 8, worldFlags: ["擊退伏擊刀手"] }));
+  assert.equal(validHardboiledNarrative(hardboiledFallback("刀手倒下。", solo)), true);
+});
+
 test("active arena combat and city incidents hide ordinary jobs", () => {
   const arena = game({ currentLocation: "裂石擂", combat: createCombat("arena") });
   assert.equal(availableOptions(arena).some((option) => /搬貨|領差/.test(option)), false);
   const incident = game({ flags: { ...game().flags, pendingIncident: "market_raid" } });
   assert.equal(availableOptions(incident).some((option) => /搬貨|領差/.test(option)), false);
+});
+
+test("combat choices use scene actions while costs stay in system labels", () => {
+  const market = combatOptions(createCombat("market_ambush", true), "fists", {}, 40, true, "【生石灰包】");
+  assert.equal(market.length, 7);
+  assert.ok(market.some((option) => option.includes("案邊木棍")));
+  assert.ok(market.some((option) => option.includes("陸千帆")));
+  assert.ok(market.some((option) => option.includes("生石灰")));
+  assert.ok(market.every((option) => !/精力|耗一件|最多耗|以徒手進攻/.test(option)));
+  const arena = combatOptions(createCombat("arena"), "rusty_knife", { soft_parry: 1, point_strike: 1 }, 40, false, "【飛蝗石】");
+  assert.ok(arena.some((option) => option.includes("擂台圍繩")));
+  assert.ok(arena.some((option) => option.includes("飛蝗石")));
+  assert.ok(arena.every((option) => !option.includes("陸千帆") && !option.includes("肉檔")));
+  assert.ok(arena.every((option) => !/精力|耗一件|最多耗/.test(option)));
 });
 
 test("dark hand is physical, limited, consumed and has a paid guarantee", () => {
@@ -111,7 +175,8 @@ test("scavenging takes a turn, has a cost and cannot be repeated", () => {
   const scavenge = availableOptions(base).find((option) => option.includes("[拾碎骨]"));
   const found = resolveTurn(base, scavenge, false);
   assert.equal(found.state.inventory.includes("【碎骨片】"), true);
-  assert.equal(found.state.playerHp, 48);
+  assert.equal(found.state.playerHp, 50);
+  assert.equal(found.state.sectLifeline, 58);
   assert.equal(availableOptions(found.state).some((option) => option.includes("[拾碎骨]")), false);
   assert.equal(found.state.turn, base.turn + 1);
 });

@@ -48,7 +48,7 @@ export function validateCustomDecision(raw: unknown, state: GameState, options: 
   if (value.kind === "option" && typeof value.option === "string" && options.includes(value.option))
     return { kind: "option", option: value.option };
   if (value.kind === "creative" && state.questStep === "sandbox" && !state.combat && !state.flags.pendingIncident
-    && !state.flags.alleyEscape
+    && !state.flags.alleyEscape && !state.flags.marketAftermath
     && CREATIVE_GOALS.some((goal) => goal === value.goal) && typeof value.anchor === "string"
     && sceneAnchors(state).includes(value.anchor)
     && (value.goal !== "交涉" || ["何不歸", "容晚秋", "陸千帆", "張斷骨", "祁觀衡", "衛沉岳", "霍破陣", "顧忘生", "柳照霜"].includes(value.anchor)))

@@ -1,4 +1,4 @@
-import { dirtyHandVerb, type DarkHandItem, type DirtyHandTier } from "./dirty-hand.ts";
+import { dirtyHandOptionMove, dirtyHandVerb, type DarkHandItem, type DirtyHandTier } from "./dirty-hand.ts";
 
 export const WEAPONS = {
   fists: { name: "徒手", power: 0, maxDurability: 0 },
@@ -94,24 +94,34 @@ export function combatOptions(combat: CombatState, weapon: WeaponId, knownMoves:
   const mudStep = (knownMoves.mud_step || 0) > 0 && mp >= 3;
   const softParry = (knownMoves.soft_parry || 0) > 0 && mp >= 3;
   const pointStrike = (knownMoves.point_strike || 0) > 0 && mp >= 4;
-  const terrain = combat.scenario === "market_ambush"
-    ? weapon === "fists" && canTakeStick ? "抄起案邊木棍，擾亂刀手步子" : "借肉案擾亂刀手步子"
-    : "借圍欄擾亂對手步子";
+  const atMarket = combat.scenario === "market_ambush";
+  const blow = atMarket ? "刀" : "拳";
+  const terrain = atMarket
+    ? weapon === "fists" && canTakeStick
+      ? "抄起案邊木棍橫掃下盤；逼刀手挪步，自己也得貼近刀口"
+      : "蹬住肉案斜身撞去；撞亂刀手守位，也把側腹送到刀前"
+    : "扯住擂台圍繩借力；撞亂對手腳步，也得防他反手一拳";
+  const approach = weapon === "rusty_knife"
+    ? "提刀貼身搶攻；刀口要見血，肋下也敞給對手"
+    : weapon === "wooden_stick"
+      ? `掄起木棍直砸；逼他架住這一棍，自己也可能吃${blow}`
+      : `搶步欺身硬撼；拳頭換他一記重手，自己也可能吃${blow}`;
   return [
-    shortPunch ? "A. [裂石短拳] 耗四點精力逼退對手；進攻時仍會露出空門。"
-      : `A. [正面進擊] 以${WEAPONS[weapon].name}進攻；可傷敵，也須承受還擊。`,
-    softParry && mudStep ? "B. [泥鰍卸力] 耗三點精力閃開來勢，守住同門並反擊。"
-      : softParry ? "B. [卸力手] 耗三點精力卸去來勢，守住同門並反擊。"
-      : mudStep ? "B. [泥鰍步] 耗三點精力護住要害，借勢還擊。"
-      : combat.allyPresent ? "B. [護住同門] 擋在陸千帆身前，少受傷，暫難擊退刀手。"
-        : "B. [沉身守勢] 護住要害，少受傷，暫難擊退對手。",
-    `C. [借地形] ${terrain}；最多耗二點精力。`,
-    pointStrike ? "D. [辨穴陰招] 耗四點精力點破對手守勢；下一擊更重。"
-      : "D. [佯攻破綻] 最多耗四點精力搶出破綻；下一擊更重，自身也會露空門。",
-    combat.allyPresent ? "E. [護人撤離] 帶陸千帆退出肉檔；保住性命，讓出街口。"
-      : "E. [抽身退走] 退出這場爭鬥；保住性命，放棄眼前勝負。",
-    ...(darkHand && mp >= 1 ? [`I. [袖藏暗手] ${dirtyHandVerb(darkHand)}；耗一件實物，失手會受反擊。`] : []),
-    ...(darkHand && mp >= 2 ? [`J. [全力陰手] ${dirtyHandVerb(darkHand)}；另耗一點精力，至少奏效但仍可能受傷。`] : []),
+    shortPunch ? "A. [裂石短拳] 短拳直搗肋下；逼他退步，拳收慢便露空門。"
+      : `A. [正面進擊] ${approach}。`,
+    softParry && mudStep ? "B. [泥鰍卸力] 錯步讓開來勢，反手卸他一臂；守住身位再搶半步。"
+      : softParry ? "B. [卸力手] 貼住來勢撥開臂肘；護住身位，回手直取胸口。"
+      : mudStep ? "B. [泥鰍步] 腳下一滑避開正鋒；護住肋下，回身撞他肩頭。"
+      : combat.allyPresent ? "B. [護住同門] 橫身卡在陸千帆前頭；替他接住刀勢，寸步不讓。"
+        : `B. [沉身守勢] 收肘護住肋下；硬接他這一${blow}，等他手慢半拍。`,
+    `C. [借地形] ${terrain}。`,
+    pointStrike ? "D. [辨穴陰招] 指尖直探臂肘關節；撬開守勢，下一手才有狠處。"
+      : `D. [佯攻破綻] 賣個空門誘他搶攻；下一手照破綻打，自己也得防回${blow}。`,
+    combat.allyPresent ? "E. [護人撤離] 架起陸千帆撞入巷口；留得殘命，街口拱手讓人。"
+      : atMarket ? "E. [抽身退走] 擦著刀口退入窄巷；命保住，肉檔街口拱手讓人。"
+        : "E. [抽身退走] 翻過圍欄滾下擂台；賞錢留給對手，拳腳還追著背影。",
+    ...(darkHand && mp >= 1 ? [`I. [袖藏暗手] ${dirtyHandOptionMove(darkHand)}；賭他一瞬失位，落空便吃迎面反擊。`] : []),
+    ...(darkHand && mp >= 2 ? [`J. [全力陰手] 拼著掛彩也要${dirtyHandOptionMove(darkHand)}；逼他失位讓路，自己仍可能見血。`] : []),
   ];
 }
 

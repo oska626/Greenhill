@@ -30,6 +30,16 @@ export function dirtyHandVerb(item: DarkHandItem): string {
   } satisfies Record<DarkHandItem, string>)[item];
 }
 
+export function dirtyHandOptionMove(item: DarkHandItem): string {
+  return ({
+    "【生石灰包】": "揚出袖裡生石灰",
+    "【飛蝗石】": "甩出袖底飛蝗石",
+    "【袖藏短刺】": "探出袖底短刺",
+    "【碎骨片】": "彈出袖裡碎骨",
+    "【爐灰包】": "揚出袖裡爐灰",
+  } satisfies Record<DarkHandItem, string>)[item];
+}
+
 // Existing backgrounds and traits are the modifier source; no extra character stat is added.
 export function dirtyHandModifier(state: Pick<GameState, "background" | "trait">): number {
   if (/手疾眼快|扒手/.test(`${state.background}${state.trait}`)) return 2;
@@ -66,6 +76,6 @@ export function darkHandPurchaseOptions(state: Pick<GameState, "inventory" | "ma
 }
 
 export const SCAVENGE_SOURCES = {
-  "黑泥街": { key: "黑泥街碎骨", item: "【碎骨片】", label: "S. [拾碎骨] 在肉檔拾碎骨備作暗手；耗一回合，挨刀失二氣血。" },
+  "黑泥街": { key: "黑泥街碎骨", item: "【碎骨片】", label: "S. [拾碎骨] 在肉檔拾碎骨備作暗手；耗一回合，眼線會記下你的動靜。" },
   "晚秋茶寮": { key: "晚秋茶寮爐灰", item: "【爐灰包】", label: "S. [刮爐灰] 趁土灶熄火刮一包爐灰；耗一回合，消息外洩使命脈減一。" },
 } as const;

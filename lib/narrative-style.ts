@@ -58,6 +58,15 @@ export function hardboiledFallback(event: string, state: GameState, reply?: { sp
       ? "刀口擦過後頸，血滴進泥裡。你拽陸千帆退入死巷，刀手封住肉檔前的路。陸千帆抓住你：「他媽的，先翻牆，回頭剁了那幫狗！」"
       : "刀口擦過後頸，血滴進泥裡。你獨自退入死巷，刀手封住肉檔前的路。你踢開餿水桶，踩著竹籮攀上牆頭，身後刀聲又近了一步。";
   }
+  if (state.flags.marketAftermath && state.currentLocation === "黑泥街") {
+    const brokenStick = /木棍.*(?:折斷|打裂)/.test(event) ? "案邊木棍裂開，" : "";
+    const opening = /傳出的信帶來接應/.test(event)
+      ? "接應的人趕到巷口，刀手退入暗巷。"
+      : "刀手倒在肉案前，街口的腳步終於散了。";
+    return state.flags.alleyAllyPresent
+      ? `${brokenStick}${opening}陸千帆按住肋下，看著肉檔：「街口先守住。眼線還在，收拾這攤血帳！」`
+      : `${brokenStick}${opening}你踩過肉檔前的血水，見張斷骨還躲在案後；巷口眼線未散，街坊仍不敢走近。`;
+  }
   const clean = stripSettlement(event);
   const beats = clean.split(/[。！？!]+/).map((beat) => oneSentence(beat.trim())).filter(Boolean);
   const first = head(beats[0] || `你在${state.currentLocation}動了手`, 26);

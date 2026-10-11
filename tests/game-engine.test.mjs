@@ -301,6 +301,10 @@ test("market choices create collectible debts instead of identical fees", () => 
   assert.ok(outcomes[4].state.worldFlags.includes("張斷骨規費未收"));
   for (const index of [2, 3, 4]) {
     let aftermath = finishCombat(outcomes[index]);
+    if (aftermath.state.flags.alleyEscape)
+      aftermath = resolveTurn(aftermath.state, aftermath.options.find((option) => option.includes("[踩籮翻牆]")), false);
+    if (aftermath.state.flags.marketAftermath)
+      aftermath = resolveTurn(aftermath.state, aftermath.options.find((option) => option.includes("[安頓收隊]")), false);
     assert.match(aftermath.options[0], /追收張斷骨所欠/);
     const before = aftermath.state.factionFunds;
     aftermath = resolveTurn(aftermath.state, aftermath.options[0], false);
@@ -357,6 +361,8 @@ test("betrayal and maiming alter later options and encounters", () => {
   assert.ok(turn.options.every((option) => !option.includes("陸千帆")));
   assert.equal(turn.state.combat.allyPresent, false);
   turn = finishCombat(turn);
+  if (turn.state.flags.marketAftermath)
+    turn = resolveTurn(turn.state, turn.options.find((option) => option.includes("[安頓收隊]")), false);
   turn = resolveTurn(turn.state, travelChoices(turn.state, "晚秋茶寮")[0].label, false);
   turn = resolveTurn(turn.state, turn.options[0], false);
   assert.ok(turn.state.worldFlags.includes("屠戶避讓"));

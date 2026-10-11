@@ -11,7 +11,8 @@ import { MapModal } from "@/components/game/map-modal";
 import { shouldCapturePrologueCheckpoint } from "@/lib/prologue-checkpoint";
 import { chapterPressureForecast } from "@/lib/chapter-one";
 import { actionEnergyCost, FATIGUE_THRESHOLD, MAX_ENERGY } from "@/lib/energy";
-import { STARTING_DARK_HAND } from "@/lib/dirty-hand";
+import { STARTING_DARK_HAND, readyDarkHand } from "@/lib/dirty-hand";
+import { hardboiledFallback } from "@/lib/narrative-style";
 
 interface ApiResponse {
   narrative: string;
@@ -113,11 +114,14 @@ export default function GamePage() {
             ? { version: 1 as const, state: checkpointState, narrative: parsed.checkpoint.narrative,
               options: availableOptions(checkpointState) } : undefined;
           const handoff = createPrologueHandoff(state) || storedHandoff;
+          const migratedAftermath = state.flags.marketAftermath && parsed.state?.flags?.marketAftermath !== true;
           const restored: SavedGameData = { saveVersion: 2, state,
-            narrative: renameLegacyWorldNames(parsed.narrative), options: availableOptions(state),
+            narrative: migratedAftermath ? hardboiledFallback(parsed.narrative, state)
+              : renameLegacyWorldNames(parsed.narrative), options: availableOptions(state),
             handoff, checkpoint };
           setSavedGame(restored);
-          if (state.flags.ending || parsed.state?.maxMp !== MAX_ENERGY) localStorage.setItem(SAVE_KEY, JSON.stringify(restored));
+          if (state.flags.ending || parsed.state?.maxMp !== MAX_ENERGY || migratedAftermath)
+            localStorage.setItem(SAVE_KEY, JSON.stringify(restored));
         }
       }
     } catch (e) {
@@ -643,11 +647,16 @@ export default function GamePage() {
                       const turns = Number(/(?:共)?(\d+)回合/.exec(opt)?.[1] || 1);
                       const cost = actionEnergyCost(gameState, opt, turns);
                       const travel = /\[(?:明路前往|暗道前往|前往)\]/.test(opt);
-                      return cost === 0 ? "精力 0 · 消耗一回合"
+                      const costText = cost === 0 ? "精力 0 · 消耗一回合"
                         : travel && gameState.playerMp < cost
                           ? `精力 -${gameState.playerMp} · 氣血 -${2 * (cost - gameState.playerMp)} · ${turns} 回合`
                         : gameState.playerMp === 0 && cost === 1 ? "精力耗盡 · 氣血 -2"
                           : `精力 -${cost}${turns > 1 ? ` · ${turns} 回合` : ""}`;
+                      const item = /\[(?:袖藏暗手|全力陰手)\]/.test(opt)
+                        ? readyDarkHand(gameState.inventory, !gameState.flags.alleyEscape) : undefined;
+                      const customRefund = gameState.flags.alleyEscape && opt.includes("[伏低護人]")
+                        && gameState.customActionUses < CUSTOM_ACTION_MAX;
+                      return `${costText}${item ? ` · 用掉${item}` : ""}${customRefund ? " · 機變 +1" : ""}`;
                     })()}
                   </span>}
                 </button>
@@ -655,7 +664,9 @@ export default function GamePage() {
             </div>
 
             {((gameState?.questStep === "chapter_one" && gameState.flags.chapterOne?.stage !== "complete" && gameState.flags.chapterOne?.stage !== "failed")
-              || (!gameState?.flags.finalCrisis && !gameState?.flags.ending)) && <form onSubmit={handleCustomSubmit} className="mt-2 pt-3 border-t border-stone-800 flex flex-col gap-1.5">
+              || (!gameState?.flags.finalCrisis && !gameState?.flags.ending))
+              && !gameState?.flags.alleyEscape && !gameState?.flags.marketAftermath
+              && <form onSubmit={handleCustomSubmit} className="mt-2 pt-3 border-t border-stone-800 flex flex-col gap-1.5">
               <div className="text-xs font-semibold text-amber-400/90 tracking-wider flex items-center gap-1.5">
                 <span>F. [自訂手段] {gameState?.customActionUses ?? 0}/{CUSTOM_ACTION_MAX}</span>
                 <span className="text-[11px] text-stone-500 font-normal">{gameState?.questStep === "chapter_one"
@@ -795,7 +806,9 @@ export default function GamePage() {
                 <button
                   key={location}
                   type="button"
-                  disabled={loading || !gameState || Boolean(gameState.flags.pendingIncident) || Boolean(gameState.flags.finalCrisis)
+                  disabled={loading || !gameState || Boolean(gameState.combat) || Boolean(gameState.flags.pendingIncident)
+                    || Boolean(gameState.flags.alleyEscape) || Boolean(gameState.flags.marketAftermath)
+                    || Boolean(gameState.flags.finalCrisis)
                     || (gameState.questStep === "sandbox" && Boolean(gameState.flags.ending))
                     || gameState.currentLocation === location || travelChoices(gameState, location).length === 0}
                   onClick={() => setSelectedDestination(location)}
@@ -808,7 +821,9 @@ export default function GamePage() {
               ))}
             </div>
             {gameState && selectedDestination && gameState.currentLocation !== selectedDestination
-              && travelChoices(gameState, selectedDestination).length > 0 && !gameState.flags.finalCrisis && (
+              && travelChoices(gameState, selectedDestination).length > 0 && !gameState.combat
+              && !gameState.flags.alleyEscape && !gameState.flags.marketAftermath
+              && !gameState.flags.finalCrisis && (
               <div className="space-y-1.5 border-t border-stone-700 pt-2">
                 <div className="text-amber-300">前往{selectedDestination}，揀一條路：</div>
                 {travelChoices(gameState, selectedDestination).map((route) => (
