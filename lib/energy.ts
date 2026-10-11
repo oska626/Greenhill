@@ -8,7 +8,7 @@ const tagOf = (action: string) => /^\w\. \[([^\]]+)\]/.exec(action)?.[1] || "";
 export function actionEnergyCost(state: GameState, action: string, turns = 1): number {
   if (action.startsWith("[初入堂口]") || action.startsWith("A. [踏入第一章]")) return 0;
   const tag = tagOf(action);
-  if (/休整|療傷調息|總壇休養|買藥療傷|服用療傷藥/.test(tag)) return 0;
+  if (/休整|療傷調息|總壇休養|買藥療傷|服用療傷藥|敷止血散/.test(tag)) return 0;
   if (/^(明路前往|暗道前往|前往)$/.test(tag)) return turns;
 
   let cost = 1;

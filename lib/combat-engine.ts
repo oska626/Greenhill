@@ -1,9 +1,11 @@
 import { dirtyHandOptionMove, dirtyHandVerb, type DarkHandItem, type DirtyHandTier } from "./dirty-hand.ts";
+import type { SceneAttempt } from "./custom-action.ts";
 
 export const WEAPONS = {
   fists: { name: "徒手", power: 0, maxDurability: 0 },
   wooden_stick: { name: "案邊木棍", power: 2, maxDurability: 2 },
   rusty_knife: { name: "生鏽鐵刀", power: 4, maxDurability: 4 },
+  captured_knife: { name: "奪來短刀", power: 3, maxDurability: 3 },
 } as const;
 
 export type WeaponId = keyof typeof WEAPONS;
@@ -30,6 +32,8 @@ export interface CombatInput {
   action: string;
   playerHp: number;
   playerMp: number;
+  background?: string;
+  armGuard?: boolean;
   fatigued?: boolean;
   weapon: WeaponId;
   weaponDurability: number;
@@ -37,6 +41,9 @@ export interface CombatInput {
   canTakeStick?: boolean;
   terrainObject?: "厚砧板" | "懸肉鐵鉤" | "剁骨刀";
   dirtyHand?: { item: DarkHandItem; tier: DirtyHandTier; guaranteed: boolean };
+  disarmAttempt?: boolean;
+  canCarryKnife?: boolean;
+  freeAttempt?: SceneAttempt;
 }
 
 export interface CombatResolution {
@@ -102,7 +109,7 @@ export function combatOptions(combat: CombatState, weapon: WeaponId, knownMoves:
       ? "抄起案邊木棍橫掃下盤；逼刀手挪步，自己也得貼近刀口"
       : "蹬住肉案斜身撞去；撞亂刀手守位，也把側腹送到刀前"
     : "扯住擂台圍繩借力；撞亂對手腳步，也得防他反手一拳";
-  const approach = weapon === "rusty_knife"
+  const approach = weapon === "rusty_knife" || weapon === "captured_knife"
     ? "提刀貼身搶攻；刀口要見血，肋下也敞給對手"
     : weapon === "wooden_stick"
       ? `掄起木棍直砸；逼他架住這一棍，自己也可能吃${blow}`
@@ -167,6 +174,84 @@ export function resolveCombatRound(input: CombatInput): CombatResolution {
       playerHp: hp, playerMp: mp, weapon, weaponDurability: durability };
   }
 
+  if (input.disarmAttempt && combat.scenario === "market_ambush") {
+    const used = Math.min(2, mp);
+    mp -= used;
+    hp = Math.max(0, hp - 2 * (2 - used));
+    const leverage = combat.opening + combat.preparedDefense
+      + (input.knownMoves.short_punch ? 1 : 0)
+      + (input.background === "落魄武館棄徒" ? 1 : 0)
+      - (combat.enemyIntent === "slash" ? 1 : 0);
+    const protectedHit = combat.round === 1 && input.armGuard ? 1 : 0;
+    const successWound = 2 + (input.fatigued ? 2 : 0) - protectedHit;
+    if (leverage >= 3 && hp > successWound) {
+      hp -= successWound;
+      combat.enemyHp = 0;
+      weapon = input.canCarryKnife ? "captured_knife" : "fists";
+      durability = weapon === "captured_knife" ? WEAPONS.captured_knife.maxDurability : 0;
+      return { combat, outcome: "won", event: input.canCarryKnife
+        ? "你趁刀手露空門扣住腕骨，挨了一記肘撞才扭下短刀。同夥見他失刃，退進暗巷。"
+        : "你趁刀手露空門扣住腕骨，挨了一記肘撞將短刀甩到肉案下。同夥退進暗巷。",
+        playerHp: hp, playerMp: mp, weapon, weaponDurability: durability };
+    }
+    hp = Math.max(0, hp - (4 + (input.fatigued ? 2 : 0) - protectedHit));
+    combat.opening = 0;
+    if (hp === 0 || combat.round >= 4) return { combat, outcome: "lost",
+      event: "你空手搶腕，刀手翻刃割開你的手，逼你跪進泥裡。街口失守。",
+      playerHp: hp, playerMp: mp, weapon, weaponDurability: durability };
+    combat.round += 1;
+    combat.enemyIntent = intentAt(combat.scenario, combat.round, combat.allyPresent);
+    return { combat, outcome: "ongoing",
+      event: `你空手搶腕，刀手抽刃割開你的手；刀仍在他掌中。${INTENT_WORDS[combat.enemyIntent]}。`,
+      playerHp: hp, playerMp: mp, weapon, weaponDurability: durability };
+  }
+
+  if (input.freeAttempt && combat.scenario === "market_ambush") {
+    const attempt = input.freeAttempt;
+    const spent = Math.min(mp, attempt.effect === "harm" || attempt.effect === "seize" ? 2 : 1);
+    mp -= spent;
+    let opening = combat.opening;
+    let cover = combat.preparedDefense;
+    let damage = 0;
+    const tool = attempt.object ? `借${attempt.object}` : "徒手";
+    const gesture = attempt.gesture ? `你試著${attempt.gesture}` : `你${tool}向${attempt.target}動手`;
+    let event = "";
+    if (attempt.effect === "harm") {
+      damage = Math.max(1, 3 + opening + (attempt.object ? 1 : 0) - combat.enemyGuard);
+      combat.opening = 0;
+      event = `${gesture}，碰到刀手身上，卻也露出肋下。`;
+    } else if (attempt.effect === "disrupt" || attempt.effect === "seize") {
+      combat.opening = Math.min(3, opening + (attempt.object ? 2 : 1));
+      combat.enemyGuard = Math.max(0, combat.enemyGuard - 1);
+      event = `${gesture}，逼得刀手移開半步；兵刃仍在他手上。`;
+    } else if (attempt.effect === "protect") {
+      cover += attempt.object ? 3 : 2;
+      combat.preparedDefense = Math.min(5, combat.preparedDefense + 1);
+      event = `${gesture}，你卡住刀勢，身後的人暫時得以退半步。`;
+    } else if (attempt.effect === "move") {
+      cover += 1;
+      combat.opening = Math.min(3, opening + 1);
+      event = `${gesture}，只搶出半步身位，刀手仍堵在街口。`;
+    } else {
+      combat.opening = Math.min(3, opening + 1);
+      event = `${gesture}，看清刀手下一步，卻沒能叫他停刀。`;
+    }
+    combat.enemyHp -= Math.min(combat.enemyHp, damage);
+    if (combat.enemyHp <= 0) return { combat, outcome: "won", event: `${event}刀手跌進肉案，同夥退入暗巷。`,
+      playerHp: hp, playerMp: mp, weapon, weaponDurability: durability };
+    const attack = combat.enemyIntent === "flank" ? 3 : combat.enemyIntent === "press" ? 4 : 4;
+    const exposure = attempt.effect === "harm" || attempt.effect === "seize" ? 2 : 0;
+    const wound = Math.max(0, attack + exposure - cover + (input.fatigued ? 1 : 0) - (input.armGuard && combat.round === 1 ? 1 : 0));
+    hp = Math.max(0, hp - wound);
+    if (combat.enemyIntent === "flank" && combat.allyPresent && attempt.effect !== "protect") combat.allyWounded = true;
+    if (hp === 0 || combat.round >= 4) return { combat, outcome: "lost", event: `${event}刀手反手劃中你，街口失守。`,
+      playerHp: hp, playerMp: mp, weapon, weaponDurability: durability };
+    combat.round += 1;
+    combat.enemyIntent = intentAt(combat.scenario, combat.round, combat.allyPresent);
+    return { combat, outcome: "ongoing", event: `${event}${wound ? "刀鋒擦過皮肉。" : "刀鋒落空。"}${INTENT_WORDS[combat.enemyIntent]}。`,
+      playerHp: hp, playerMp: mp, weapon, weaponDurability: durability };
+  }
+
   const spendBasicEnergy = () => {
     if (mp > 0) { mp -= 1; notes.push("精力減一。"); }
     else { const before = hp; hp = Math.max(1, hp - 2); notes.push(`精力耗盡，你勉強應對，氣血減${before - hp}。`); }
@@ -190,6 +275,7 @@ export function resolveCombatRound(input: CombatInput): CombatResolution {
     const rank = weapon === "fists" && mp >= 4 ? Math.max(0, Math.min(3, input.knownMoves.short_punch || 0)) : 0;
     if (rank) { mp -= 4; damage = 8 + rank * 3 + combat.opening; notes.push("你將衛沉岳教的短拳送進對手空門，精力減四。"); }
     else { spendBasicEnergy(); damage = 8 + WEAPONS[weapon].power + combat.opening; notes.push(weapon === "fists" ? "你迎面揮拳，直取對手門戶。" : `你持${WEAPONS[weapon].name}迎面進擊。`); }
+    if (weapon === "fists" && input.background === "落魄武館棄徒") damage += 2;
     exposure = 2;
     damage = Math.max(1, damage - combat.enemyGuard);
     combat.opening = 0;
@@ -252,9 +338,10 @@ export function resolveCombatRound(input: CombatInput): CombatResolution {
     if (code === "B" || code === "C") notes.push("你截住刀手，陸千帆沒有再受傷。");
     else { combat.allyWounded = true; notes.push("刀手從側面劃開陸千帆的舊傷。"); }
   }
-  const attack = combat.enemyIntent === "heavy" ? 9 : combat.enemyIntent === "press" ? 6 : combat.enemyIntent === "flank" ? 4 : combat.enemyIntent === "jab" ? 6 : 8;
+  const attack = combat.enemyIntent === "heavy" ? 5 : combat.enemyIntent === "press" ? 4 : combat.enemyIntent === "flank" ? 3 : 4;
   const normalInjury = Math.max(0, attack + exposure - cover - combat.preparedDefense);
-  const taken = Math.min(hp, normalInjury + (normalInjury > 0 && input.fatigued ? 2 : 0));
+  const taken = Math.min(hp, Math.max(0, normalInjury + (normalInjury > 0 && input.fatigued ? 2 : 0)
+    - (combat.round === 1 && input.armGuard && normalInjury > 0 ? 1 : 0)));
   const fatigueInjury = taken - Math.min(hp, normalInjury);
   hp -= taken;
   if (fatigueInjury > 0) notes.push(`精力不足，招架慢了半拍，傷勢多${fatigueInjury}點。`);

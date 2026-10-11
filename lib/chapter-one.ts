@@ -1,6 +1,8 @@
 import { CUSTOM_ACTION_MAX } from "./custom-action.ts";
 import { COMPANION_IDS, type CompanionId } from "./companion-relations.ts";
-import { PACKED_MEDICINE, USE_PACKED_MEDICINE, canUsePackedMedicine, consumePackedMedicine, restoreVitals } from "./recovery.ts";
+import { PACKED_MEDICINE, USE_PACKED_MEDICINE, USE_HEMOSTATIC_POWDER,
+  canUsePackedMedicine, canUseHemostaticPowder, consumePackedMedicine, consumeHemostaticPowder,
+  restoreVitals } from "./recovery.ts";
 import { actionEnergyCost, availableWithEnergy, canAffordEnergy, spendEnergy } from "./energy.ts";
 import { travelChoices } from "./city-progression.ts";
 import type { GameState, Landmark, TurnResult } from "./game-engine.ts";
@@ -116,11 +118,13 @@ export function chapterOneOptions(state: GameState): string[] {
   if (state.questStep !== "chapter_one") return state.flags.ending === "守住城西" ? [CHAPTER_START] : [];
   const chapter = state.flags.chapterOne;
   if (!chapter || chapter.stage === "complete" || chapter.stage === "failed") return [];
+  const medicineOptions = [...(canUsePackedMedicine(state) ? [USE_PACKED_MEDICINE] : []),
+    ...(canUseHemostaticPowder(state) ? [USE_HEMOSTATIC_POWDER] : [])];
   if (chapter.stage === "rest") return availableWithEnergy(state, [REST_OPTIONS[0], ...companionChoices(state), ...REST_OPTIONS.slice(1),
-    ...(canUsePackedMedicine(state) ? [USE_PACKED_MEDICINE] : [])]);
+    ...medicineOptions]);
   if (chapter.stage === "shortage") return availableWithEnergy(state, [...SHORTAGE_OPTIONS,
     ...(state.factionFunds >= 8 ? [DEFEND_OPTION] : []), RECOVER_OPTION,
-    ...(canUsePackedMedicine(state) ? [USE_PACKED_MEDICINE] : [])]);
+    ...medicineOptions]);
   const directAssault = chapter.selectedCompanion === "衛沉岳" || chapter.selectedCompanion === "霍破陣";
   const evidenceNeeded = chapter.selectedCompanion === "霍破陣" ? 2 : 3;
   const readyToRetake = chapter.evidence >= evidenceNeeded && (directAssault || chapter.dockRouteKnown);
@@ -132,7 +136,7 @@ export function chapterOneOptions(state: GameState): string[] {
     ...(state.factionFunds >= 8 ? [DEFEND_OPTION] : []),
     RECOVER_OPTION,
     ...travel,
-    ...(canUsePackedMedicine(state) ? [USE_PACKED_MEDICINE] : []),
+    ...medicineOptions,
   ]);
   return availableWithEnergy(state, [
     `A. [查碼頭貨單] 核對被扣糧藥車數；目前證據${chapter.evidence}點，首次查可多得一點。`,
@@ -142,7 +146,7 @@ export function chapterOneOptions(state: GameState): string[] {
       ? ["G. [運勁奪港] 耗六點精力穩住陣腳與貨箱；勝後不受傷，回收十二文公款。"] : []),
     ...(!chapter.dockRouteKnown && state.playerMp >= 4
       ? ["I. [運步夜探] 耗四點精力避開刀鋒，探明進港路線並減少受傷。"] : []),
-    ...(canUsePackedMedicine(state) ? [USE_PACKED_MEDICINE] : []), ...travel,
+    ...medicineOptions, ...travel,
   ]);
 }
 
@@ -281,6 +285,15 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
       + settleTribute(state, chapter);
     return finishTurn(state, event);
   }
+  if (action === USE_HEMOSTATIC_POWDER) {
+    const healed = consumeHemostaticPowder(state);
+    if (!healed) return finishTurn(state, "止血散未在行囊，或眼下沒有傷口。");
+    event = "你將止血散按進傷口，重新紮緊布條，血終於止住。";
+    if (chapter.stage === "rest") event = finishRestTurn(state, chapter, event);
+    else event += collectPressure(state, chapter, chapter.stage === "shortage" ? 6 : 4)
+      + settleTribute(state, chapter);
+    return finishTurn(state, event);
+  }
   if (chapter.stage === "rest") {
     if (choice === 0) {
       const { hp: hpRestored, mp: mpRestored } = restoreVitals(state, 0.2);
@@ -352,7 +365,7 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
         if (chapter.selectedCompanion === "顧忘生") event += "顧忘生留在岸邊照料負傷腳夫，讓卸貨沒有因傷停下。";
         if (chapter.selectedCompanion === "柳照霜") event += "柳照霜說服猶豫的碼頭腳夫繼續卸貨，免得貨船再次空等。";
         if (chapter.selectedCompanion === "霍破陣") { addFunds(state, -6, "霍破陣冒進損壞碼頭貨物"); event += "霍破陣衝得太急，貨箱撞裂，修補耗去六文公款。"; }
-      } else { const damage = chapter.selectedCompanion === "衛沉岳" ? 5 : 10; state.playerHp = Math.max(1, state.playerHp - damage); event = `你未摸清船次與退路便衝向碼頭，被守衛逼退；氣血減${damage}。貨仍被扣住，你還須補足證據與接應。`; }
+      } else { const damage = chapter.selectedCompanion === "衛沉岳" ? 3 : 6; state.playerHp = Math.max(1, state.playerHp - damage); event = `你未摸清船次與退路便衝向碼頭，被守衛逼退；氣血減${damage}。貨仍被扣住，你還須補足證據與接應。`; }
     }
     event += pressure + settleTribute(state, chapter);
     event += chapter.stage === "complete"

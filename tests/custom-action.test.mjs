@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { availableOptions, normalizeState, recordMarketNpcReply, resolveMarketDialogue,
-  resolveMarketIntent, resolveSocialIntent, resolveTurn } from "../lib/game-engine.ts";
+  resolveMarketIntent, resolveSceneAttempt, resolveSocialIntent, resolveTurn } from "../lib/game-engine.ts";
 import { newRelationships } from "../lib/companion-relations.ts";
 import { interpretMarketText, isMarketIntentScene, validateCustomDecision } from "../lib/custom-action.ts";
 import { createCombat } from "../lib/combat-engine.ts";
@@ -11,7 +11,7 @@ function state() {
   return {
     turn: 4, playerName: "阿七", background: "賭坊收帳人", trait: "察言觀色",
     currentLocation: "黑泥街", inventory: ["【金創散】"], maxInventory: 4,
-    playerHp: 100, maxHp: 100, playerMp: 50, maxMp: 50,
+    playerHp: 100, maxHp: 100, hpScaleVersion: 2, playerMp: 50, maxMp: 50,
     silver: 0, factionFunds: 10, sectLifeline: 60, worldFlags: [], relationships: newRelationships(),
     questStep: "market_collection",
     flags: { tookHerbs: true, visitedYung: true, collectedMarketFee: false, marketAmbushTriggered: false },
@@ -87,6 +87,100 @@ test("using a carried dark hand before the ambush spends it and exposes the knif
   assert.equal(turn.state.questStep, "huizhi_ambush");
   assert.equal(turn.state.customActionUses, 0);
   assert.match(turn.event, /石灰|暗手/);
+});
+
+test("barehanded disarm is an attempted grapple, not an impossible scene object", () => {
+  const scene = state();
+  const text = "空手入白刃, 搶走刀手手上武器";
+  const decision = interpretMarketText(scene, text);
+  assert.equal(decision.kind, "market_intent");
+  assert.equal(decision.plan.approach, "奪械");
+  assert.equal(decision.plan.target, "刀手");
+  assert.equal(decision.plan.object, undefined);
+  const attempted = resolveMarketIntent(scene, decision.plan);
+  assert.equal(attempted.state.turn, scene.turn + 1);
+  assert.equal(attempted.state.questStep, "huizhi_ambush");
+  assert.ok(attempted.state.playerHp < scene.playerHp);
+  assert.equal(attempted.state.inventory.includes("【奪來短刀】"), false);
+  assert.match(attempted.event, /刀仍在他掌中/);
+  assert.equal(interpretMarketText(scene, "我唔搶走刀手手上武器").kind, "reject");
+  assert.equal(interpretMarketText(scene, "如果我搶走刀手手上武器會點?").kind, "reject");
+});
+
+test("unlisted body tactics advance combat without turning into a preset move", () => {
+  const scene = { ...state(), questStep: "huizhi_ambush", combat: createCombat("market_ambush", true) };
+  const raw = { kind: "scene_attempt", effect: "disrupt", target: "刀手", gesture: "踩刀手腳背" };
+  const parsed = validateCustomDecision(raw, scene, availableOptions(scene), "我踩刀手腳背，叫佢失平衡");
+  assert.equal(parsed.kind, "scene_attempt");
+  const first = resolveSceneAttempt(scene, parsed.plan);
+  assert.equal(first.state.turn, scene.turn + 1);
+  assert.ok(first.state.combat.opening > scene.combat.opening);
+  assert.match(first.event, /踩刀手腳背/);
+  assert.doesNotMatch(first.event, /木棍|佯攻搶出/);
+  assert.equal(first.state.flags.marketIntentHistory.at(-1).approach, "自訂");
+  const second = resolveSceneAttempt(first.state, { effect: "protect", target: "陸千帆", method: "咬住刀手袖口擋佢", gesture: "咬住刀手袖口" });
+  assert.equal(second.state.turn, first.state.turn + 1);
+  assert.ok(second.state.playerMp < first.state.playerMp);
+});
+
+test("generic scene gate respects possession, weight, and real disarm risk", () => {
+  const scene = state();
+  const unknown = validateCustomDecision({ kind: "scene_attempt", effect: "disrupt", target: "刀手", object: "手機" },
+    scene, availableOptions(scene), "用手機掟刀手");
+  assert.equal(unknown.kind, "reject");
+  const tooHeavy = resolveSceneAttempt(scene, { effect: "harm", target: "刀手", object: "厚砧板", method: "掟厚砧板打刀手" });
+  assert.equal(tooHeavy.state.turn, scene.turn);
+  assert.match(tooHeavy.event, /沉重/);
+  const wrongHolder = resolveSceneAttempt(scene, { effect: "seize", target: "刀手", object: "剁骨刀", method: "搶剁骨刀" });
+  assert.equal(wrongHolder.state.turn, scene.turn);
+  assert.match(wrongHolder.event, /張斷骨/);
+  const grabbed = resolveSceneAttempt(scene, { effect: "seize", target: "刀手", object: "刀手短刀", method: "抓刀手手上武器" });
+  assert.equal(grabbed.state.turn, scene.turn + 1);
+  assert.ok(grabbed.state.playerHp < scene.playerHp);
+  assert.match(grabbed.event, /刀仍在他掌中/);
+});
+
+test("generic attempts follow the positive clause and retreat into the actual alley", () => {
+  const scene = state();
+  const raw = { kind: "scene_attempt", effect: "harm", target: "刀手", gesture: "踩刀手腳背" };
+  assert.equal(validateCustomDecision(raw, scene, availableOptions(scene), "我唔踩刀手腳背").kind, "reject");
+  const switched = validateCustomDecision({ ...raw, effect: "protect", target: "陸千帆", gesture: "護住陸千帆" },
+    scene, availableOptions(scene), "我唔踩刀手腳背，反而護住陸千帆");
+  assert.equal(switched.kind, "scene_attempt");
+  const retreated = resolveSceneAttempt(scene, { effect: "move", target: "陸千帆", method: "扶陸千帆退入巷尾" });
+  assert.equal(retreated.state.combat, undefined);
+  assert.equal(retreated.state.flags.alleyEscape, true);
+  assert.equal(retreated.state.questStep, "sandbox");
+  assert.doesNotMatch(retreated.options.join(" "), /巡街收規|搬貨/);
+});
+
+test("a barehanded rescue creates no phantom board and medicine is spent", () => {
+  const scene = state();
+  const bare = resolveSceneAttempt(scene, { effect: "protect", target: "陸千帆", method: "用肩頂住陸千帆" });
+  assert.equal(bare.state.worldFlags.includes("肉案已作遮掩"), false);
+  assert.equal(bare.state.worldFlags.includes("救下陸千帆"), true);
+  const treated = resolveSceneAttempt(scene, { effect: "protect", target: "陸千帆", object: "金創散", method: "把金創散按上陸千帆傷口" });
+  assert.equal(treated.state.inventory.includes("【金創散】"), false);
+  assert.equal(treated.state.relationships["陸千帆"].wounded, false);
+});
+
+test("a prepared disarm can win the knife, but a full bag leaves it on the ground", () => {
+  const scene = { ...state(), questStep: "huizhi_ambush", combat: createCombat("market_ambush", true),
+    flags: { ...state().flags, marketAmbushTriggered: true } };
+  const feint = availableOptions(scene).find((option) => option.startsWith("D."));
+  const opened = resolveTurn(scene, feint, false);
+  assert.ok(opened.state.combat.opening >= 3);
+  const plan = { approach: "奪械", target: "刀手", method: "空手入白刃，奪他手上短刀" };
+  const seized = resolveMarketIntent(opened.state, plan);
+  assert.equal(seized.state.combat, undefined);
+  assert.equal(seized.state.equippedWeapon, "captured_knife");
+  assert.ok(seized.state.inventory.includes("【奪來短刀】"));
+  assert.ok(normalizeState(seized.state).inventory.includes("【奪來短刀】"));
+  const fullBag = { ...opened.state, inventory: ["一", "二", "三", "四"] };
+  const knockedAway = resolveMarketIntent(fullBag, plan);
+  assert.equal(knockedAway.state.inventory.length, 4);
+  assert.equal(knockedAway.state.equippedWeapon, "fists");
+  assert.equal(knockedAway.state.sceneState.movedObjects["刀手短刀"], "黑泥街肉案下");
 });
 
 test("repeated preparation makes the waiting knife men strike on the third turn", () => {

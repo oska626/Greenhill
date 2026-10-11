@@ -32,6 +32,7 @@ interface SavedGameData {
 
 const SAVE_KEY = "qingshan_game_save_v1";
 const READ_KEY = "qingshan_read_narratives_v1";
+const CUSTOM_STARTING_ITEMS = ["【開鎖鐵線】", "【止血散】", "【粗鐵護腕】", "【灌鉛假骰】"];
 
 const BACKGROUNDS = [
   {
@@ -46,7 +47,7 @@ const BACKGROUNDS = [
     name: "城西街童扒手",
     desc: "你在黑泥街長大。攤販記不住你的臉，守門人卻總比你慢一步。",
     trait: "手疾眼快（身法與偷襲提升）",
-    startingItems: [],
+    startingItems: ["【開鎖鐵線】"],
   },
   {
     id: "martial_dropout",
@@ -81,6 +82,7 @@ export default function GamePage() {
   const [customGender, setCustomGender] = useState<string>("");
   const [customSkill, setCustomSkill] = useState<string>("");
   const [customPersonality, setCustomPersonality] = useState<string>("");
+  const [customStartingItem, setCustomStartingItem] = useState<string>(CUSTOM_STARTING_ITEMS[0]);
 
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [narrative, setNarrative] = useState<string>("");
@@ -241,17 +243,18 @@ export default function GamePage() {
         gender: customGender.trim(), skill: customSkill.trim(), personality: customPersonality.trim(),
       } : {}),
       currentLocation: "青鋒堂總壇",
-      inventory: [...bg.startingItems, STARTING_DARK_HAND],
+      inventory: [...(selectedBgId === "custom" ? [customStartingItem] : bg.startingItems), STARTING_DARK_HAND],
       maxInventory: 4,
       playerHp: stats.hp,
       maxHp: stats.hp,
+      hpScaleVersion: 2,
       playerMp: stats.mp,
       maxMp: stats.mp,
       silver: 0,
       customActionUses: CUSTOM_ACTION_START,
       factionFunds: 10,
       sectLifeline: 60,
-      worldFlags: [],
+      worldFlags: selectedBgId === "martial_dropout" ? ["武館舊傷"] : [],
       relationships: newRelationships(),
       equippedWeapon: "fists",
       weaponDurability: 0,
@@ -460,6 +463,13 @@ export default function GamePage() {
                 <input id="custom-personality" type="text" maxLength={12} value={customPersonality} onChange={(e) => setCustomPersonality(e.target.value)}
                   placeholder="例：嘴硬心軟、遇事多疑" className="w-full bg-stone-950 border border-stone-700 rounded px-3 py-2 text-sm text-stone-100 focus:outline-none focus:border-amber-600" />
               </div>
+              <div className="space-y-1.5">
+                <label htmlFor="custom-item" className="text-xs font-semibold text-stone-400 tracking-wider">隨身雜物（一件）</label>
+                <select id="custom-item" value={customStartingItem} onChange={(e) => setCustomStartingItem(e.target.value)}
+                  className="w-full bg-stone-950 border border-stone-700 rounded px-3 py-2 text-sm text-stone-100">
+                  {CUSTOM_STARTING_ITEMS.map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </div>
             </div>
           )}
 
@@ -467,7 +477,7 @@ export default function GamePage() {
             <div className="font-semibold text-stone-300">初始命盤預覽</div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-stone-400">
               <div>氣血上限: <span className="font-mono text-rose-400">{curStats.hp}</span></div>
-              <div>精力上限: <span className="font-mono text-sky-400">{curStats.mp}（所有角色相同）</span></div>
+              <div>精力上限: <span className="font-mono text-sky-400">{curStats.mp}</span></div>
               <div>行囊容量: <span className="font-mono text-stone-200">4 格</span></div>
               <div>初期銀兩: <span className="font-mono text-amber-400">0 文</span></div>
             </div>
@@ -475,8 +485,9 @@ export default function GamePage() {
               {selectedBgId === "custom" ? "擅長技能" : "天賦特質"}: <span className="text-amber-300 font-medium">{selectedBgId === "custom" ? customSkill || "待填" : curBg.trait}</span>
             </div>
             {selectedBgId === "custom" && <div className="text-stone-400">性別：{customGender || "待填"} · 性格：{customPersonality || "待填"}</div>}
+            {selectedBgId === "martial_dropout" && <div className="text-rose-300">肩傷未癒：開局氣血 26 / 28</div>}
             <div className="text-stone-400">
-              隨身攜帶: <span className="text-stone-300 font-mono">{[...curBg.startingItems, STARTING_DARK_HAND].join("、 ")} ({curBg.startingItems.length + 1}/4 格)</span>
+              隨身攜帶: <span className="text-stone-300 font-mono">{[...(selectedBgId === "custom" ? [customStartingItem] : curBg.startingItems), STARTING_DARK_HAND].join("、 ")} (2/4 格)</span>
             </div>
           </div>
 
@@ -485,7 +496,7 @@ export default function GamePage() {
             onClick={handleStartGame}
             className="w-full bg-amber-700/90 hover:bg-amber-600 text-stone-100 font-medium py-2.5 rounded transition duration-150 shadow-md text-sm tracking-wider mt-2"
           >
-            確認創角 · 開啟全新江湖
+            推門入局
           </button>
         </div>
       </div>

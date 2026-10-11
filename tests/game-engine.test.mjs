@@ -7,13 +7,15 @@ import { ENDING_OPTIONS, MISSIONS, guardLayersForLifeline, missionOptions, trave
 import { companionLeads, newRelationships } from "../lib/companion-relations.ts";
 import { PACKED_MEDICINE, USE_PACKED_MEDICINE } from "../lib/recovery.ts";
 import { actionEnergyCost, FATIGUE_THRESHOLD, MAX_ENERGY } from "../lib/energy.ts";
+import { darkHandCount } from "../lib/dirty-hand.ts";
+import { objectStatus } from "../lib/scene-state.ts";
 
 function newGame() {
   const stats = aptitude("阿七", "賭坊收帳人", "察言觀色");
   return {
     turn: 1, playerName: "阿七", background: "賭坊收帳人", trait: "察言觀色",
     currentLocation: "青鋒堂總壇", inventory: ["【灌鉛假骰】", "【生石灰包】"], maxInventory: 4,
-    playerHp: stats.hp, maxHp: stats.hp, playerMp: stats.mp, maxMp: stats.mp,
+    playerHp: stats.hp, maxHp: stats.hp, hpScaleVersion: 2, playerMp: stats.mp, maxMp: stats.mp,
     silver: 0, factionFunds: 10, sectLifeline: 60, worldFlags: [], relationships: newRelationships(),
     questStep: "prologue_briefing",
     flags: { tookHerbs: false, visitedYung: false, collectedMarketFee: false, marketAmbushTriggered: false,
@@ -41,8 +43,60 @@ test("creation varies only health, while every background starts with fifty ener
   }
 });
 
+test("small health scale preserves the injury ratio of old saves once", () => {
+  assert.equal(aptitude("阿七", "賭坊收帳人", "察言觀色").hp, 20);
+  assert.equal(aptitude("阿七", "落魄武館棄徒", "皮糙肉厚").hp, 28);
+  assert.equal(aptitude("阿七", "黑市醫道學徒", "辨毒識藥").hp, 16);
+  const legacy = { ...newGame(), questStep: "sandbox", hpScaleVersion: undefined,
+    maxHp: 102, playerHp: 51 };
+  const migrated = normalizeState(legacy);
+  assert.equal(migrated.maxHp, 20);
+  assert.equal(migrated.playerHp, 10);
+  assert.equal(normalizeState(migrated).playerHp, 10);
+});
+
+test("starting backgrounds give usable gear and scene knowledge", () => {
+  assert.equal(darkHandCount(newGame().inventory), 2);
+  const ghost = { ...newGame(), questStep: "sandbox", currentLocation: "鬼骰坊",
+    inventory: ["【開鎖鐵線】", "【生石灰包】"] };
+  const entry = availableOptions(ghost).find((option) => option.includes("[查賬房雜物]"));
+  assert.ok(entry);
+  const unlocked = resolveTurn(ghost, entry, false);
+  assert.ok(unlocked.state.sceneState.openedEntrances.includes("鬼骰坊"));
+  assert.match(unlocked.event, /鐵線/);
+
+  const medic = { ...newGame(), questStep: "sandbox", currentLocation: "苦煙館",
+    background: "黑市醫道學徒", trait: "辨毒識藥" };
+  const identify = availableOptions(medic).find((option) => option.includes("[辨無名藥粉]"));
+  assert.ok(identify);
+  const identified = resolveTurn(medic, identify, false);
+  assert.equal(identified.state.sceneState.medicineIdentified, true);
+  assert.equal(objectStatus(identified.state.sceneState, "無名藥粉瓷瓶").holder, "顧忘生");
+
+  const bleeding = { ...medic, playerHp: 10, inventory: ["【止血散】", "【生石灰包】"] };
+  const bandage = availableOptions(bleeding).find((option) => option.includes("[敷止血散]"));
+  assert.ok(bandage);
+  const treated = resolveTurn(bleeding, bandage, false);
+  assert.equal(treated.state.playerHp, 14);
+  assert.equal(treated.state.inventory.includes("【止血散】"), false);
+});
+
+test("wounded martial dropout starts below maximum but hits harder barehanded", () => {
+  const dropout = { ...newGame(), background: "落魄武館棄徒", trait: "皮糙肉厚" };
+  const opened = resolveTurn(dropout, "[初入堂口] 阿七", true);
+  assert.equal(opened.state.maxHp, 28);
+  assert.equal(opened.state.playerHp, 26);
+  const fight = { combat: createCombat("arena"), action: "A. [正面進擊]",
+    playerHp: 28, playerMp: 50, weapon: "fists", weaponDurability: 0, knownMoves: {} };
+  const ordinary = resolveCombatRound(fight);
+  const trained = resolveCombatRound({ ...fight, background: "落魄武館棄徒" });
+  assert.equal(trained.combat.enemyHp, ordinary.combat.enemyHp - 2);
+  const protectedRound = resolveCombatRound({ ...fight, armGuard: true });
+  assert.equal(protectedRound.playerHp, ordinary.playerHp + 1);
+});
+
 test("older saves keep their energy ratio when normalized to the shared maximum", () => {
-  const old = { ...newGame(), questStep: "sandbox", maxMp: 75, playerMp: 30, playerHp: 47 };
+  const old = { ...newGame(), questStep: "sandbox", maxHp: 100, maxMp: 75, playerMp: 30, playerHp: 47 };
   const migrated = normalizeState(old);
   assert.equal(migrated.maxMp, MAX_ENERGY);
   assert.equal(migrated.playerMp, 20);
@@ -51,7 +105,7 @@ test("older saves keep their energy ratio when normalized to the shared maximum"
 });
 
 test("fatigue raises investigation cost, while exhaustion leaves basic action, travel and rest possible", () => {
-  const base = { ...newGame(), questStep: "sandbox", currentLocation: "黑泥街", playerHp: 50, playerMp: FATIGUE_THRESHOLD, turn: 2 };
+  const base = { ...newGame(), questStep: "sandbox", currentLocation: "黑泥街", maxHp: 100, playerHp: 50, playerMp: FATIGUE_THRESHOLD, turn: 2 };
   const track = availableOptions(base).find((option) => option.includes("[盯梢]"));
   assert.equal(actionEnergyCost(base, track), 3);
   assert.equal(actionEnergyCost({ ...base, playerMp: FATIGUE_THRESHOLD + 1 }, track), 2);
@@ -88,7 +142,7 @@ test("fatigue adds two injury only when a combat hit lands", () => {
 
 test("zero-energy combat keeps basic moves and invalid commands spend nothing", () => {
   const scene = { ...newGame(), questStep: "sandbox", currentLocation: "裂石擂",
-    playerHp: 50, playerMp: 0, combat: createCombat("arena") };
+    maxHp: 100, playerHp: 50, playerMp: 0, combat: createCombat("arena") };
   const options = availableOptions(scene);
   assert.equal(options.some((option) => option.startsWith("A. [正面進擊]")), true);
   assert.equal(options.some((option) => option.startsWith("C. [借地形]")), false);
@@ -406,7 +460,7 @@ test("absurd custom actions lose health and malformed numeric state is normalize
   assert.equal(state.factionFunds, 10);
   assert.equal(state.playerHp, state.maxHp);
   const turn = resolveTurn(state, "F. [自訂手段] 拿機關槍射擊", false);
-  assert.equal(turn.state.playerHp, state.maxHp - 15);
+  assert.equal(turn.state.playerHp, state.maxHp - 4);
 });
 
 test("sandbox incident follows the finished market ambush", () => {
@@ -570,7 +624,7 @@ test("daily recovery costs one turn and follows each maximum", () => {
 
 test("clinic medicine can be carried, consumes a slot, and heals when used", () => {
   const clinic = { ...newGame(), questStep: "sandbox", currentLocation: "苦煙館",
-    playerHp: 50, playerMp: 10, silver: 20 };
+    maxHp: 100, playerHp: 50, playerMp: 10, silver: 20 };
   const buy = availableOptions(clinic).find((option) => option.includes("[買藥帶走]"));
   const stocked = resolveTurn(clinic, buy, false);
   assert.equal(stocked.state.silver, 10);

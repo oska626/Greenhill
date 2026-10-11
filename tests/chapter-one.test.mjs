@@ -12,7 +12,7 @@ function finished(ending = "守住城西") {
   return {
     turn: 70, playerName: "阿七", background: "賭坊收帳人", trait: "察言觀色",
     currentLocation: "青鋒堂總壇", inventory: [], maxInventory: 4,
-    playerHp: 75, maxHp: 100, playerMp: 35, maxMp: 50,
+    playerHp: 75, maxHp: 100, hpScaleVersion: 2, playerMp: 35, maxMp: 50,
     silver: 30, customActionUses: 0, factionFunds: 12, sectLifeline: 12,
     worldFlags: ["帳目有據", "刀手進城路線"], relationships: newRelationships(), questStep: "sandbox",
     flags: { tookHerbs: true, visitedYung: true, collectedMarketFee: true, marketAmbushTriggered: true,
@@ -177,7 +177,7 @@ test("Wei holds a failed charge while Huo can force a costly early victory", () 
       dockRouteKnown: false } } });
   const wei = choose(dockState("衛沉岳"), "E");
   assert.equal(wei.state.flags.chapterOne.stage, "dock");
-  assert.equal(wei.state.playerHp, start.state.playerHp - 5);
+  assert.equal(wei.state.playerHp, start.state.playerHp - 3);
   const huo = choose(dockState("霍破陣"), "E");
   assert.equal(huo.state.flags.chapterOne.result, "奪回碼頭");
   assert.match(huo.event, /貨箱撞裂/);

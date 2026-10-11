@@ -3,7 +3,7 @@ import type { GameState } from "./game-engine.ts";
 export const STARTING_DARK_HAND = "【生石灰包】";
 export const DARK_HAND_LIMIT = 2;
 export const DARK_HAND_PRICE = 5;
-export const DARK_HAND_ITEMS = ["【生石灰包】", "【飛蝗石】", "【袖藏短刺】", "【碎骨片】", "【爐灰包】"] as const;
+export const DARK_HAND_ITEMS = ["【生石灰包】", "【灌鉛假骰】", "【飛蝗石】", "【袖藏短刺】", "【碎骨片】", "【爐灰包】"] as const;
 export type DarkHandItem = typeof DARK_HAND_ITEMS[number];
 export type DirtyHandTier = "great" | "ordinary" | "failed";
 
@@ -23,6 +23,7 @@ export function readyDarkHand(inventory: readonly string[], closeRange = true): 
 export function dirtyHandVerb(item: DarkHandItem): string {
   return ({
     "【生石灰包】": "撒石灰迷眼",
+    "【灌鉛假骰】": "彈出灌鉛假骰撞向面門",
     "【飛蝗石】": "擲飛蝗石打亂刀勢",
     "【袖藏短刺】": "貼身刺向空門",
     "【碎骨片】": "擲碎骨擾敵",
@@ -33,6 +34,7 @@ export function dirtyHandVerb(item: DarkHandItem): string {
 export function dirtyHandOptionMove(item: DarkHandItem): string {
   return ({
     "【生石灰包】": "揚出袖裡生石灰",
+    "【灌鉛假骰】": "彈出袖底灌鉛假骰",
     "【飛蝗石】": "甩出袖底飛蝗石",
     "【袖藏短刺】": "探出袖底短刺",
     "【碎骨片】": "彈出袖裡碎骨",

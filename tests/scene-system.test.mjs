@@ -12,7 +12,7 @@ function game(overrides = {}) {
   return {
     turn: 5, playerName: "阿七", background: "賭坊收帳人", trait: "察言觀色",
     currentLocation: "黑泥街", inventory: ["【生石灰包】"], maxInventory: 4,
-    playerHp: 50, maxHp: 50, playerMp: 40, maxMp: 50,
+    playerHp: 50, maxHp: 50, hpScaleVersion: 2, playerMp: 40, maxMp: 50,
     silver: 20, factionFunds: 10, sectLifeline: 60, worldFlags: [], relationships: newRelationships(),
     questStep: "sandbox", flags: { tookHerbs: true, visitedYung: true, collectedMarketFee: false,
       marketAmbushTriggered: true, darkHandInitialized: true }, ...overrides,
