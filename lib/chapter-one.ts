@@ -362,6 +362,17 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
   return finishTurn(state, event + spendEnergy(state, energyCost, Math.max(0, startingEnergy - state.playerMp)));
 }
 
+export function advanceChapterSocialTurn(state: GameState, energyCost = 1): string {
+  const chapter = state.flags.chapterOne;
+  if (!chapter || chapter.stage === "complete" || chapter.stage === "failed") return "";
+  state.turn += 1;
+  chapter.turns += 1;
+  const cost = spendEnergy(state, energyCost);
+  if (chapter.stage === "rest") return finishRestTurn(state, chapter, "") + cost;
+  return collectPressure(state, chapter, chapter.stage === "shortage" ? 6 : 4)
+    + settleTribute(state, chapter) + cost;
+}
+
 export function resolveChapterPetition(state: GameState, playerText: string): TurnResult {
   const chapter = state.flags.chapterOne;
   if (state.questStep === "chapter_one" && chapter?.stage === "dock" && state.currentLocation !== "青鋒堂總壇")
@@ -374,10 +385,8 @@ export function resolveChapterPetition(state: GameState, playerText: string): Tu
   if (!proposal || negated || /如果|假如|會點|點樣|可唔可以|是否可以/.test(playerText)
     || /槍械|手槍|步槍|機關槍|超人|神仙|飛天|激光|雷射|核彈|手機|電腦|修仙|法術/.test(playerText))
     return finishTurn(state, "請說清實際打算如何向城主呈報截貨證據；否定與假設不會替你執行行動。");
-  if (state.customActionUses === 0) return finishTurn(state, "機變次數已用盡，先處理碼頭手上的線索。");
   const energyCost = actionEnergyCost(state, "F. [向城主呈報]");
   if (!canAffordEnergy(state, energyCost)) return finishTurn(state, `精力不足，呈報須${energyCost}點精力。`);
-  state.customActionUses -= 1;
   state.turn += 1;
   chapter.turns += 1;
   const pressure = collectPressure(state, chapter, 4);

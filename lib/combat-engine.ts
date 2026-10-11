@@ -35,6 +35,7 @@ export interface CombatInput {
   weaponDurability: number;
   knownMoves: KnownMoves;
   canTakeStick?: boolean;
+  terrainObject?: "厚砧板" | "懸肉鐵鉤" | "剁骨刀";
   dirtyHand?: { item: DarkHandItem; tier: DirtyHandTier; guaranteed: boolean };
 }
 
@@ -207,7 +208,17 @@ export function resolveCombatRound(input: CombatInput): CombatResolution {
     damage = 3 + (spent === 2 ? 2 : 0);
     cover = 2;
     combat.enemyGuard = 0;
-    if (combat.scenario === "market_ambush" && weapon === "fists" && input.canTakeStick !== false) {
+    if (combat.scenario === "market_ambush" && input.terrainObject === "厚砧板") {
+      cover += 2;
+      notes.push(`你合力推歪厚砧板擋住刀勢，精力減${spent}。`);
+    } else if (combat.scenario === "market_ambush" && input.terrainObject === "懸肉鐵鉤") {
+      hp = Math.max(1, hp - 1);
+      damage += 1;
+      notes.push(`你扯住懸肉鐵鉤撥開刀口，掌心被鏽尖劃破，精力減${spent}。`);
+    } else if (combat.scenario === "market_ambush" && input.terrainObject === "剁骨刀") {
+      hp = Math.max(1, hp - 3);
+      notes.push(`你迎著張斷骨的刀口強奪剁骨刀，手背見血，只搶出半步空檔，精力減${spent}。`);
+    } else if (combat.scenario === "market_ambush" && weapon === "fists" && input.canTakeStick !== false) {
       weapon = "wooden_stick"; durability = WEAPONS.wooden_stick.maxDurability;
       notes.push(`你抄起肉案旁的木棍逼開刀手，精力減${spent}。`);
     } else notes.push(`你借地形撞開對手的守勢，精力減${spent}。`);

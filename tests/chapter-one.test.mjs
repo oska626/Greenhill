@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { availableOptions, normalizeState, resolveTurn } from "../lib/game-engine.ts";
+import { availableOptions, normalizeState, resolveSocialIntent, resolveTurn } from "../lib/game-engine.ts";
 import { newRelationships } from "../lib/companion-relations.ts";
 import { CHAPTER_OPENING, GRATITUDE_DUES, MAX_LOST_LANDMARKS, RAID_UNREST_THRESHOLD, chapterPressureForecast, resolveChapterPetition } from "../lib/chapter-one.ts";
 import { PACKED_MEDICINE, USE_PACKED_MEDICINE } from "../lib/recovery.ts";
 import { shouldCapturePrologueCheckpoint } from "../lib/prologue-checkpoint.ts";
 import { travelChoices } from "../lib/city-progression.ts";
+import { inferSocialIntent } from "../lib/social-influence.ts";
 
 function finished(ending = "守住城西") {
   return {
@@ -363,7 +364,34 @@ test("a grounded F petition can gain conditional city intervention", () => {
   assert.equal(heard.state.flags.chapterOne.tribute, "paid");
   assert.equal(heard.state.flags.chapterOne.result, "城主有條件介入");
   assert.ok(heard.state.worldFlags.includes("第一章城主介入復航"));
-  assert.equal(heard.state.customActionUses, 1);
+  assert.equal(heard.state.customActionUses, 2);
+});
+
+test("persuading dock workers costs pressured turns and can win voluntary support", () => {
+  let scene = travelTo(inspectAffected(calmToShortage().state).state, "碼頭").state;
+  const firstText = "我同船工講：因為斷貨會令你哋家人挨餓，幫我守住糧藥。";
+  const first = resolveSocialIntent(scene, inferSocialIntent(scene, firstText));
+  assert.equal(first.state.flags.chapterOne.crewHired, false);
+  assert.equal(first.state.flags.chapterOne.turns, scene.flags.chapterOne.turns + 1);
+  scene = first.state;
+  const secondText = "我同船工講：我願替你們守住跳板，請你們幫我運糧藥。";
+  const second = resolveSocialIntent(scene, inferSocialIntent(scene, secondText));
+  assert.equal(second.state.flags.chapterOne.crewHired, true);
+  assert.equal(second.state.flags.chapterOne.dockRouteKnown, true);
+  assert.ok(second.state.factionFunds < scene.factionFunds);
+});
+
+test("a persuaded dock guard can defect and reveal the watch route", () => {
+  const arrived = travelTo(inspectAffected(calmToShortage().state).state, "碼頭").state;
+  const scene = { ...arrived, socialMemory: { "碼頭守衛": { stance: "wary", beliefs: [],
+    topics: { "defect:轉投玩家": { progress: 4, resistance: 0, tactics: ["evidence", "interest"],
+      arguments: ["舊帳", "保命"], lastTurn: arrived.turn - 1 } } } } };
+  const text = "我同碼頭守衛講：因為玄武樓斷糧也害了你的家，倒戈幫我把糧藥放行。";
+  const turn = resolveSocialIntent(scene, inferSocialIntent(scene, text));
+  assert.equal(turn.state.socialMemory["碼頭守衛"].stance, "ally");
+  assert.equal(turn.state.flags.chapterOne.dockRouteKnown, true);
+  assert.equal(turn.state.flags.chapterOne.evidence, arrived.flags.chapterOne.evidence + 1);
+  assert.ok(turn.state.worldFlags.includes("碼頭守衛轉向玩家"));
 });
 
 test("a petition cites the evidence actually held in the save", () => {

@@ -36,6 +36,39 @@ test("market retreat stays in a dead alley until an actual escape", () => {
   const escape = resolveTurn(trapped.state, trapped.options.find((option) => option.includes("[踩籮翻牆]")), false);
   assert.equal(escape.state.flags.alleyEscape, false);
   assert.equal(escape.state.worldFlags.includes("黑泥街巷尾脫險"), true);
+  assert.equal(escape.state.flags.marketAftermath, true);
+  assert.equal(escape.options.some((option) => /搬貨|巡街收規|領差/.test(option)), false);
+  const reclaimed = resolveTurn(trapped.state, trapped.options.find((option) => option.includes("[硬闖街口]")), false);
+  assert.equal(reclaimed.state.flags.marketAftermathKind, "victory");
+  assert.equal(reclaimed.options.some((option) => option.includes("[盤問張斷骨]")), true);
+  assert.equal(validHardboiledNarrative(hardboiledFallback(reclaimed.event, reclaimed.state)), true);
+});
+
+test("kicking the slop bucket leaves the player on a contested wall", () => {
+  const trapped = normalizeState(game({ turn: 8,
+    flags: { ...game().flags, alleyEscape: true, alleyAllyPresent: false } }));
+  const bucket = resolveTurn(trapped, availableOptions(trapped).find((option) => option.includes("[踢翻餿水桶]")), false);
+  assert.equal(bucket.state.flags.alleyEscape, true);
+  assert.equal(bucket.state.flags.alleyWall, true);
+  assert.equal(bucket.state.flags.marketAftermath, false);
+  assert.equal(bucket.options.some((option) => /搬貨|巡街收規|領差|拾碎骨/.test(option)), false);
+  assert.equal(bucket.options.some((option) => option.includes("[借牆脫身]")), true);
+  assert.equal(bucket.options.some((option) => option.includes("[踢翻餿水桶]")), false);
+  const prose = hardboiledFallback(bucket.event, bucket.state);
+  assert.equal(validHardboiledNarrative(prose), true, prose);
+  assert.match(prose, /牆背另一名刀手/);
+  const rejectedJob = resolveTurn(bucket.state, "B. [搬貨] 替商販搬貨", false);
+  assert.equal(rejectedJob.state.turn, bucket.state.turn);
+  const escaped = resolveTurn(bucket.state, bucket.options.find((option) => option.includes("[借牆脫身]")), false);
+  assert.equal(escaped.state.flags.alleyEscape, false);
+  assert.equal(escaped.state.flags.marketAftermath, true);
+  assert.equal(escaped.state.flags.marketAftermathKind, "escape");
+  assert.equal(escaped.options.some((option) => /搬貨|巡街收規|領差|盤問張斷骨/.test(option)), false);
+  assert.equal(validHardboiledNarrative(hardboiledFallback(escaped.event, escaped.state)), true);
+  const settled = resolveTurn(escaped.state, escaped.options.find((option) => option.includes("[離巷收隊]")), false);
+  assert.equal(settled.state.flags.marketAftermath, false);
+  assert.equal(settled.options.some((option) => option.includes("[搬貨]")), true);
+  assert.equal(validHardboiledNarrative(hardboiledFallback(settled.event, settled.state)), true);
 });
 
 test("market victory requires one aftermath action before ordinary work resumes", () => {

@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useRef } from "react";
 import { aptitude, availableOptions, CUSTOM_ACTION_START, LANDMARKS, normalizeState, type GameState, type Landmark } from "@/lib/game-engine";
-import { CUSTOM_ACTION_MAX } from "@/lib/custom-action";
 import { guardLayersForLifeline, MISSIONS, travelChoices } from "@/lib/city-progression";
 import { newRelationships } from "@/lib/companion-relations";
 import { renameLegacyWorldNames } from "@/lib/npc-voices";
@@ -114,13 +113,23 @@ export default function GamePage() {
             ? { version: 1 as const, state: checkpointState, narrative: parsed.checkpoint.narrative,
               options: availableOptions(checkpointState) } : undefined;
           const handoff = createPrologueHandoff(state) || storedHandoff;
+          const migratedAlleyWall = state.questStep === "sandbox" && state.currentLocation === "黑泥街"
+            && !state.combat && !state.flags.alleyEscape && !state.flags.marketAftermath
+            && !state.worldFlags.includes("市集殘局已定") && state.worldFlags.includes("黑泥街巷尾脫險")
+            && /踢翻餿水桶|追兵踩進污水/.test(parsed.narrative)
+            && /手背|挨了一刀|刀手/.test(parsed.narrative);
+          if (migratedAlleyWall) {
+            state.flags.alleyEscape = true;
+            state.flags.alleyWall = true;
+            state.worldFlags = state.worldFlags.filter((flag) => flag !== "黑泥街巷尾脫險");
+          }
           const migratedAftermath = state.flags.marketAftermath && parsed.state?.flags?.marketAftermath !== true;
           const restored: SavedGameData = { saveVersion: 2, state,
-            narrative: migratedAftermath ? hardboiledFallback(parsed.narrative, state)
+            narrative: migratedAftermath || migratedAlleyWall ? hardboiledFallback(parsed.narrative, state)
               : renameLegacyWorldNames(parsed.narrative), options: availableOptions(state),
             handoff, checkpoint };
           setSavedGame(restored);
-          if (state.flags.ending || parsed.state?.maxMp !== MAX_ENERGY || migratedAftermath)
+          if (state.flags.ending || parsed.state?.maxMp !== MAX_ENERGY || migratedAftermath || migratedAlleyWall)
             localStorage.setItem(SAVE_KEY, JSON.stringify(restored));
         }
       }
@@ -654,40 +663,33 @@ export default function GamePage() {
                           : `精力 -${cost}${turns > 1 ? ` · ${turns} 回合` : ""}`;
                       const item = /\[(?:袖藏暗手|全力陰手)\]/.test(opt)
                         ? readyDarkHand(gameState.inventory, !gameState.flags.alleyEscape) : undefined;
-                      const customRefund = gameState.flags.alleyEscape && opt.includes("[伏低護人]")
-                        && gameState.customActionUses < CUSTOM_ACTION_MAX;
-                      return `${costText}${item ? ` · 用掉${item}` : ""}${customRefund ? " · 機變 +1" : ""}`;
+                      return `${costText}${item ? ` · 用掉${item}` : ""}`;
                     })()}
                   </span>}
                 </button>
               ))}
             </div>
 
-            {((gameState?.questStep === "chapter_one" && gameState.flags.chapterOne?.stage !== "complete" && gameState.flags.chapterOne?.stage !== "failed")
-              || (!gameState?.flags.finalCrisis && !gameState?.flags.ending))
-              && !gameState?.flags.alleyEscape && !gameState?.flags.marketAftermath
+            {gameState && (gameState.questStep === "chapter_one" || !gameState.flags.finalCrisis && !gameState.flags.ending)
+              && gameState.flags.chapterOne?.stage !== "complete" && gameState.flags.chapterOne?.stage !== "failed"
               && <form onSubmit={handleCustomSubmit} className="mt-2 pt-3 border-t border-stone-800 flex flex-col gap-1.5">
               <div className="text-xs font-semibold text-amber-400/90 tracking-wider flex items-center gap-1.5">
-                <span>F. [自訂手段] {gameState?.customActionUses ?? 0}/{CUSTOM_ACTION_MAX}</span>
-                <span className="text-[11px] text-stone-500 font-normal">{gameState?.questStep === "chapter_one"
-                  ? gameState.currentLocation === "青鋒堂總壇"
-                    ? "限 50 字；提出可行手段，亦可憑貨單向城主呈報"
-                    : "限 50 字；要向城主呈報，先返回總壇整理貨單"
-                  : "限 50 字；完成差事或到總壇付 50 文私銀補給"}</span>
+                <span>F. [自由行動]</span>
+                <span className="text-[11px] text-stone-500 font-normal">黑泥街對話可寫 300 字；其他行動限 100 字。人物會記住你的話。</span>
               </div>
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={customInput}
-                  disabled={loading || !gameState?.customActionUses}
+                  disabled={loading || !gameState}
                   onChange={(e) => setCustomInput(e.target.value)}
                   placeholder="寫明眼前人物或物件，同埋你打算點做。"
-                  maxLength={50}
+                  maxLength={gameState.currentLocation === "黑泥街" ? 300 : 100}
                   className="flex-1 bg-stone-950 border border-stone-700/80 rounded px-3 py-2 text-xs md:text-sm focus:outline-none focus:border-amber-600 text-stone-200 placeholder:text-stone-600 disabled:opacity-50"
                 />
                 <button
                   type="submit"
-                  disabled={loading || !customInput.trim() || !gameState?.customActionUses}
+                  disabled={loading || !customInput.trim() || !gameState}
                   className="bg-amber-700 hover:bg-amber-600 text-amber-100 px-5 py-2 rounded text-xs md:text-sm font-medium transition disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
                 >
                   出招
@@ -753,6 +755,19 @@ export default function GamePage() {
               </div>
             </div>
           </div>
+
+          {gameState?.socialMemory && Object.keys(gameState.socialMemory).length > 0 && (
+            <div className="bg-stone-900/80 border border-stone-800 rounded-lg p-4 space-y-2">
+              <div className="text-xs font-semibold text-amber-400">人物立場</div>
+              {Object.entries(gameState.socialMemory).map(([name, person]) => (
+                <div key={name} className="text-xs text-stone-300">
+                  <span className="font-medium">{name}</span>：{{ hostile: "敵對", wary: "戒備", neutral: "觀望",
+                    cooperative: "願意合作", ally: "倒戈相助" }[person.stance]}
+                  {person.beliefs.length > 0 ? ` · 信念：${person.beliefs.join("、")}` : ""}
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* 江湖因果標籤面板 */}
           {gameState?.worldFlags && gameState.worldFlags.length > 0 && (
