@@ -396,6 +396,12 @@ export default function GamePage() {
   const treasuryChange = gameState?.flags.treasuryChange?.turn === gameState?.turn
     ? gameState?.flags.treasuryChange : undefined;
   const chapterForecast = gameState ? chapterPressureForecast(gameState) : null;
+  const darkHandOptions = gameState && (gameState.combat || gameState.flags.alleyEscape)
+    ? options.filter((option) => /^[IJ]\. \[(?:袖藏暗手|全力陰手)\]/.test(option)) : [];
+  const primaryOptions = darkHandOptions.length
+    ? options.filter((option) => !darkHandOptions.includes(option)) : options;
+  const darkHandItem = darkHandOptions.length && gameState
+    ? readyDarkHand(gameState.inventory, !gameState.flags.alleyEscape) : undefined;
 
   if (view === "creation") {
     const curBg = BACKGROUNDS.find((b) => b.id === selectedBgId) || BACKGROUNDS[0];
@@ -714,7 +720,7 @@ export default function GamePage() {
               </div>
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {options.map((opt, idx) => (
+              {primaryOptions.map((opt, idx) => (
                 <button
                   key={idx}
                   disabled={loading}
@@ -741,6 +747,29 @@ export default function GamePage() {
                 </button>
               ))}
             </div>
+            {gameState && darkHandOptions.length > 0 && (
+              <div role="group" aria-label="暗手專用動作"
+                className="mt-2 flex flex-wrap items-center gap-2 rounded-sm border border-[#59432e] bg-[#1b1510] px-3 py-2 shadow-inner">
+                <span className="mr-auto text-xs font-semibold tracking-wider text-amber-500/90">
+                  【暗手{darkHandItem ? ` · ${darkHandItem.slice(1, -1)}` : ""}】
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {darkHandOptions.map((opt) => {
+                    const desperate = opt.startsWith("J.");
+                    const cost = actionEnergyCost(gameState, opt);
+                    return (
+                      <button key={opt} type="button" disabled={loading} onClick={() => handleAction(opt)}
+                        title={opt}
+                        aria-label={`${desperate ? "拼命" : "普通"}暗手：${opt}，精力減 ${cost}${darkHandItem ? `，用掉${darkHandItem}` : ""}`}
+                        className="rounded-sm border border-[#765739] bg-[#251b13] px-2.5 py-1.5 text-xs text-[#e6d7bd] shadow-inner transition hover:border-[#a68150] hover:bg-[#342416] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40">
+                        <span className="font-semibold">{desperate ? "拼命" : "普通"}</span>
+                        <span className="ml-1.5 text-[#b39a78]">精力 −{cost}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {gameState && (gameState.questStep === "chapter_one" || !gameState.flags.finalCrisis && !gameState.flags.ending)
               && gameState.flags.chapterOne?.stage !== "complete" && gameState.flags.chapterOne?.stage !== "failed"
