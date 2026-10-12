@@ -31,9 +31,9 @@ export interface ChapterOneState {
 }
 
 export const CHAPTER_START = "A. [踏入第一章] 回到青鋒堂總壇，與同伴休整並盤點城西生意。";
-export const CHAPTER_OPENING = `黑泥街的攤販已重新架設，茶寮亦添了熱茶。昨夜激戰留下的血跡刀痕隨處可見，市販捧著銅錢進入青鋒堂總壇。感念青鋒堂守住家業，眾人自願加繳半個月規費；何不歸當面致謝，逐筆列入公帳。
+export const CHAPTER_OPENING = `你回到青鋒堂總壇，見市販捧著銅錢踏進堂門。眾人說黑泥街的攤位已重新架好，願加繳半個月規費；何不歸當面致謝，逐筆列入公帳。
 
-你看見傷者換藥、腳夫重新推車，城西暫獲喘息。公匣較昨日沉重，城西居民對青鋒堂的信心暫時安定。然而玄武樓的旗幟仍遙遙可見，碼頭貨物終須經此路運送。青鋒堂既能守住此役，是否能應對下一次挑戰？`;
+你站在公匣旁，聽腳夫說貨車已重新上路，傷者也有人照料。城西暫獲喘息，碼頭貨路卻仍須有人盯守；堂主把帳簿推到你面前，等你盤點下一步。`;
 export const GRATITUDE_DUES = 45;
 const BUSINESSES: Business[] = ["黑泥街", "鬼骰坊", "苦煙館", "夜雨樓"];
 export const RAID_TARGETS = ["黑泥街", "鬼骰坊", "苦煙館", "夜雨樓", "晚秋茶寮", "裂石擂"] as const satisfies readonly Landmark[];
@@ -192,7 +192,7 @@ function settleTribute(state: GameState, chapter: ChapterOneState): string {
 function finishRestTurn(state: GameState, chapter: ChapterOneState, event: string): string {
   if (chapter.turns >= 3) {
     chapter.stage = "shortage";
-    return `${event}玄武樓趁城西休整，奪下青山城碼頭並扣住送往城西的糧藥。${BUSINESS_HINTS[chapter.affectedBusiness]}`
+    return `${event}堂口傳來急報：玄武樓趁城西休整，奪下青山城碼頭並扣住送往城西的糧藥。據報，${BUSINESS_HINTS[chapter.affectedBusiness]}`
       + (chapter.selectedCompanion === "容晚秋" ? `容晚秋說${chapter.affectedBusiness}的貨路先斷，叫你從那裏查起。` : "")
       + collectPressure(state, chapter, 6)
       + "\n\n市販見貨車不來，開始問青鋒堂能否再護住生意。你須查出哪處地標先受衝擊，才能追到截貨的路。";
@@ -238,7 +238,7 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
     .flatMap((destination) => travelChoices(state, destination)).find((candidate) => candidate.label === action) : undefined;
   if (route) {
     let travelledTurns = 0;
-    let event = `你沿${route.kind === "shortcut" ? "暗道" : "明路"}往${route.destination}走。`;
+    let event = "";
     for (let turn = 0; turn < route.turns; turn++) {
       state.turn += 1;
       chapter.turns += 1;
@@ -247,6 +247,9 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
       if (chapter.lostLandmarks.length >= MAX_LOST_LANDMARKS || state.sectLifeline === 0) break;
     }
     if (travelledTurns === route.turns) state.currentLocation = route.destination;
+    event = `${travelledTurns === route.turns
+      ? `你抵達${state.currentLocation}，沿途走的是${route.kind === "shortcut" ? "暗道" : "明路"}。`
+      : `你仍在${state.currentLocation}一帶，往${route.destination}的路尚未走完。`}${event}`;
     event += spendEnergy(state, travelledTurns, 0, true);
     if (travelledTurns < route.turns) return finishTurn(state, `${event}前路未到，街面已經失守。`);
     return finishTurn(state, `${event}\n\n${route.destination === "碼頭"
@@ -320,8 +323,8 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
       chapter.stage = "dock";
       state.currentLocation = "青鋒堂總壇";
       remember(state, `第一章${chosen}斷貨已查`);
-      event = `你在${chosen}查出帳目異常，貨不是走丟，而是被玄武樓從碼頭扣下。${BUSINESS_HINTS[chosen]}${event}${pressure}${tribute}`;
-      event += "\n\n你帶著貨帳返回堂口，腳夫願說出碼頭的守衛換班。若要讓城西重新有貨，須準備接應並奪回貨路。";
+      event = `你帶著${chosen}的貨帳回到青鋒堂總壇，指出貨是被玄武樓從碼頭扣下。帳上還記著：${BUSINESS_HINTS[chosen]}${event}${pressure}${tribute}`;
+      event += "\n\n腳夫在堂前說出碼頭的守衛換班。你把船次記在帳邊，等堂主決定接應人手與貨路。";
     } else if (chosen) {
       state.currentLocation = chosen as Landmark;
       event = `你在${chosen}核對帳目，這裏的虧空尚不足以解釋整筆斷貨。${pressure}${tribute}\n\n線索仍指向另一處地標，碼頭的貨卻還在玄武樓手上。`;

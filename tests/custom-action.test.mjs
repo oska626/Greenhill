@@ -3,7 +3,7 @@ import test from "node:test";
 import { availableOptions, normalizeState, recordMarketNpcReply, resolveMarketDialogue,
   resolveMarketIntent, resolveSceneAttempt, resolveSocialIntent, resolveTurn } from "../lib/game-engine.ts";
 import { newRelationships } from "../lib/companion-relations.ts";
-import { interpretGroundedObjectHandling, interpretMarketText, isMarketIntentScene, validateCustomDecision } from "../lib/custom-action.ts";
+import { hasOffSceneActionReference, interpretGroundedObjectHandling, interpretMarketText, isMarketIntentScene, sceneAnchors, validateCustomDecision } from "../lib/custom-action.ts";
 import { createCombat } from "../lib/combat-engine.ts";
 import { inferSocialIntent, marketDialogueTarget } from "../lib/social-influence.ts";
 import { objectStatus, sceneFacts } from "../lib/scene-state.ts";
@@ -396,6 +396,26 @@ test("offline Blackmud wording resolves a grounded action and respects negation"
   const medicine = interpretMarketText(scene, "我先替陸千帆敷上金創散");
   assert.equal(medicine.kind, "market_intent");
   assert.equal(medicine.plan.approach, "救護");
+});
+
+test("offsite people and absent props cannot be silently changed into local actions", () => {
+  const market = state();
+  assert.equal(hasOffSceneActionReference(market, "我問顧忘生可有膏藥"), true);
+  assert.equal(interpretMarketText(market, "我問顧忘生可有膏藥").kind, "reject");
+  assert.equal(hasOffSceneActionReference(market, "我用木棍打刀手"), true);
+  assert.equal(interpretMarketText(market, "我用木棍打刀手").kind, "reject");
+  assert.equal(interpretMarketText(market, "我用神器打刀手").kind, "reject");
+  assert.equal(interpretMarketText(market, "我用拳頭打刀手").kind, "market_intent");
+  assert.equal(validateCustomDecision({ kind: "scene_attempt", effect: "harm", target: "刀手",
+    gesture: "用木棍打刀手" }, market, [], "我用木棍打刀手").kind, "reject");
+  assert.equal(hasOffSceneActionReference(market, "我記著顧忘生的話，推厚砧板擋刀"), false);
+  const hall = { ...market, questStep: "sandbox", currentLocation: "青鋒堂總壇" };
+  assert.equal(hasOffSceneActionReference(hall, "我拿茶寮的沸水大銅壺砸人"), true);
+  assert.equal(hasOffSceneActionReference(hall, "我用神器查帳"), true);
+  const alley = { ...market, questStep: "sandbox", flags: { ...market.flags, alleyEscape: true } };
+  assert.ok(!sceneAnchors(alley).includes("張斷骨"));
+  const incident = { ...market, questStep: "sandbox", flags: { ...market.flags, pendingIncident: "market_raid" } };
+  assert.equal(marketDialogueTarget(incident, "張斷骨，我問你一件事"), undefined);
 });
 
 test("custom interpretation remains inside the current scene", () => {

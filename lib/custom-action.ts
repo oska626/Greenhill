@@ -15,6 +15,33 @@ export const SCENE_ANCHORS: Record<Landmark, readonly string[]> = {
   "碼頭": ["貨單", "貨箱", "船工", "碼頭守衛"],
 };
 
+const NAMED_NPCS = ["何不歸", "容晚秋", "陸千帆", "張斷骨", "祁觀衡", "衛沉岳", "霍破陣", "顧忘生", "柳照霜"];
+const KNOWN_PROPS = Array.from(new Set([
+  ...Object.values(LANDMARK_SCENES).flatMap((scene) => scene.objects.map((object) => object.name)),
+  ...Object.values(SCENE_ANCHORS).flat().filter((anchor) => !NAMED_NPCS.includes(anchor)),
+  "木棍",
+]));
+
+export function hasOffSceneActionReference(state: GameState, playerText: string): boolean {
+  const active = playerText.split(/(?:反而|改為|改用|但係|但是|不過)/).at(-1)?.trim() || "";
+  const present = socialTargets(state);
+  if (NAMED_NPCS.some((name) => !present.includes(name)
+    && (new RegExp(`(?:找|問|叫|請|向|同|跟|對|替|救|打|扶|拉|攻|抓|帶走|交給|遞給|說服|勸|威脅|接近|治療)[^，。！？]{0,6}${name}`).test(active)
+      || active.startsWith(`${name}，`) || active.startsWith(`${name}：`)))) return true;
+  const available = new Set([...(isMarketIntentScene(state) ? sceneAttemptObjects(state) : []), ...sceneAnchors(state),
+    ...state.inventory.map((item) => item.replace(/^【|】$/g, ""))]);
+  if (state.equippedWeapon === "wooden_stick") available.add("木棍");
+  if (state.inventory.some((item) => /止血|金創|傷藥/.test(item))) available.add("藥包");
+  if (KNOWN_PROPS.some((name) => !available.has(name) && active.includes(name)
+    && new RegExp(`(?:拿|用|借|抄起|取出|拿起|拎起|拾起|扯下|推|踢|掀|揮|擲|撒|投|砸|撞|抓住|拔出)[^，。！？]{0,8}${name}`).test(active))) return true;
+  const explicitUses = active.matchAll(/(?:拿起|抄起|拾起|取出|拿|借|用)(?!力|不)([^，。！？]{1,14}?)(?=打|砸|擋|掟|扔|揮|敷|刺|斬|戳|護|防|嚇|向|對|$|[，。])/g);
+  return Array.from(explicitUses).some((match) => {
+    const phrase = match[1].trim();
+    if (/^(?:手|拳|肘|腳|腿|肩|身體|身位|它|這|那)/.test(phrase)) return false;
+    return !Array.from(available).some((name) => phrase.includes(name) || phrase.length >= 2 && name.includes(phrase));
+  });
+}
+
 export const CREATIVE_GOALS = ["查線索", "護人", "做工", "牽制", "交涉"] as const;
 export type CreativeGoal = typeof CREATIVE_GOALS[number];
 export type CreativeAction = { goal: CreativeGoal; anchor: string };
@@ -88,7 +115,7 @@ export type CustomDecision =
 
 export function sceneAnchors(state: GameState): string[] {
   const local = SCENE_ANCHORS[state.currentLocation].filter((anchor) =>
-    anchor !== "陸千帆" || !state.relationships["陸千帆"].estranged);
+    !NAMED_NPCS.includes(anchor) || socialTargets(state).includes(anchor));
   const scene = normalizeSceneState(state.sceneState, state.worldFlags);
   const objects = LANDMARK_SCENES[state.currentLocation].objects
     .filter((object) => { const status = objectStatus(scene, object.name);
@@ -105,6 +132,7 @@ export function negatesIrreversibleAction(text: string): boolean {
 
 export function validateCustomDecision(raw: unknown, state: GameState, options: string[], playerText: string): CustomDecision {
   if (!raw || typeof raw !== "object") return { kind: "reject", reason: "unclear" };
+  if (hasOffSceneActionReference(state, playerText)) return { kind: "reject", reason: "impossible" };
   if (/槍械|手槍|步槍|機關槍|超人|神仙|飛天|激光|雷射|核彈|手機|電腦|修仙|法術/.test(playerText))
     return { kind: "reject", reason: "impossible" };
   const value = raw as Record<string, unknown>;

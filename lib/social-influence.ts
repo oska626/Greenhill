@@ -19,7 +19,7 @@ export type MarketNpcExchange = { turn: number; target: string; player: string; 
   reaction: MarketNpcReaction; memory: string };
 
 export function marketDialogueTarget(state: GameState, playerText: string): string | undefined {
-  if (state.currentLocation !== "黑泥街" || state.questStep === "chapter_one") return;
+  if (state.currentLocation !== "黑泥街" || state.questStep === "chapter_one" || state.flags.pendingIncident) return;
   const present = socialTargets(state);
   const mentioned = present.find((name) => textMentions(name, playerText));
   const addressed = /講|說|問|談|勸|叫|請|告訴|話畀|解釋|傾|辯|嘲|鬧|罵|威脅|承諾|「|“|\bNPC\b/i.test(playerText)
@@ -61,18 +61,37 @@ const RESIDENTS: Record<Landmark, string[]> = {
   "鬼骰坊": ["祁觀衡"], "裂石擂": ["衛沉岳", "霍破陣"], "苦煙館": ["顧忘生"],
   "夜雨樓": ["柳照霜"], "碼頭": ["船工", "碼頭守衛"],
 };
+const KNOWN_SPEAKERS = Array.from(new Set([...Object.values(RESIDENTS).flat(), "陸千帆", "刀手"]));
 
 export function socialTargets(state: GameState): string[] {
   const targets = [...RESIDENTS[state.currentLocation]];
   if (state.currentLocation === "黑泥街") {
-    if (state.flags.marketAftermathKind === "escape" && state.flags.marketAftermath) targets.splice(targets.indexOf("張斷骨"), 1);
-    if ((state.questStep === "market_collection" || state.flags.alleyAllyPresent || state.combat?.allyPresent)
+    const awayFromStall = state.flags.alleyEscape || state.flags.marketAftermath && state.flags.marketAftermathKind === "escape";
+    if (awayFromStall) targets.splice(targets.indexOf("張斷骨"), 1);
+    if ((state.questStep === "market_collection" || state.flags.alleyAllyPresent || state.combat?.allyPresent
+      || state.questStep === "sandbox" && !awayFromStall && !state.flags.marketAftermath
+        && !["棄下陸千帆", "出賣陸千帆", "市集伏擊戰敗"].some((flag) => state.worldFlags.includes(flag)))
       && !state.relationships["陸千帆"].estranged) targets.push("陸千帆");
     if (state.combat?.scenario === "market_ambush" || state.flags.alleyEscape) targets.push("刀手");
   }
   if (state.questStep === "chapter_one" && state.flags.chapterOne?.selectedCompanion)
     targets.push(state.flags.chapterOne.selectedCompanion);
   return Array.from(new Set(targets));
+}
+
+export function localNpcReply<T extends { speaker: string; line: string }>(state: GameState, reply?: T): T | undefined {
+  return reply && socialTargets(state).includes(reply.speaker) ? reply : undefined;
+}
+
+export function localSpeaker(state: GameState, preferred: string): string | undefined {
+  const present = socialTargets(state);
+  return present.includes(preferred) ? preferred : present[0];
+}
+
+export function hasOffSceneDirectSpeech(state: GameState, text: string): boolean {
+  const present = socialTargets(state);
+  return KNOWN_SPEAKERS.some((name) => !present.includes(name)
+    && new RegExp(`${name}[^。！？\\n]{0,5}[：:]?[「“]`).test(text));
 }
 
 const bounded = (value: unknown, max: number) => typeof value === "number" && Number.isFinite(value)

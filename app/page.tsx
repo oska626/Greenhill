@@ -118,7 +118,7 @@ export default function GamePage() {
       if (raw) {
         const parsed: SavedGameData = JSON.parse(raw);
         const state = normalizeState(parsed?.state);
-        if (state && typeof parsed?.narrative === "string" && Array.isArray(parsed?.options)) {
+        if (state && typeof parsed?.narrative === "string") {
           const storedHandoff = parsed.handoff?.version === 1 && parsed.handoff.ending === state.flags.ending
             && typeof parsed.handoff.summary === "string" ? parsed.handoff : undefined;
           const checkpointState = parsed.checkpoint?.version === 1 ? normalizeState(parsed.checkpoint.state) : null;

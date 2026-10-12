@@ -1,4 +1,5 @@
 import type { GameState } from "./game-engine.ts";
+import { hasOffSceneDirectSpeech, localNpcReply } from "./social-influence.ts";
 
 export const NARRATIVE_MIN = 40;
 export const NARRATIVE_MAX = 60;
@@ -43,25 +44,27 @@ export function validHardboiledNarrative(value: unknown): value is string {
 }
 
 export function hardboiledFallback(event: string, state: GameState, reply?: { speaker: string; line: string }): string {
+  reply = localNpcReply(state, reply);
   if (state.questStep === "market_collection" && state.currentLocation === "黑泥街"
-    && event.includes("你從顧忘生手中領了止血膏藥，趕到黑泥街市集肉檔")) {
-    const clinic = event.includes("顧忘生遣人通知堂口")
-      ? "苦煙館裡，顧忘生遣人傳信，遞來膏藥，低聲道"
-      : event.includes("顧忘生說有袖口繫灰線的刀手")
-        ? "苦煙館裡，顧忘生說起灰線刀手，遞來膏藥，低聲道"
-        : event.includes("你在藥煙散去的窗邊調勻氣息")
-          ? "苦煙館裡，你調勻氣息，顧忘生遞來膏藥，低聲道"
-          : event.includes("顧忘生教你認清膏藥封口")
-            ? "苦煙館裡，你認清封口，顧忘生遞來膏藥，低聲道"
-            : "苦煙館裡，顧忘生遞來膏藥，低聲道";
-    return `${clinic}：「先壓住千帆的傷口。」\n\n你帶藥趕到黑泥街肉檔。陸千帆仍帶傷，張斷骨隔著肉案拒交規費。`;
+    && state.flags.visitedGu && event.startsWith("你趕到黑泥街市集肉檔")) {
+    const medicineNote = event.includes("顧忘生提過的灰線刀手")
+      ? "懷裡的膏藥尚帶餘溫，你也記著顧忘生提過的灰線刀手。"
+      : "懷裡的膏藥封口尚未拆開，黑泥街的腥氣已撲面而來。";
+    return `${medicineNote}\n\n肉檔前，陸千帆按傷喘息，張斷骨隔著厚砧板冷眼相對，拒交五十文規費。`;
+  }
+  if (state.questStep === "market_collection" && state.currentLocation === "黑泥街"
+    && state.flags.visitedYung && event.startsWith("你趕到黑泥街市集肉檔")) {
+    const warning = event.includes("容晚秋提過的灰線刀手")
+      ? "袖裡的金創散貼著手腕，容晚秋提過的灰線刀手仍在你心上。"
+      : "袖裡的金創散尚未拆封，黑泥街肉檔的腥氣已迎面撲來。";
+    return `${warning}\n\n陸千帆扶著肉案站穩，張斷骨隔著厚砧板拒交規費；巷口還有人影。`;
   }
   if (state.questStep === "kuyan_medicine" && state.currentLocation === "苦煙館"
-    && event.includes("你到苦煙館見顧忘生")) {
-    const arrival = event.includes("你向何不歸討路費") ? "你踏進苦煙館，腰間新添的銅錢輕響。"
-      : event.includes("你問清刀手路線") ? "你踏進苦煙館，還記著堂主說過的短刀。"
-        : event.includes("你記下陸千帆傷口") ? "你踏進苦煙館，先把陸千帆的傷口說清。"
-          : event.includes("你認清通往市集的暗巷") ? "你踏進苦煙館，鞋底仍沾著暗巷的泥。"
+    && event.startsWith("你踏進苦煙館")) {
+    const arrival = event.includes("腰間新添的銅錢輕響") ? "你踏進苦煙館，腰間新添的銅錢輕響。"
+      : event.includes("堂主說過的短刀") ? "你踏進苦煙館，還記著堂主說過的短刀。"
+        : event.includes("陸千帆傷口的深淺") ? "你踏進苦煙館，先把陸千帆的傷口說清。"
+          : event.includes("堂主指過的市集暗巷") ? "你踏進苦煙館，記著堂主指過的暗巷。"
             : "你踏進苦煙館，袖口的雨還未乾。";
     return `${arrival}顧忘生把膏藥封口轉到燈下，指著繩結叫你辨清；藥煙貼著桌面，藥罐仍開著。`;
   }
@@ -93,7 +96,8 @@ export function hardboiledFallback(event: string, state: GameState, reply?: { sp
   const clean = stripSettlement(event);
   const defaultFirst = `你在${state.currentLocation}站穩身位，留心眼前局勢。`;
   const eventSentences = completeSentences(clean, defaultFirst)
-    .filter((sentence) => chineseLength(sentence) <= 32 && !containsSettlementLog(sentence));
+    .filter((sentence) => chineseLength(sentence) <= 32 && !containsSettlementLog(sentence)
+      && !hasOffSceneDirectSpeech(state, sentence));
   const first = eventSentences[0] || defaultFirst;
   const last = eventSentences.length > 1 ? eventSentences.at(-1)! : "";
   const dialogue = reply?.speaker && reply.line && chineseLength(reply.line) <= 20

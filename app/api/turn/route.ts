@@ -2,16 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { availableOptions, normalizeState, recordMarketNpcReply, resolveMarketDialogue,
   resolveMarketIntent, resolveOpeningKnifeRequest, resolveSceneAttempt, resolveSocialIntent, resolveTurn, type GameState, type Landmark } from "@/lib/game-engine";
 import { relationshipLabel } from "@/lib/companion-relations";
-import { CREATIVE_GOALS, interpretGroundedObjectHandling, interpretMarketText, isMarketIntentScene, marketIntentTargets, SCENE_EFFECTS, sceneAttemptObjects, sceneAnchors, validateCustomDecision, type CustomDecision } from "@/lib/custom-action";
+import { CREATIVE_GOALS, hasOffSceneActionReference, interpretGroundedObjectHandling, interpretMarketText, isMarketIntentScene, marketIntentTargets, SCENE_EFFECTS, sceneAttemptObjects, sceneAnchors, validateCustomDecision, type CustomDecision } from "@/lib/custom-action";
 import { appendDangerCue, explicitActionSteps, resolveActionSequence, validatedActionSteps } from "@/lib/action-sequence";
 import { hasSectAddressViolation, npcVoiceGuide, sectMemberAddress } from "@/lib/npc-voices";
 import { resolveChapterPetition } from "@/lib/chapter-one";
 import { completeSentences, containsSettlementLog, hardboiledFallback } from "@/lib/narrative-style";
 import { normalizeSceneState, sceneFacts } from "@/lib/scene-state";
-import { inferSocialIntent, MARKET_NPC_REACTIONS, marketDialogueTarget, socialTargets,
+import { hasOffSceneDirectSpeech, inferSocialIntent, localNpcReply, localSpeaker, MARKET_NPC_REACTIONS, marketDialogueTarget, socialTargets,
   type MarketNpcProposal, type MarketNpcReaction } from "@/lib/social-influence";
 
-const SYSTEM_PROMPT = `你是青山城城西的文字冒險主持人。只用自然的繁體中文書面語，以第二人稱「你」寫動作、眼前局勢與必要對白。場景只依據提供的三項資料；不得把推測或後續打算寫成已發生的事，也不可增添人物、物件或道路。對峙中須寫清身位與仍在場的對手；暫退時只寫撤離與待處理局勢；平靜時才可寫日常。可用「身位受制、局勢緊張、氣力耗損」等中性武俠措辭。對白簡短，青鋒堂門生提及何不歸時稱「堂主」。不寫數值結算。只回 JSON：{"narrative":"..."}；敘事須為完整句，長度三十至九十字。`;
+const SYSTEM_PROMPT = `你是青山城城西的文字冒險主持人。只用自然的繁體中文書面語，以第二人稱「你」寫動作、眼前局勢與必要對白。鏡頭始終留在「地點與狀態」所列的當前地點；別處的事只能寫成玩家的回憶、身上物件或傳來的消息，不能直接描寫別處人物此刻的動作或對白。場景只依據提供的三項資料；不得把推測或後續打算寫成已發生的事，也不可增添人物、物件或道路。對峙中須寫清身位與仍在場的對手；暫退時只寫撤離與待處理局勢；平靜時才可寫日常。可用「身位受制、局勢緊張、氣力耗損」等中性武俠措辭。對白簡短，青鋒堂門生提及何不歸時稱「堂主」。不寫數值結算。只回 JSON：{"narrative":"..."}；敘事須為完整句，長度三十至九十字。`;
 
 const SPEAKER: Record<Landmark, string> = {
   "青鋒堂總壇": "何不歸", "晚秋茶寮": "容晚秋", "黑泥街": "陸千帆",
@@ -20,6 +20,7 @@ const SPEAKER: Record<Landmark, string> = {
 };
 
 function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker: string; line: string }, combatTurn = false): string {
+  npcReply = localNpcReply(state, npcReply);
   if (state.questStep === "prologue_briefing" && npcReply?.speaker === "何不歸") {
     const detail = "你看見何不歸指節上的舊傷，也看見傷勢記錄旁那本未合上的帳。";
     const settled = completeSentences(event, "你踏進堂口，何不歸仍在案前等你。").join("");
@@ -30,11 +31,11 @@ function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker
     const midpoint = Math.max(1, Math.ceil(sentences.length / 2));
     const first = sentences.slice(0, midpoint).join("");
     const second = sentences.slice(midpoint).join("") || "勝負尚未定下，你仍須看清對方下一步。";
-    const speaker = npcReply?.speaker || (state.currentLocation === "裂石擂" ? "衛沉岳"
+    const speaker = npcReply?.speaker || localSpeaker(state, state.currentLocation === "裂石擂" ? "衛沉岳"
       : state.worldFlags.includes("出賣陸千帆") ? "張斷骨" : "陸千帆");
     const line = npcReply?.line || (state.currentLocation === "裂石擂" ? "先看他的肩。拳還未到。"
       : state.worldFlags.includes("出賣陸千帆") ? "你一個人守得住這條街？" : "刀手近了。先看他握刀的手。");
-    return `${first}\n\n${second}\n${speaker}：「${line}」`;
+    return `${first}\n\n${second}${speaker ? `\n${speaker}：「${line}」` : ""}`;
   }
   const clauses = completeSentences(event, "你看清眼前局勢，收住腳步，等著下一步動靜。");
   const pressure = clauses.at(-1)?.startsWith("玄武樓趁") ? clauses.pop() || "" : "";
@@ -85,11 +86,11 @@ function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker
     "碼頭": "貨箱仍在岸上。先把船次查清。",
   };
   const companionBetrayed = state.currentLocation === "黑泥街" && state.worldFlags.includes("出賣陸千帆");
-  const speaker = npcReply?.speaker || (companionBetrayed ? "張斷骨" : SPEAKER[state.currentLocation]);
+  const speaker = npcReply?.speaker || localSpeaker(state, companionBetrayed ? "張斷骨" : SPEAKER[state.currentLocation]);
   const line = npcReply?.line || (companionBetrayed
     ? state.questStep === "huizhi_ambush" ? "你一個也走不掉。" : "這條街的賬，我還記著。"
     : state.questStep === "sandbox" ? sandboxSpeech[state.currentLocation] : speech[state.questStep]);
-  const dialogue = `\n${speaker}：「${line}」`;
+  const dialogue = speaker ? `\n${speaker}：「${line}」` : "";
   const additions = state.questStep === "sandbox" && state.turn % 2 === 0
     ? [...detail[state.questStep]].reverse() : detail[state.questStep];
   if (!second || visibleLength(first + second + dialogue) < 130) second += additions[0];
@@ -122,6 +123,7 @@ function azureUrl(endpoint: string, deployment: string) {
 }
 
 async function interpretCustomAction(state: GameState, playerText: string): Promise<CustomDecision> {
+  if (hasOffSceneActionReference(state, playerText)) return { kind: "reject", reason: "impossible" };
   const key = process.env.AZURE_OPENAI_API_KEY || process.env.AZURE_API_KEY;
   const endpoint = (process.env.AZURE_OPENAI_ENDPOINT || process.env.AZURE_ENDPOINT || "").trim();
   const offline = (): CustomDecision => {
@@ -246,10 +248,12 @@ async function playMarketNpcDialogue(state: GameState, target: string, playerTex
     && /我(?:已經|這就|今後)(?:投靠|倒戈|信了|跟你走|幫你打)/.test(rawReply);
   const validReply = rawReply.length > 0 && rawReply.length <= 300 && !falseCommitment
     && !hasSectAddressViolation(rawReply) && !containsSettlementLog(rawReply)
+    && !hasOffSceneDirectSpeech(turn.state, rawReply)
     && !/手機|電腦|槍械|核彈|修仙|法術/.test(rawReply);
   const reply = validReply ? rawReply : fallbackMarketReply(target, turn.reaction);
   const beat = typeof rendered?.beat === "string" && rendered.beat.length <= 60
-    && !containsSettlementLog(rendered.beat) && !/手機|電腦|槍械|核彈|修仙|法術/.test(rendered.beat)
+    && !containsSettlementLog(rendered.beat) && !hasOffSceneDirectSpeech(turn.state, rendered.beat)
+    && !/手機|電腦|槍械|核彈|修仙|法術/.test(rendered.beat)
     ? rendered.beat.trim() : hardboiledFallback(turn.event, turn.state).split("。")[0];
   recordMarketNpcReply(turn.state, target, reply);
   return { narrative: appendDangerCue(`${beat.replace(/[。！!]+$/g, "")}。\n${target}：「${reply}」`, turn.state),
@@ -257,6 +261,7 @@ async function playMarketNpcDialogue(state: GameState, target: string, playerTex
 }
 
 async function narrate(state: GameState, _action: string, event: string, moneyChanged: boolean, combatTurn: boolean, npcReply?: { speaker: string; line: string }, _previousNarrative = "", freeScene = false) {
+  npcReply = localNpcReply(state, npcReply);
   if (npcReply) npcReply = { ...npcReply, line: sectMemberAddress(npcReply.speaker, npcReply.line) };
   const fallback = state.questStep === "prologue_briefing" && state.turn === 1
     ? fallbackNarrative(event, state, npcReply, combatTurn)
@@ -264,9 +269,9 @@ async function narrate(state: GameState, _action: string, event: string, moneyCh
   const fallbackResult = (reason: string) => ({ text: fallback, source: "fallback" as const, reason });
   if (state.questStep === "prologue_briefing" && state.turn === 1) return fallbackResult("authored_opening");
   if (state.questStep === "kuyan_medicine" && state.currentLocation === "苦煙館"
-    && event.includes("你到苦煙館見顧忘生")) return fallbackResult("authored_clinic_handoff");
+    && event.startsWith("你踏進苦煙館")) return fallbackResult("authored_clinic_handoff");
   if (state.questStep === "market_collection" && state.currentLocation === "黑泥街"
-    && event.includes("你從顧忘生手中領了止血膏藥，趕到黑泥街市集肉檔"))
+    && event.startsWith("你趕到黑泥街市集肉檔"))
     return fallbackResult("authored_market_arrival");
   if (combatTurn && !freeScene) return fallbackResult("calculated_combat");
   if ((state.flags.alleyEscape || state.flags.marketAftermath) && !freeScene) return fallbackResult("scene_state_gate");
@@ -277,8 +282,9 @@ async function narrate(state: GameState, _action: string, event: string, moneyCh
   if (!key || !endpoint) return fallbackResult("missing_azure_config");
 
   const deployment = (process.env.AZURE_OPENAI_DEPLOYMENT_NAME || process.env.AZURE_OPENAI_DEPLOYMENT || "gpt-4o").trim();
-  const speaker = npcReply?.speaker || (state.currentLocation === "黑泥街" && state.worldFlags.includes("出賣陸千帆")
+  const speaker = npcReply?.speaker || localSpeaker(state, state.currentLocation === "黑泥街" && state.worldFlags.includes("出賣陸千帆")
     ? "張斷骨" : SPEAKER[state.currentLocation]);
+  if (!speaker) return fallbackResult("no_local_speaker");
   const social = state.socialMemory?.[speaker];
   const stance = social?.stance || (speaker === "張斷骨" ? "戒備" : speaker === "刀手" ? "對峙" : "未定");
   const sceneStatus = state.combat || state.flags.alleyEscape ? "對峙中"
@@ -299,7 +305,7 @@ async function narrate(state: GameState, _action: string, event: string, moneyCh
     if (!response.ok) return fallbackResult(`azure_http_${response.status}`);
     const data = await response.json();
     const parsed = JSON.parse(data.choices?.[0]?.message?.content || "{}");
-    return validNarrative(parsed.narrative)
+    return validNarrative(parsed.narrative) && !hasOffSceneDirectSpeech(state, parsed.narrative)
       ? { text: parsed.narrative, source: "azure" as const }
       : fallbackResult("invalid_narrative");
   } catch {

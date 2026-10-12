@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { aptitude, availableOptions, PROLOGUE_LANDMARKS, normalizeState, OPENING_CITY_NARRATION, resolveOpeningKnifeRequest, resolveTurn } from "../lib/game-engine.ts";
+import { aptitude, availableOptions, PROLOGUE_LANDMARKS, normalizeState, OPENING_CITY_NARRATION, resolveOpeningKnifeRequest, resolveSocialIntent, resolveTurn } from "../lib/game-engine.ts";
 import { NPC_VOICES, hasSectAddressViolation, npcVoiceGuide, renameLegacyWorldNames, repeatedNpcLine, sectMemberAddress } from "../lib/npc-voices.ts";
 import { createCombat, resolveCombatRound, trainMove } from "../lib/combat-engine.ts";
 import { ENDING_OPTIONS, MISSIONS, guardLayersForLifeline, missionOptions, travelChoices } from "../lib/city-progression.ts";
@@ -11,6 +11,7 @@ import { darkHandCount } from "../lib/dirty-hand.ts";
 import { objectStatus, sceneFacts } from "../lib/scene-state.ts";
 import { containsSettlementLog, hardboiledFallback, validHardboiledNarrative } from "../lib/narrative-style.ts";
 import { appendDangerCue } from "../lib/action-sequence.ts";
+import { hasOffSceneDirectSpeech, localNpcReply, localSpeaker, socialTargets } from "../lib/social-influence.ts";
 
 function newGame() {
   const stats = aptitude("阿七", "賭坊收帳人", "察言觀色");
@@ -119,7 +120,7 @@ test("all opening choices enter the clinic in one camera beat without a stat log
   assert.equal(containsSettlementLog("何不歸留下補強守備，防線升四。"), true);
 });
 
-test("all clinic choices finish Gu's dialogue before the Blackmud arrival", () => {
+test("all clinic choices open on the Blackmud stall without shifting the camera back", () => {
   const opening = resolveTurn(newGame(), "[初入堂口] 阿七", true);
   const clinic = resolveTurn(opening.state, opening.options[0], false);
   for (const option of clinic.options) {
@@ -127,15 +128,38 @@ test("all clinic choices finish Gu's dialogue before the Blackmud arrival", () =
     assert.equal(turn.state.currentLocation, "黑泥街");
     const prose = hardboiledFallback(turn.event, turn.state, turn.npcReply);
     assert.equal(validHardboiledNarrative(prose), true, prose);
-    const [departure, arrival] = prose.split("\n\n");
-    assert.match(departure, /^苦煙館裡，/);
-    assert.match(departure, /顧忘生.*低聲道：「先壓住千帆的傷口。」$/);
-    assert.match(arrival, /^你帶藥趕到黑泥街肉檔。/);
-    assert.doesNotMatch(arrival, /顧忘生/);
-    assert.match(arrival, /陸千帆.*張斷骨/);
+    const [medicine, stall] = prose.split("\n\n");
+    assert.ok(medicine && stall, prose);
+    assert.match(medicine, /^懷裡的膏藥/);
+    assert.doesNotMatch(prose, /苦煙館裡|顧忘生遞來膏藥|你帶藥趕到/);
+    assert.match(stall, /^肉檔前，陸千帆.*張斷骨.*五十文規費。$/);
     assert.equal(containsSettlementLog(prose), false);
-    if (option.includes("傳信")) assert.match(departure, /遣人傳信/);
+    if (option.includes("追問刀手")) assert.match(medicine, /灰線刀手/);
   }
+});
+
+test("tea stall handoff keeps the Blackmud camera on the meat stall", () => {
+  const tea = { ...newGame(), questStep: "yung_tea_stall", currentLocation: "晚秋茶寮" };
+  for (const option of availableOptions(tea)) {
+    const turn = resolveTurn(tea, option, false);
+    assert.equal(turn.state.currentLocation, "黑泥街");
+    assert.match(turn.event, /^你趕到黑泥街市集肉檔/);
+    const prose = hardboiledFallback(turn.event, turn.state, turn.npcReply);
+    assert.equal(validHardboiledNarrative(prose), true, prose);
+    assert.match(prose, /^袖裡的金創散/);
+    assert.doesNotMatch(prose, /茶寮裡|容晚秋(?:說|派人|教你)/);
+  }
+});
+
+test("distant incident reports arrive at the current landmark without remote dialogue", () => {
+  const base = newGame();
+  const scene = { ...base, questStep: "sandbox", currentLocation: "苦煙館", turn: 9,
+    flags: { ...base.flags, lastIncidentTurn: 0, incidentCount: 1 } };
+  const turn = resolveTurn(scene, availableOptions(scene)[0], false);
+  assert.equal(turn.state.currentLocation, "苦煙館");
+  assert.equal(turn.state.flags.pendingIncident, "missing_ledger");
+  assert.match(turn.event, /^你在苦煙館收到堂口遞來的缺頁帳目/);
+  assert.equal(turn.npcReply, undefined);
 });
 
 test("small health scale preserves the injury ratio of old saves once", () => {
@@ -339,7 +363,7 @@ test("tutorial choices advance one scene while preserving their different costs"
       assert.equal(market.state.currentLocation, "黑泥街");
       assert.ok(market.state.inventory.includes("【止血膏藥】"));
       assert.equal(market.state.flags.visitedGu, true);
-      assert.equal(market.npcReply?.speaker, "顧忘生");
+      assert.equal(market.npcReply?.speaker, "陸千帆");
       for (const [index, marketChoice] of market.options.entries()) {
         const first = resolveTurn(market.state, marketChoice, false);
         assert.equal(first.state.factionFunds, market.state.factionFunds + [0, 50, 0, 20, 0][index]);
@@ -593,6 +617,103 @@ test("sandbox incident follows the finished market ambush", () => {
   assert.ok(settled.state.worldFlags.includes("市集守住"));
   assert.match(settled.event, /街坊守住肉檔/);
   assert.match(settled.options[0], /巡街收規/);
+});
+
+test("every market raid choice previews and arrives at the meat stall", () => {
+  const base = { ...newGame(), questStep: "sandbox", currentLocation: "青鋒堂總壇", silver: 20,
+    flags: { ...newGame().flags, pendingIncident: "market_raid" } };
+  const options = availableOptions(base);
+  for (const option of options) {
+    assert.match(option, /須赴黑泥街/);
+    const turn = resolveTurn(base, option, false);
+    assert.equal(turn.state.currentLocation, "黑泥街");
+    assert.match(turn.event, /^你沿明路趕到黑泥街/);
+  }
+});
+
+test("only people at the current scene may receive direct dialogue", () => {
+  const market = { ...newGame(), questStep: "sandbox", currentLocation: "黑泥街" };
+  assert.equal(localNpcReply(market, { speaker: "顧忘生", line: "遠處說話" }), undefined);
+  assert.equal(localSpeaker(market, "顧忘生"), "張斷骨");
+  assert.ok(socialTargets(market).includes("陸千帆"));
+  assert.doesNotMatch(hardboiledFallback("你在肉檔前看清巷口。", market,
+    { speaker: "顧忘生", line: "遠處說話" }), /顧忘生：「/);
+  assert.equal(hasOffSceneDirectSpeech(market, "顧忘生低聲說：「你走慢了。」"), true);
+  assert.equal(hasOffSceneDirectSpeech(market, "陸千帆：「刀手還在。」"), false);
+  assert.doesNotMatch(hardboiledFallback("顧忘生：「你走慢了。」你在肉檔前看清巷口。", market), /顧忘生：「/);
+  const alley = { ...market, flags: { ...market.flags, alleyEscape: true, alleyWall: true } };
+  assert.equal(localNpcReply(alley, { speaker: "張斷骨", line: "肉檔說話" }), undefined);
+  assert.ok(socialTargets(alley).includes("刀手"));
+  const abandoned = { ...market, worldFlags: ["棄下陸千帆"] };
+  assert.ok(!availableOptions(abandoned).some((option) => option.includes("[找陸千帆]")));
+  const scout = resolveTurn(abandoned, availableOptions(abandoned).find((option) => option.includes("[盯梢]")), false);
+  assert.notEqual(scout.npcReply?.speaker, "陸千帆");
+});
+
+test("unaccompanied market combat never gives the absent chief a reply", () => {
+  let state = { ...newGame(), questStep: "huizhi_ambush", currentLocation: "黑泥街",
+    worldFlags: ["出賣陸千帆"], combat: createCombat("market_ambush", false) };
+  for (let round = 0; round < 6; round++) {
+    const option = availableOptions(state)[0];
+    const turn = resolveTurn(state, option, false);
+    if (turn.npcReply) assert.ok(socialTargets(turn.state).includes(turn.npcReply.speaker), turn.npcReply.speaker);
+    assert.notEqual(turn.npcReply?.speaker, "何不歸");
+    state = turn.state;
+    if (!state.combat) break;
+  }
+});
+
+test("crisis options and turn resolution reject travel and daily work", () => {
+  const base = { ...newGame(), questStep: "sandbox", currentLocation: "黑泥街" };
+  const states = [
+    { ...base, combat: createCombat("arena", false), currentLocation: "裂石擂" },
+    { ...base, flags: { ...base.flags, alleyEscape: true } },
+    { ...base, flags: { ...base.flags, alleyWall: true } },
+    { ...base, flags: { ...base.flags, marketAftermath: true } },
+    { ...base, flags: { ...base.flags, pendingIncident: "market_raid" } },
+    { ...base, flags: { ...base.flags, finalCrisis: true } },
+  ];
+  for (const raw of states) {
+    const current = normalizeState(raw);
+    const options = availableOptions(current);
+    assert.ok(options.length > 0);
+    assert.ok(options.every((option) => !/\[(?:搬貨|買消息|前往|明路前往|暗道前往)\]/.test(option)));
+    const before = current.turn;
+    for (const action of ["F. [前往] 苦煙館", travelChoices(current, "苦煙館")[0].label,
+      "B. [搬貨] 替商販搬貨照料騾車；每隔三回合可賺六文私銀。"] ) {
+      const rejected = resolveTurn(current, action, false);
+      assert.equal(rejected.state.turn, before);
+      assert.equal(rejected.state.currentLocation, current.currentLocation);
+    }
+  }
+  const incident = normalizeState({ ...base, currentLocation: "青鋒堂總壇",
+    flags: { ...base.flags, pendingIncident: "missing_ledger" } });
+  assert.equal(resolveOpeningKnifeRequest(incident, "向何不歸討一把牛肉刀"), null);
+  assert.equal(resolveTurn(incident, "F. [自訂手段] 問何不歸借刀", false).state.turn, incident.turn);
+  const social = { target: "何不歸", goal: "help", subject: "協助玩家", tactic: "reason",
+    quality: "coherent", method: "請堂主幫忙" };
+  assert.equal(resolveSocialIntent(incident, social).state.turn, incident.turn);
+});
+
+test("old checkpoint state keeps crisis flags and reanchors its physical scene", () => {
+  const base = newGame();
+  const oldCheckpoint = JSON.parse(JSON.stringify({ ...base, questStep: "sandbox", currentLocation: "青鋒堂總壇",
+    flags: { ...base.flags, alleyWall: true, checkpointReady: true, incidentCount: 3 },
+    worldFlags: ["擊退伏擊刀手"] }));
+  const restored = normalizeState(oldCheckpoint);
+  assert.equal(restored.currentLocation, "黑泥街");
+  assert.equal(restored.flags.alleyEscape, true);
+  assert.equal(restored.flags.alleyWall, true);
+  assert.equal(restored.flags.checkpointReady, true);
+  assert.equal(restored.flags.incidentCount, 3);
+  assert.deepEqual(restored.worldFlags, ["擊退伏擊刀手"]);
+  assert.ok(availableOptions(restored).every((option) => !option.includes("[搬貨]")));
+  const conflicting = normalizeState({ ...base, questStep: "sandbox", currentLocation: "鬼骰坊",
+    combat: createCombat("arena", false), flags: { ...base.flags, marketAftermath: true } });
+  assert.equal(conflicting.currentLocation, "裂石擂");
+  assert.equal(conflicting.flags.marketAftermath, false);
+  assert.ok(conflicting.combat);
+  assert.ok(availableOptions(conflicting).every((option) => !option.includes("[搬貨]")));
 });
 
 test("later incidents change options and preserve resource consequences", () => {
@@ -915,6 +1036,9 @@ test("saving Lu Qianfan changes trust, injury, and help in the prologue", () => 
   const medicine = availableOptions(wounded).find((option) => option.startsWith("M. [為陸千帆求藥]"));
   assert.ok(medicine);
   const healed = resolveTurn(wounded, medicine, false);
+  assert.equal(healed.state.currentLocation, "苦煙館");
+  assert.match(healed.event, /^你在苦煙館/);
+  assert.match(healed.event, /回信報陸千帆/);
   assert.equal(healed.state.silver, 0);
   assert.equal(healed.state.relationships["陸千帆"].wounded, false);
   assert.equal(healed.state.relationships["陸千帆"].trust, 1);
@@ -971,6 +1095,8 @@ test("work, authorized debt collection, contracts, and lending keep accounts sep
   const permit = resolveTurn(debtBase, availableOptions(debtBase).find((option) => option.startsWith("K. [領追債令]")), false);
   const collector = { ...permit.state, currentLocation: "黑泥街" };
   const collected = resolveTurn(collector, availableOptions(collector).find((option) => option.startsWith("K. [和談追債]")), false);
+  assert.match(collected.event, /^你在黑泥街/);
+  assert.match(collected.event, /祁觀衡託人送來/);
   assert.equal(collected.state.factionFunds, 25);
   assert.equal(collected.state.silver, 5);
   assert.ok(!availableOptions(collected.state).some((option) => option.includes("追債")));

@@ -54,6 +54,7 @@ test("only the successful prologue ending unlocks the authored chapter opening",
     assert.deepEqual(availableOptions(finished(ending)), []);
   const start = choose(finished(), "A");
   assert.equal(start.event, CHAPTER_OPENING);
+  assert.match(start.event, /^你回到青鋒堂總壇/);
   assert.equal(start.state.questStep, "chapter_one");
   assert.equal(start.state.factionFunds, 12 + GRATITUDE_DUES);
   assert.equal(start.state.flags.treasuryChange.reason, "市販自願加繳半個月規費");
@@ -77,6 +78,7 @@ test("three calm turns lead to a fixed saved business loss", () => {
   assert.equal(missed.state.flags.chapterOne.stage, "shortage");
   const found = inspectAffected(missed.state);
   assert.equal(found.state.flags.chapterOne.stage, "dock");
+  assert.match(found.event, /^你帶著.*貨帳回到青鋒堂總壇/);
   assert.ok(found.state.worldFlags.includes(`第一章${found.state.flags.chapterOne.affectedBusiness}斷貨已查`));
   assert.ok(found.state.sectLifeline < restored.sectLifeline, "three deficit turns damage lifeline");
 });
