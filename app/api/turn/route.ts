@@ -259,6 +259,8 @@ async function narrate(state: GameState, action: string, event: string, moneyCha
     : hardboiledFallback(event, state, npcReply);
   const fallbackResult = (reason: string) => ({ text: fallback, source: "fallback" as const, reason });
   if (state.questStep === "prologue_briefing" && state.turn === 1) return fallbackResult("authored_opening");
+  if (state.questStep === "kuyan_medicine" && state.currentLocation === "苦煙館"
+    && event.includes("你到苦煙館見顧忘生")) return fallbackResult("authored_clinic_handoff");
   if (combatTurn && !freeScene) return fallbackResult("calculated_combat");
   if ((state.flags.alleyEscape || state.flags.marketAftermath) && !freeScene) return fallbackResult("scene_state_gate");
   // The deterministic account already contains the exact transaction.

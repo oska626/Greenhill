@@ -13,7 +13,7 @@ export function narrativeSentenceCount(text: string): number {
 }
 
 export function containsSettlementLog(text: string): boolean {
-  return /(?:氣血|精力|命脈|私銀|公款)(?:減|升|回復|增加|減少|餘|淨增)[零一二三四五六七八九十百千\d]+|\d+\s*(?:點|文)(?:氣血|精力|命脈)/.test(text);
+  return /(?:氣血|精力|命脈|防線|守備|私銀|公款)(?:減|升|回復|增加|減少|餘|淨增)[零一二三四五六七八九十百千\d]+|\d+\s*(?:點|文)(?:氣血|精力|命脈|防線|守備)/.test(text);
 }
 
 function stripSettlement(event: string): string {
@@ -21,7 +21,7 @@ function stripSettlement(event: string): string {
     .replace(/你沿明路費[零一二三四五六七八九十\d]+回合趕到/g, "你沿明路趕到")
     .replace(/你走(暗道|明路)，費了[零一二三四五六七八九十\d]+回合抵達/g, "你走$1抵達")
     .replace(/玄武樓趁這(?:一|[零一二三四五六七八九十\d]+)回合向城西施壓[；，]?(?:青鋒堂)?命脈減[零一二三四五六七八九十\d]+[。]?/g, "玄武樓的人又逼近城西。")
-    .replace(/(?:青鋒堂)?(?:氣血|精力|命脈|私銀|公款)(?:減少|增加|回復|淨增|減|升|餘)[零一二三四五六七八九十百千\d]+(?:點|文)?[；，。]?/g, "")
+    .replace(/(?:青鋒堂)?(?:氣血|精力|命脈|防線|守備|私銀|公款)(?:減少|增加|回復|淨增|減|升|餘)[零一二三四五六七八九十百千\d]+(?:點|文)?[；，。]?/g, "")
     .replace(/(?:氣血|精力|命脈|私銀|公款)(?:都)?(?:已滿|不足|未動)[；，。]?/g, "")
     .replace(/[零一二三四五六七八九十百千\d]+(?:點|文)(?:精力|氣血|命脈)?/g, "")
     .replace(/[；，]{2,}/g, "，")
@@ -58,6 +58,15 @@ export function validHardboiledNarrative(value: unknown): value is string {
 }
 
 export function hardboiledFallback(event: string, state: GameState, reply?: { speaker: string; line: string }): string {
+  if (state.questStep === "kuyan_medicine" && state.currentLocation === "苦煙館"
+    && event.includes("你到苦煙館見顧忘生")) {
+    const arrival = event.includes("你向何不歸討路費") ? "你踏進苦煙館，腰間新添的銅錢輕響。"
+      : event.includes("你問清刀手路線") ? "你踏進苦煙館，還記著堂主說過的短刀。"
+        : event.includes("你記下陸千帆傷口") ? "你踏進苦煙館，先把陸千帆的傷口說清。"
+          : event.includes("你認清通往市集的暗巷") ? "你踏進苦煙館，鞋底仍沾著暗巷的泥。"
+            : "你踏進苦煙館，袖口的雨還未乾。";
+    return `${arrival}顧忘生把膏藥封口轉到燈下，指著繩結叫你辨清；藥煙貼著桌面，藥罐仍開著。`;
+  }
   if (state.flags.alleyWall && state.currentLocation === "黑泥街") {
     return /早有防備|偏頭躲開/.test(event)
       ? "暗手落空，刀手偏頭避開。你被逼回牆頭，追兵踩著竹籮爬上來；牆背的刀手還守著落腳處，眼前只剩半步可挪。"

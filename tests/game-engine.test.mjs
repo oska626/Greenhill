@@ -9,6 +9,8 @@ import { PACKED_MEDICINE, USE_PACKED_MEDICINE } from "../lib/recovery.ts";
 import { actionEnergyCost, FATIGUE_THRESHOLD, MAX_ENERGY } from "../lib/energy.ts";
 import { darkHandCount } from "../lib/dirty-hand.ts";
 import { objectStatus, sceneFacts } from "../lib/scene-state.ts";
+import { containsSettlementLog, hardboiledFallback, validHardboiledNarrative } from "../lib/narrative-style.ts";
+import { appendDangerCue } from "../lib/action-sequence.ts";
 
 function newGame() {
   const stats = aptitude("阿七", "賭坊收帳人", "察言觀色");
@@ -92,6 +94,29 @@ test("a member can borrow the headquarters beef knife on a later visit", () => {
   assert.equal(result.state.questStep, "sandbox");
   assert.equal(result.state.turn, 13);
   assert.equal(result.state.equippedWeapon, "beef_knife");
+});
+
+test("all opening choices enter the clinic in one camera beat without a stat log", () => {
+  const opening = resolveTurn(newGame(), "[初入堂口] 阿七", true);
+  const variants = new Set();
+  for (const option of opening.options) {
+    const turn = resolveTurn(opening.state, option, false);
+    assert.equal(turn.state.questStep, "kuyan_medicine");
+    const prose = hardboiledFallback(turn.event, turn.state, turn.npcReply);
+    variants.add(prose);
+    assert.equal(validHardboiledNarrative(prose), true, prose);
+    assert.match(prose, /你踏進苦煙館/);
+    assert.match(prose, /顧忘生把膏藥封口/);
+    assert.equal(prose.includes("何不歸"), false);
+    assert.equal(containsSettlementLog(prose), false);
+    assert.doesNotMatch(prose, /防線|升四|公款|私銀|你領命後立即動身/);
+    assert.doesNotMatch(prose, /腳步聲|傷藥還未送到/);
+    const fullNarrative = appendDangerCue(prose, turn.state);
+    assert.equal(fullNarrative.match(/腳步聲/g)?.length, 1);
+    assert.equal(fullNarrative.match(/傷藥還未送到/g)?.length, 1);
+  }
+  assert.equal(variants.size, opening.options.length);
+  assert.equal(containsSettlementLog("何不歸留下補強守備，防線升四。"), true);
 });
 
 test("small health scale preserves the injury ratio of old saves once", () => {
