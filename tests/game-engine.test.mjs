@@ -246,11 +246,18 @@ test("tutorial choices advance one scene while preserving their different costs"
       assert.equal(market.state.flags.visitedGu, true);
       assert.equal(market.npcReply?.speaker, "顧忘生");
       for (const [index, marketChoice] of market.options.entries()) {
-        const ambush = resolveTurn(market.state, marketChoice, false);
+        const first = resolveTurn(market.state, marketChoice, false);
+        assert.equal(first.state.factionFunds, market.state.factionFunds + [0, 50, 0, 20, 0][index]);
+        assert.equal(first.state.inventory.includes("【止血膏藥】"), index !== 0);
+        assert.equal(first.state.questStep, ["market_collection", "huizhi_ambush", "market_collection", "huizhi_ambush", "sandbox"][index]);
+        if (index === 4) {
+          assert.equal(first.state.flags.alleyEscape, true);
+          continue;
+        }
+        const ambush = index === 0 || index === 2
+          ? resolveTurn(first.state, first.options.find((option) => option.startsWith("B.")), false) : first;
         assert.equal(ambush.state.questStep, "huizhi_ambush");
-        assert.equal(ambush.state.factionFunds, market.state.factionFunds + [50, 50, 30, 20, 0][index]);
-        assert.equal(ambush.state.flags.collectedMarketFee, index !== 4);
-        assert.ok(!ambush.state.inventory.includes("【止血膏藥】"));
+        assert.equal(ambush.state.factionFunds, market.state.factionFunds + (index === 3 ? 20 : 50));
         const sandbox = finishCombat(ambush);
         assert.equal(sandbox.state.questStep, "sandbox");
         assert.equal(sandbox.state.currentLocation, "黑泥街");
@@ -281,9 +288,11 @@ test("early choices pay off during the ambush", () => {
   const informedTea = resolveTurn(informed.state, informed.options[0], false);
   const ordinaryMarket = resolveTurn(ordinaryTea.state, ordinaryTea.options[0], false);
   const informedMarket = resolveTurn(informedTea.state, informedTea.options[0], false);
-  const ordinaryAmbush = resolveTurn(ordinaryMarket.state, ordinaryMarket.options[0], false);
-  const informedAmbush = resolveTurn(informedMarket.state, informedMarket.options[0], false);
-  assert.ok(informedAmbush.state.playerHp > ordinaryAmbush.state.playerHp);
+  const ordinaryAid = resolveTurn(ordinaryMarket.state, ordinaryMarket.options[0], false);
+  const informedAid = resolveTurn(informedMarket.state, informedMarket.options[0], false);
+  const ordinaryAmbush = resolveTurn(ordinaryAid.state, ordinaryAid.options.find((option) => option.startsWith("B.")), false);
+  const informedAmbush = resolveTurn(informedAid.state, informedAid.options.find((option) => option.startsWith("B.")), false);
+  assert.ok(informedAmbush.state.combat.preparedDefense > ordinaryAmbush.state.combat.preparedDefense);
   assert.ok(informedAmbush.state.worldFlags.includes("問清刀手兵刃"));
 });
 
@@ -339,21 +348,21 @@ test("training, weapon purchase, and wear are settled by rules", () => {
   assert.ok(!strike.state.inventory.includes("【生鏽鐵刀】"));
 });
 
-test("market choices create collectible debts instead of identical fees", () => {
+test("market actions charge only their stated fee and preserve outstanding debt", () => {
   let turn = resolveTurn(newGame(), "[初入堂口] 阿七", true);
   turn = resolveTurn(turn.state, turn.options[0], false);
   turn = resolveTurn(turn.state, turn.options[0], false);
-  const fees = [50, 50, 30, 20, 0];
+  const fees = [0, 50, 0, 20, 0];
   const outcomes = turn.options.map((option, index) => {
     const result = resolveTurn(turn.state, option, false);
     assert.equal(result.state.factionFunds, turn.state.factionFunds + fees[index]);
     return result;
   });
-  assert.ok(outcomes[1].state.worldFlags.includes("陸千帆傷勢加重"));
   assert.ok(outcomes[2].state.worldFlags.includes("已察覺巷口伏兵"));
   assert.ok(outcomes[3].state.worldFlags.includes("張斷骨欠費三十文"));
   assert.ok(outcomes[4].state.worldFlags.includes("張斷骨規費未收"));
-  for (const index of [2, 3, 4]) {
+  assert.equal(outcomes[0].state.worldFlags.includes("陸千帆已敷藥"), true);
+  for (const index of [3]) {
     let aftermath = finishCombat(outcomes[index]);
     if (aftermath.state.flags.alleyEscape)
       aftermath = resolveTurn(aftermath.state, aftermath.options.find((option) => option.includes("[踩籮翻牆]")), false);
@@ -399,6 +408,8 @@ test("private fee is personal money with a permanent consequence", () => {
   turn = resolveTurn(turn.state, "F. [自訂手段] 私吞五十文規費", false);
   assert.equal(turn.state.silver, 50);
   assert.equal(turn.state.factionFunds, 10);
+  assert.ok(turn.state.inventory.includes("【止血膏藥】"));
+  assert.equal(turn.state.worldFlags.includes("陸千帆已敷藥"), false);
   assert.equal(turn.state.sectLifeline, defenseBeforeTheft - 10);
   assert.ok(turn.state.worldFlags.includes("私吞五十文規費"));
   assert.ok(turn.event.includes("五十文"));
@@ -408,19 +419,26 @@ test("betrayal and maiming alter later options and encounters", () => {
   let turn = resolveTurn(newGame(), "[初入堂口] 阿七", true);
   turn = resolveTurn(turn.state, turn.options[0], false);
   turn = resolveTurn(turn.state, turn.options[0], false);
-  turn = resolveTurn(turn.state, "F. [自訂手段] 出賣陸千帆，打斷張斷骨右手", false);
-  assert.ok(turn.state.worldFlags.includes("出賣陸千帆"));
+  const market = turn.state;
+  const combined = resolveTurn(market, "F. [自訂手段] 出賣陸千帆，打斷張斷骨右手", false);
+  assert.equal(combined.state.turn, market.turn);
+  const betrayal = resolveTurn(market, "F. [自訂手段] 出賣陸千帆", false);
+  assert.ok(betrayal.state.worldFlags.includes("出賣陸千帆"));
+  assert.ok(betrayal.state.inventory.includes("【止血膏藥】"));
+  assert.ok(betrayal.options.every((option) => !option.includes("陸千帆")));
+  assert.equal(betrayal.state.combat.allyPresent, false);
+  assert.equal(betrayal.state.factionFunds, market.factionFunds);
+  turn = resolveTurn(market, "F. [自訂手段] 打斷張斷骨右手", false);
   assert.ok(turn.state.worldFlags.includes("打斷張斷骨右手"));
+  assert.equal(turn.state.factionFunds, market.factionFunds);
   assert.ok(turn.state.inventory.includes("【止血膏藥】"));
-  assert.ok(turn.options.every((option) => !option.includes("陸千帆")));
-  assert.equal(turn.state.combat.allyPresent, false);
   turn = finishCombat(turn);
   if (turn.state.flags.marketAftermath)
     turn = resolveTurn(turn.state, turn.options.find((option) => option.includes("[安頓收隊]")), false);
   turn = resolveTurn(turn.state, travelChoices(turn.state, "晚秋茶寮")[0].label, false);
   turn = resolveTurn(turn.state, turn.options[0], false);
   assert.ok(turn.state.worldFlags.includes("屠戶避讓"));
-  assert.ok(turn.options.every((option) => !option.includes("找陸千帆")));
+  assert.ok(turn.options.some((option) => option.includes("找陸千帆")));
 });
 
 test("sandbox travel stays inside seven landmarks and resources have a ledger", () => {
@@ -466,6 +484,7 @@ test("absurd custom actions lose health and malformed numeric state is normalize
 test("sandbox incident follows the finished market ambush", () => {
   let turn = resolveTurn(newGame(), "[初入堂口] 阿七", true);
   for (let index = 0; index < 3; index++) turn = resolveTurn(turn.state, turn.options[0], false);
+  turn = resolveTurn(turn.state, turn.options.find((option) => option.startsWith("B.")), false);
   assert.equal(turn.state.questStep, "huizhi_ambush");
   turn = finishCombat(turn);
   assert.equal(turn.state.questStep, "sandbox");
@@ -777,19 +796,20 @@ test("saving Lu Qianfan changes trust, injury, and help in the prologue", () => 
     inventory: ["【金創散】"] };
   const choices = availableOptions(scene);
   const first = choices.map((choice) => resolveTurn(scene, choice, false).state);
-  assert.deepEqual(first.map((state) => state.relationships["陸千帆"].trust), [2, -2, 1, 1, 2]);
+  assert.deepEqual(first.map((state) => state.relationships["陸千帆"].trust), [1, 0, 0, 0, 1]);
   assert.equal(first[1].relationships["陸千帆"].wounded, true);
-  const guard = availableOptions(first[0]).find((option) => option.startsWith("B. [護住同門]"));
+  const ambush = resolveTurn(first[0], availableOptions(first[0]).find((option) => option.startsWith("B.")), false);
+  const guard = availableOptions(ambush.state).find((option) => option.startsWith("B. [護住同門]"));
   assert.ok(guard);
-  const guarded = resolveTurn(first[0], guard, false);
-  assert.equal(guarded.state.relationships["陸千帆"].trust, 3);
+  const guarded = resolveTurn(ambush.state, guard, false);
+  assert.equal(guarded.state.relationships["陸千帆"].trust, 2);
   assert.ok(guarded.state.worldFlags.includes("伏擊中護住陸千帆"));
   const betrayed = resolveTurn(scene, "F. [自訂手段] 出賣陸千帆", false).state;
   assert.equal(betrayed.relationships["陸千帆"].estranged, true);
   assert.equal(betrayed.relationships["陸千帆"].trust, -3);
   assert.ok(!missionOptions({ ...betrayed, questStep: "sandbox", combat: undefined }).some((option) => option.includes("雙重勒索")));
 
-  const trusted = { ...first[0], questStep: "sandbox", combat: undefined };
+  const trusted = { ...guarded.state, questStep: "sandbox", combat: undefined };
   const directions = availableOptions(trusted).find((option) => option.startsWith("M. [請陸千帆指路]"));
   assert.ok(directions);
   const guided = resolveTurn(trusted, directions, false);
@@ -802,7 +822,7 @@ test("saving Lu Qianfan changes trust, injury, and help in the prologue", () => 
   const healed = resolveTurn(wounded, medicine, false);
   assert.equal(healed.state.silver, 0);
   assert.equal(healed.state.relationships["陸千帆"].wounded, false);
-  assert.equal(healed.state.relationships["陸千帆"].trust, -1);
+  assert.equal(healed.state.relationships["陸千帆"].trust, 1);
 });
 
 test("landmark choices prepare different NPCs and survive old saves", () => {

@@ -159,8 +159,8 @@ function collectPressure(state: GameState, chapter: ChapterOneState, amount: num
   if (chapter.deficitStreak >= 3 && chapter.deficitStreak % 3 === 0) {
     const before = state.sectLifeline;
     state.sectLifeline = Math.max(0, before - 3);
-    report += `連續${chapter.deficitStreak}回合入不敷支，青鋒堂命脈減少${before - state.sectLifeline}點。`;
-  } else if (chapter.deficitStreak === 2) report += "若再拖一回合，欠收便會動搖青鋒堂命脈。";
+    report += `公款接連入不敷支，青鋒堂命脈減少${before - state.sectLifeline}點。`;
+  } else if (chapter.deficitStreak === 2) report += "公款已接連欠收，堂口防線開始鬆動。";
   chapter.foodShortageDays += 1;
   chapter.unrest += 1 + Math.floor((chapter.foodShortageDays - 1) / 4) + (state.factionFunds === 0 ? 1 : 0);
   while (chapter.unrest >= RAID_UNREST_THRESHOLD && chapter.lostLandmarks.length < MAX_LOST_LANDMARKS) {

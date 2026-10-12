@@ -156,7 +156,7 @@ export function validateCustomDecision(raw: unknown, state: GameState, options: 
     && !/如果|假如|會點|點樣|可唔可以|是否可以/.test(playerText)
     && Array.isArray(value.specials) && value.specials.length > 0) {
     const specials = value.specials.filter((item): item is string => typeof item === "string");
-    if (specials.length !== value.specials.length || specials.some((item) => !["betray", "embezzle", "maim"].includes(item)))
+    if (specials.length !== 1 || specials.length !== value.specials.length || specials.some((item) => !["betray", "embezzle", "maim"].includes(item)))
       return { kind: "reject", reason: "unclear" };
     if (specials.includes("betray") && !/(?:出賣|背叛|不救)陸千帆/.test(playerText)) return { kind: "reject", reason: "unclear" };
     if (specials.includes("embezzle") && !/私吞|昧起|袋起|自己收/.test(playerText)) return { kind: "reject", reason: "unclear" };

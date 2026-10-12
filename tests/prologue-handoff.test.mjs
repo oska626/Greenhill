@@ -16,7 +16,7 @@ test("chapter handoff is made only after a prologue ending", () => {
     const handoff = createPrologueHandoff(finished(ending));
     assert.equal(handoff.version, 1);
     assert.equal(handoff.ending, ending);
-    assert.match(handoff.summary, /第70回合/);
+    assert.match(handoff.summary, /城西序章至此收束/);
   }
 });
 

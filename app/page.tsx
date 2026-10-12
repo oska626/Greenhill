@@ -33,6 +33,11 @@ interface SavedGameData {
 const SAVE_KEY = "qingshan_game_save_v1";
 const READ_KEY = "qingshan_read_narratives_v1";
 const CUSTOM_STARTING_ITEMS = ["【開鎖鐵線】", "【止血散】", "【粗鐵護腕】", "【灌鉛假骰】"];
+const showActionWithoutTurnCount = (option: string) => option
+  .replace(/每三回合/g, "持續")
+  .replace(/(?:用|耗)一回合/g, "需時")
+  .replace(/休整一回合/g, "稍作休整")
+  .replace(/(?:共)?[一二三四五六七八九十\d]+回合/g, "一段時間");
 
 const BACKGROUNDS = [
   {
@@ -392,7 +397,7 @@ export default function GamePage() {
             <div className="p-3.5 bg-amber-950/30 border border-amber-700/60 rounded-lg flex items-center justify-between gap-3">
               <div className="text-xs text-amber-200/90">
                 <span className="font-semibold text-amber-400">發現舊進度：</span>
-                {savedGame.state.playerName}（{savedGame.state.background}）· 第 {savedGame.state.turn} 回合 · 位於 {savedGame.state.currentLocation}
+                {savedGame.state.playerName}（{savedGame.state.background}）· 位於 {savedGame.state.currentLocation}
               </div>
               <button
                 type="button"
@@ -515,9 +520,6 @@ export default function GamePage() {
             <span className="text-stone-500">|</span>
             <span className="text-stone-400">當前地標:</span>
             <span className="text-stone-100 font-semibold">{gameState?.currentLocation}</span>
-            <span className="bg-stone-800 text-stone-400 px-2 py-0.5 rounded text-[11px]">
-              第 {gameState?.turn || 1} 回合
-            </span>
           </div>
 
           <div className="flex items-center gap-3.5 text-stone-300">
@@ -592,7 +594,9 @@ export default function GamePage() {
                 ) : (
                   <div className="space-y-5 text-sm md:text-base leading-relaxed tracking-wide text-stone-200 font-serif">
                     {narrative.split(/\n\s*\n/).map((paragraph, index) => (
-                      <p key={index} className="whitespace-pre-line">{paragraph}</p>
+                      /^（[^\n]+）$/.test(paragraph.trim())
+                        ? <p key={index} className="whitespace-pre-line italic text-amber-200/80">{paragraph.trim()}</p>
+                        : <p key={index} className="whitespace-pre-line">{paragraph}</p>
                     ))}
                   </div>
                 )}
@@ -621,7 +625,7 @@ export default function GamePage() {
             <div className="text-xs font-semibold text-stone-400 tracking-wider">江湖抉擇與據點差事</div>
             {gameState?.combat && (
               <div className="rounded border border-red-900/50 bg-red-950/25 px-3 py-2 text-xs text-red-200">
-                第 {gameState.combat.round} 回合 · 對手氣血 {gameState.combat.enemyHp} ·
+                交鋒中 · 對手氣血 {gameState.combat.enemyHp} ·
                 {gameState.combat.enemyIntent === "flank" ? "刀手正繞向陸千帆"
                   : gameState.combat.enemyIntent === "heavy" ? "對手正蓄力重拳"
                     : gameState.combat.enemyIntent === "press" ? "刀手正逼近肉案"
@@ -646,9 +650,10 @@ export default function GamePage() {
             )}
             {gameState?.questStep === "chapter_one" && chapterForecast && (
               <div className="rounded border border-rose-900/60 bg-rose-950/25 px-3 py-2 text-xs text-rose-200 space-y-1">
-                <div>下回合斷貨壓力：公款{chapterForecast.loss ? `減 ${Math.min(gameState.factionFunds, chapterForecast.loss)} 文（${gameState.factionFunds} → ${Math.max(0, gameState.factionFunds - chapterForecast.loss)}）${gameState.factionFunds < chapterForecast.loss ? `，另欠收 ${chapterForecast.loss - gameState.factionFunds} 文` : ""}` : "暫無欠收"}；行動收支另計。</div>
-                <div>{chapterForecast.tributeIn === null ? `本期貢款：${gameState.flags.chapterOne?.tribute === "paid" ? "已繳" : "逾期"}` : `距離須繳 ${chapterForecast.tributeCost} 文貢款：${chapterForecast.tributeIn} 回合`}。連續欠收 {gameState.flags.chapterOne?.deficitStreak || 0} 回合，每三回合損失命脈。</div>
-                <div className="font-semibold">斷糧 {gameState.flags.chapterOne?.foodShortageDays || 0} 回合；民怨 {gameState.flags.chapterOne?.unrest || 0}/20，下回合預計增加 {chapterForecast.unrestGain}。每到 20，飢民衝擊一處地標。</div>
+                <div>斷貨持續影響公款：接下來預計{chapterForecast.loss ? `減 ${Math.min(gameState.factionFunds, chapterForecast.loss)} 文${gameState.factionFunds < chapterForecast.loss ? `，另欠收 ${chapterForecast.loss - gameState.factionFunds} 文` : ""}` : "暫無欠收"}；行動收支另計。</div>
+                <div>{chapterForecast.tributeIn === null ? `本期貢款：${gameState.flags.chapterOne?.tribute === "paid" ? "已繳" : "逾期"}`
+                  : `須繳 ${chapterForecast.tributeCost} 文貢款；${chapterForecast.tributeIn <= 2 ? "催繳已迫近" : chapterForecast.tributeIn <= 4 ? "期限漸近" : "尚有緩衝"}`}。{(gameState.flags.chapterOne?.deficitStreak || 0) >= 2 ? "公款接連欠收，堂口防線開始鬆動。" : "公款欠收會削弱堂口防線。"}</div>
+                <div className="font-semibold">{(gameState.flags.chapterOne?.foodShortageDays || 0) >= 4 ? "斷糧已久" : "糧藥供應吃緊"}；民怨 {gameState.flags.chapterOne?.unrest || 0}/20，繼續上升會衝擊地標。</div>
                 <div>失守地標：{gameState.flags.chapterOne?.lostLandmarks?.join("、") || "無"}（達 3 處或命脈歸零即敗）。</div>
                 <div>同行同伴：{gameState.flags.chapterOne?.selectedCompanion || "未選；只可選一位"}。</div>
               </div>
@@ -661,17 +666,18 @@ export default function GamePage() {
                   onClick={() => handleAction(opt)}
                   className="text-left text-xs md:text-sm px-3.5 py-2.5 rounded border transition duration-150 disabled:opacity-40 disabled:cursor-not-allowed bg-stone-800/70 hover:bg-stone-700/80 border-stone-700/50 text-stone-200 hover:border-stone-500"
                 >
-                  {opt}
+                  {showActionWithoutTurnCount(opt)}
                   {gameState && <span className="block mt-1 text-[11px] text-sky-300">
                     {(() => {
                       const turns = Number(/(?:共)?(\d+)回合/.exec(opt)?.[1] || 1);
                       const cost = actionEnergyCost(gameState, opt, turns);
                       const travel = /\[(?:明路前往|暗道前往|前往)\]/.test(opt);
-                      const costText = cost === 0 ? "精力 0 · 消耗一回合"
+                      const duration = turns > 1 ? " · 耗時較長" : "";
+                      const costText = cost === 0 ? "精力 0 · 行動需時"
                         : travel && gameState.playerMp < cost
-                          ? `精力 -${gameState.playerMp} · 氣血 -${2 * (cost - gameState.playerMp)} · ${turns} 回合`
+                          ? `精力 -${gameState.playerMp} · 氣血 -${2 * (cost - gameState.playerMp)}${duration}`
                         : gameState.playerMp === 0 && cost === 1 ? "精力耗盡 · 氣血 -2"
-                          : `精力 -${cost}${turns > 1 ? ` · ${turns} 回合` : ""}`;
+                          : `精力 -${cost}${turns > 1 ? duration : ""}`;
                       const item = /\[(?:袖藏暗手|全力陰手)\]/.test(opt)
                         ? readyDarkHand(gameState.inventory, !gameState.flags.alleyEscape) : undefined;
                       return `${costText}${item ? ` · 用掉${item}` : ""}`;
@@ -686,7 +692,7 @@ export default function GamePage() {
               && <form onSubmit={handleCustomSubmit} className="mt-2 pt-3 border-t border-stone-800 flex flex-col gap-1.5">
               <div className="text-xs font-semibold text-amber-400/90 tracking-wider flex items-center gap-1.5">
                 <span>F. [自由行動]</span>
-                <span className="text-[11px] text-stone-500 font-normal">黑泥街可直接向在場人物喊話，不必另寫動作；對話限 300 字，其他行動限 100 字。</span>
+                <span className="text-[11px] text-stone-500 font-normal">可寫多件有先後的事；局勢改變時，餘下行動可能被打斷。限 300 字。</span>
               </div>
               <div className="flex gap-2">
                 <input
@@ -695,7 +701,7 @@ export default function GamePage() {
                   disabled={loading || !gameState}
                   onChange={(e) => setCustomInput(e.target.value)}
                   placeholder={gameState.currentLocation === "黑泥街" ? "直接說話，或寫出你要做的事。" : "寫明眼前人物或物件，以及你要做的事。"}
-                  maxLength={gameState.currentLocation === "黑泥街" ? 300 : 100}
+                  maxLength={300}
                   className="flex-1 bg-stone-950 border border-stone-700/80 rounded px-3 py-2 text-xs md:text-sm focus:outline-none focus:border-amber-600 text-stone-200 placeholder:text-stone-600 disabled:opacity-50"
                 />
                 <button
@@ -842,7 +848,7 @@ export default function GamePage() {
                 >
                   {location}{gameState?.flags.chapterOne?.lostLandmarks?.includes(location) ? " · 失守" : ""}{gameState && gameState.currentLocation === location ? " · 目前所在"
                     : gameState && travelChoices(gameState, location).length > 0
-                      ? ` · ${travelChoices(gameState, location)[0].turns}回合` : " · 尚未開放"}
+                      ? " · 路途費時" : " · 尚未開放"}
                 </button>
               ))}
             </div>

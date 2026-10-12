@@ -61,7 +61,7 @@ export function travelChoices(state: GameState, destination: Landmark): TravelCh
   } else if (destination === "碼頭" || state.currentLocation === "碼頭") return [];
   const road = Math.min(3, roadDistance(state.currentLocation, destination));
   const roadNote = state.questStep === "chapter_one"
-    ? "斷貨公款每回合最多減4文；貢款期限照走" : "人多較安全";
+    ? "趕路時斷貨仍侵蝕公款；貢款期限照走" : "人多較安全";
   const choices: TravelChoice[] = [{ destination, kind: "road", turns: road,
     label: `F. [明路前往] ${destination}（${road}回合；${roadNote}）`, danger: "", riskPeriod: 0, riskDamage: 0, riskLifeline: 0 }];
   const shortcut = SHORTCUTS.find((route) =>

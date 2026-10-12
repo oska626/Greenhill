@@ -3,6 +3,7 @@ import { availableOptions, normalizeState, OPENING_CITY_NARRATION, recordMarketN
   resolveMarketIntent, resolveSceneAttempt, resolveSocialIntent, resolveTurn, type GameState, type Landmark } from "@/lib/game-engine";
 import { COMPANION_IDS, relationshipLabel } from "@/lib/companion-relations";
 import { CREATIVE_GOALS, interpretMarketText, isMarketIntentScene, marketIntentTargets, SCENE_EFFECTS, sceneAttemptObjects, sceneAnchors, validateCustomDecision, type CustomDecision } from "@/lib/custom-action";
+import { appendDangerCue, explicitActionSteps, resolveActionSequence, validatedActionSteps } from "@/lib/action-sequence";
 import { hasSectAddressViolation, npcVoiceGuide, sectMemberAddress } from "@/lib/npc-voices";
 import { resolveChapterPetition } from "@/lib/chapter-one";
 import { chineseLength, containsSettlementLog, hardboiledFallback, narrativeSentenceCount, validHardboiledNarrative } from "@/lib/narrative-style";
@@ -13,8 +14,8 @@ import { inferSocialIntent, MARKET_NPC_REACTIONS, marketDialogueTarget, socialTa
 const SYSTEM_PROMPT = `你是青山城城西的文字冒險主持人。這是古代底層幫派江湖；同門情分、欠帳、傷勢與地盤牽動人心。只用自然的繁體中文書面語，不用廣東話、現代口語或網絡用語。沒有神怪、高武或現代物品。
 旁白以第二人稱「你」推進。玩家名號只可在 NPC 對白出現。每回合只寫動作、眼前局勢和必要對白；不寫心理、空泛形容詞或重複的場景介紹。對白須有底層市井的短促狠勁，不說大道理。
 NPC 說話須符合各自的利益與習慣。青鋒堂門生及玩家提及何不歸時稱「堂主」；門派外的人可叫「何不歸」。
-只回 JSON：{"narrative":"..."}。一般回合 40 至 60 個中文字、2 至 3 句；自由行動可用 35 至 120 個中文字、2 至 5 句，以完整交代嘗試、後果和未解局勢為先。禁止寫氣血、精力、命脈、銀兩變動或任何數字結算；數值只由介面顯示。
-只敘述提供的確定事件與已知場景；不可變出未在場的物件、人物、傷勢或道路；第一章可到碼頭，其餘未開放區域不可進入。
+只回 JSON：{"narrative":"..."}。一般段落 40 至 60 個中文字、2 至 3 句；自由行動可用 35 至 120 個中文字、2 至 5 句，以完整交代嘗試、後果和未解局勢為先。禁止寫氣血、精力、命脈、銀兩變動、回合倒數或任何數字結算；數值只由介面顯示。
+只敘述提供的確定事件與已知場景；玩家的推測、承諾和後續打算不是已發生的事。不可變出未在場的物件、人物、傷勢或道路；第一章可到碼頭，其餘未開放區域不可進入。
 場景狀態是硬約束：Combat_Crisis 表示刀手仍在場、追兵正逼近或尚未脫身；旁白須交代當前身位、受創與仍在場的敵人，句子必須完整，不可宣稱安全或轉寫日常。Scene_Cooldown 表示威脅暫退但傷者、血跡或眼線仍待處置；只寫殘局和撤離。Sandbox_Peace 表示危機與殘局均已處理，才可寫日常生計。選項由程式決定；你的敘事最後一句須與系統給出的場景狀態和下一回合選項相容。`;
 
 const SPEAKER: Record<Landmark, string> = {
@@ -59,8 +60,13 @@ function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker
     prologue_briefing: ["你記牢何不歸交代的傷勢，沒有應聲。", "你看見何不歸的手壓著帳簿，知道五十文也要帶回。"],
     kuyan_medicine: ["你記著陸千帆的傷勢，等顧忘生取出膏藥。", "藥罐尚未封口，你先記下趕往市集的路。"],
     yung_tea_stall: ["你護住懷裡的草藥，將容晚秋的警訊記在心裡。", "你聽見街口腳步，又把袖口攏緊。"],
-    market_collection: ["你按住藥包，沒有忘記肉檔欠下的規費。", "你留意巷口動靜，準備先救人再收錢。"],
-    huizhi_ambush: ["你收緊刀柄，將身邊同門護在側後。", "你聽見巷尾腳步，知道眼前再無退路。"],
+    market_collection: [state.worldFlags.includes("陸千帆已敷藥")
+      ? "陸千帆傷口已敷，肉檔的規費仍待處理。"
+      : state.inventory.some((item) => /【(?:止血膏藥|金創散|止血散)】/.test(item))
+        ? "傷藥仍在行囊，陸千帆的傷口尚待處置。"
+        : "陸千帆的傷口仍待照看，你身上沒有傷藥。",
+      "巷口的刀手仍在觀望，肉檔前的事尚未了結。"],
+    huizhi_ambush: ["你盯住刀手的肩，仍須看清他下一步。", "巷口的刀聲未止，退路仍要爭取。"],
     sandbox: sandboxDetail[state.currentLocation],
     chapter_one: ["你收好契紙與證詞，等著下一步。", "你記住文書上的日期，也記住街坊的眼色。"],
   };
@@ -91,7 +97,7 @@ function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker
   const additions = state.questStep === "sandbox" && state.turn % 2 === 0
     ? [...detail[state.questStep]].reverse() : detail[state.questStep];
   if (!second || visibleLength(first + second + dialogue) < 130) second += additions[0];
-  if (!second) second = "你將眼前的事記在心裏，知道這一回合尚未了結。";
+  if (!second) second = "你將眼前的事記在心裏，知道局勢尚未了結。";
   return `${first}\n\n${second}${dialogue}`;
 }
 
@@ -123,7 +129,12 @@ async function interpretCustomAction(state: GameState, playerText: string): Prom
   const offline = (): CustomDecision => {
     const social = inferSocialIntent(state, playerText);
     if (social) return { kind: "social_intent", plan: social };
-    return isMarketIntentScene(state) ? interpretMarketText(state, playerText) : { kind: "reject", reason: "unavailable" };
+    if (isMarketIntentScene(state)) {
+      const fallback = interpretMarketText(state, playerText);
+      return fallback.kind === "reject" && fallback.reason === "unclear"
+        ? { kind: "reject", reason: "unavailable" } : fallback;
+    }
+    return { kind: "reject", reason: "unavailable" };
   };
   if (!key || !endpoint) return offline();
   const deployment = (process.env.AZURE_OPENAI_DEPLOYMENT_NAME || process.env.AZURE_OPENAI_DEPLOYMENT || "gpt-4o").trim();
@@ -175,6 +186,15 @@ async function marketNpcJson(system: string, prompt: string, temperature: number
   }
 }
 
+async function planActionSteps(state: GameState, playerText: string): Promise<string[]> {
+  const fallback = explicitActionSteps(playerText);
+  const proposed = await marketNpcJson(
+    "你只分析整句玩家行動的先後，不裁定成敗。只回 JSON。不得把同一招中的配合動作拆開，也不得省略玩家肯定要做的事。",
+    `階段：${state.questStep}；地點：${state.currentLocation}；現場：${sceneFacts(state.currentLocation, normalizeSceneState(state.sceneState, state.worldFlags))}\n玩家原句：${playerText}\n回傳 {"steps":["原句中第一項完整嘗試","原句中第二項完整嘗試"]}，最多三項。每項必須是原句連續出現的字串；動作與伴隨喊話可屬同一項。先做甲再做乙要分開；左手擋刀、右手出拳等同時招式維持一項。不能改寫、補造或宣稱成功。`, 0);
+  const validated = validatedActionSteps(playerText, proposed?.steps);
+  return validated && validated.length >= fallback.length ? validated : fallback;
+}
+
 function npcFacts(state: GameState, target: string): string {
   const past = (state.flags.marketNpcHistory || []).filter((entry) => entry.target === target).slice(-12);
   const relation = target === "陸千帆" ? `與玩家信任：${relationshipLabel(state.relationships["陸千帆"])}；負傷：${state.relationships["陸千帆"].wounded}` : "";
@@ -211,7 +231,7 @@ async function playMarketNpcDialogue(state: GameState, target: string, playerTex
     `${facts}\n玩家剛說：${playerText}\n回傳 {"reaction":"talk|refuse|consider|reveal|cooperate|defect|adopt_belief","reason":"人物為何這樣反應，簡述已知依據","memory":"下次應記住的一件對話事實或承諾，沒有則空字串","belief":"只有採納新信念時填"}。talk 包括閒談、傾訴、反問或說謊；reveal 只可說自己確實知道的現場線索。玩家的聲稱不可當成已證實的世界事實。`,
     0.6);
   const turn = resolveMarketDialogue(state, target, playerText, marketNpcProposal(proposalRaw));
-  if (turn.state.turn === state.turn) return { narrative: turn.event, options: turn.options, state: turn.state, narrativeSource: "npc_rejected" };
+  if (turn.state.turn === state.turn) return { narrative: appendDangerCue(turn.event, turn.state), options: turn.options, state: turn.state, narrativeSource: "npc_rejected" };
   const rendered = await marketNpcJson(
     "你只寫青山城黑泥街 NPC 此刻的自然對白與一個短動作。只回 JSON。不可改動已裁定結果，不可憑空增加人物、物件、傷勢、承諾或線索。玩家可與你閒談，不必硬拉回任務。用繁體中文書面語；NPC 對白可按內容長短自然伸縮。",
     `${npcFacts(turn.state, target)}\n玩家剛說：${playerText}\n已裁定反應：${turn.reaction}；理由：${turn.reason}；確定事件：${turn.event}\n回傳 {"beat":"眼前一個具體動作，至多六十字","reply":"${target}的直接對白，最多三百字，不加引號"}。若刀手仍在場，不能宣稱已安全；若只是考慮，不能說已答應、已倒戈或已改信。`,
@@ -227,7 +247,7 @@ async function playMarketNpcDialogue(state: GameState, target: string, playerTex
     && !containsSettlementLog(rendered.beat) && !/手機|電腦|槍械|核彈|修仙|法術/.test(rendered.beat)
     ? rendered.beat.trim() : hardboiledFallback(turn.event, turn.state).split("。")[0];
   recordMarketNpcReply(turn.state, target, reply);
-  return { narrative: `${beat.replace(/[。！!]+$/g, "")}。\n${target}：「${reply}」`,
+  return { narrative: appendDangerCue(`${beat.replace(/[。！!]+$/g, "")}。\n${target}：「${reply}」`, turn.state),
     options: turn.options, state: turn.state, narrativeSource: rendered && validReply ? "market_npc" : "market_npc_fallback" };
 }
 
@@ -257,7 +277,7 @@ async function narrate(state: GameState, action: string, event: string, moneyCha
   const socialNote = social ? `交涉後立場：${social.stance}；接受的信念：${social.beliefs.join("、") || "未有"}。不可忽略已答應的事，也不可把尚未答應的提議寫成既成事實。` : "";
   const sceneState = state.combat || state.flags.alleyEscape ? "Combat_Crisis"
     : state.flags.marketAftermath ? "Scene_Cooldown" : "Sandbox_Peace";
-  const prompt = `第 ${state.turn} 回合。地點：${state.currentLocation}；階段：${state.questStep}；場景狀態：${sceneState}；你做了：${action.slice(0, 180)}。\n確定事件：${event}\n黑泥街近期實際結果：${(state.flags.marketIntentHistory || []).map((entry) => entry.outcome).join("、") || "無"}\n已知場景：${sceneFacts(state.currentLocation, normalizeSceneState(state.sceneState, state.worldFlags))}\n下一回合合法選項：${availableOptions(state).join(" | ")}。旁白最後一句須交代與這些選項相符的實際身位與敵人姿態。\n本回合 NPC：${speaker}。聲線：${npcVoiceGuide(speaker)}${relationNote}${socialNote}\n${replyInstruction}已記因果：${state.worldFlags.join("、") || "無"}。${previousNarrative ? `上一回合敘事：${previousNarrative.slice(0, 180)}。只寫今回合新事件。` : ""}數值只更新介面，不寫進正文。`;
+  const prompt = `地點：${state.currentLocation}；階段：${state.questStep}；場景狀態：${sceneState}；玩家原句（只作意圖參考，不代表全部已完成）：${action.slice(0, 180)}。\n這次唯一確定的結算事件：${event}\n黑泥街近期實際結果：${(state.flags.marketIntentHistory || []).map((entry) => entry.outcome).join("、") || "無"}\n已知場景：${sceneFacts(state.currentLocation, normalizeSceneState(state.sceneState, state.worldFlags))}\n之後可選的做法：${availableOptions(state).join(" | ")}。旁白最後一句須交代與這些選項相符的實際身位與敵人姿態。\n眼前 NPC：${speaker}。聲線：${npcVoiceGuide(speaker)}${relationNote}${socialNote}\n${replyInstruction}已記因果：${state.worldFlags.join("、") || "無"}。${previousNarrative ? `先前敘事（只供避免重複，不能作為新事實來源）：${previousNarrative.slice(0, 180)}。只寫這次新事件。` : ""}數值只更新介面，不寫進正文。`;
   try {
     const response = await fetch(azureUrl(endpoint, deployment), {
       method: "POST",
@@ -290,28 +310,63 @@ export async function POST(req: NextRequest) {
   if (payload.action.startsWith("F. [自訂手段]")) {
     const playerText = payload.action.slice("F. [自訂手段]".length).trim();
     const marketMode = isMarketIntentScene(state);
-    const maxCustomLength = marketDialogueTarget(state, playerText) ? 300 : 100;
+    const maxCustomLength = 300;
     if (Array.from(playerText).length > maxCustomLength)
       return NextResponse.json({ narrative: `這段行動須在${maxCustomLength === 300 ? "三百" : "一百"}字內；請刪短再試。`, options: availableOptions(state), state, narrativeSource: "custom_rejected" });
+    if (playerText && !(state.flags.finalCrisis && state.questStep !== "chapter_one") && !state.flags.ending
+      && state.flags.chapterOne?.stage !== "complete" && state.flags.chapterOne?.stage !== "failed") {
+      const steps = await planActionSteps(state, playerText);
+      if (steps.length > 1) {
+        const outcome = await resolveActionSequence(state, steps, async (current, step) => {
+          const target = marketDialogueTarget(current, step);
+          if (target) {
+            const raw = await marketNpcJson(
+              "你只判斷黑泥街 NPC 的反應；玩家說法和承諾不是已證實事實。只回 JSON。",
+              `${npcFacts(current, target)}\n玩家說：${step}\n回傳 {"reaction":"talk|refuse|consider|reveal|cooperate|defect|adopt_belief","reason":"簡短理由","memory":"應記住的說法或承諾，沒有則空字串"}。`, 0.3);
+            const result = resolveMarketDialogue(current, target, step, marketNpcProposal(raw));
+            const line = fallbackMarketReply(target, result.reaction);
+            recordMarketNpcReply(result.state, target, line);
+            return { ...result, npcReply: { speaker: target, line } };
+          }
+          if (current.questStep === "chapter_one"
+            && /(?:城主|燕鎮嶽|官府)/.test(step) && !inferSocialIntent(current, step))
+            return resolveChapterPetition(current, step);
+          const decision = await interpretCustomAction(current, step);
+          if (decision.kind === "reject") return null;
+          if (current.questStep === "chapter_one" && decision.kind !== "option" && decision.kind !== "social_intent") return null;
+          return decision.kind === "scene_attempt" ? resolveSceneAttempt(current, decision.plan)
+            : decision.kind === "market_intent" ? resolveMarketIntent(current, decision.plan)
+              : decision.kind === "social_intent" ? resolveSocialIntent(current, decision.plan)
+                : decision.kind === "creative" ? resolveTurn(current, `F. [自訂手段] ${step}`, false, decision.plan, false)
+                  : resolveTurn(current, decision.kind === "option" ? decision.option : decision.action, false, undefined, false);
+        });
+        const pendingNote = outcome.pending.length
+          ? `${outcome.sceneChanged ? "眼前局勢已變" : "下一項未能結算"}；你原本還打算「${outcome.pending.join("、")}」，尚未嘗試。` : "";
+        const account = outcome.events.join("") + pendingNote;
+        return NextResponse.json({ narrative: appendDangerCue(account || "眼前未能判明這段行動，請換個講法。", outcome.state),
+          options: availableOptions(outcome.state), state: outcome.state, narrativeSource: "sequenced_action",
+          actionOutcome: { attempted: outcome.attempted, pending: outcome.pending } });
+      }
+    }
     if (state.questStep === "chapter_one") {
       if (!playerText || state.flags.chapterOne?.stage === "complete" || state.flags.chapterOne?.stage === "failed")
         return NextResponse.json({ narrative: "這一段故事已經收束。", options: availableOptions(state), state, narrativeSource: "custom_rejected" });
       if (/(?:城主|燕鎮嶽|官府)/.test(playerText) && !inferSocialIntent(state, playerText)) {
         const turn = resolveChapterPetition(state, playerText);
-        return NextResponse.json({ narrative: hardboiledFallback(turn.event, turn.state), options: turn.options, state: turn.state, narrativeSource: "chapter_one" });
+        return NextResponse.json({ narrative: appendDangerCue(hardboiledFallback(turn.event, turn.state), turn.state), options: turn.options, state: turn.state, narrativeSource: "chapter_one" });
       }
       const decision = await interpretCustomAction(state, playerText);
       if (decision.kind === "social_intent") {
         const turn = resolveSocialIntent(state, decision.plan);
         const narration = await narrate(turn.state, payload.action, turn.event, false, false, turn.npcReply, "", true);
-        return NextResponse.json({ narrative: narration.text, options: turn.options, state: turn.state, narrativeSource: narration.source });
+        return NextResponse.json({ narrative: appendDangerCue(narration.text, turn.state), options: turn.options, state: turn.state, narrativeSource: narration.source });
       }
       if (decision.kind !== "option")
         return NextResponse.json({ narrative: decision.kind === "reject" && decision.reason === "unavailable"
           ? "眼下無法判明這個自訂手段，請稍後再試或先選眼前可行的做法。"
           : "請說清眼前要採取的可行手段。", options: availableOptions(state), state, narrativeSource: "custom_rejected" });
       const turn = resolveTurn(state, decision.option, false, undefined, false);
-      return NextResponse.json({ narrative: hardboiledFallback(turn.event, turn.state), options: turn.options, state: turn.state, narrativeSource: "chapter_one" });
+      return NextResponse.json({ narrative: appendDangerCue(hardboiledFallback(turn.event, turn.state), turn.state), options: turn.options, state: turn.state, narrativeSource: "chapter_one" });
     }
     if (!playerText || state.flags.finalCrisis || state.flags.ending)
       return NextResponse.json({ narrative: "眼前須先處理正在發生的事。", options: availableOptions(state), state, narrativeSource: "custom_rejected" });
@@ -332,17 +387,17 @@ export async function POST(req: NextRequest) {
     if (turn.state.flags.ending) return NextResponse.json({ narrative: hardboiledFallback(turn.event, turn.state), options: turn.options, state: turn.state, narrativeSource: "ending" });
     const previousNarrative = typeof payload.previousNarrative === "string" ? payload.previousNarrative.slice(0, 500) : "";
     const narration = await narrate(turn.state, payload.action, turn.event, Boolean(turn.moneyNote), Boolean(state.combat || turn.state.combat), turn.npcReply, previousNarrative, marketMode || decision.kind === "social_intent");
-    return NextResponse.json({ narrative: narration.text, options: turn.options, state: turn.state,
+    return NextResponse.json({ narrative: marketMode ? appendDangerCue(narration.text, turn.state) : narration.text, options: turn.options, state: turn.state,
       narrativeSource: narration.source, ...("reason" in narration ? { narrativeFallbackReason: narration.reason } : {}) });
   }
   const opening = payload.action.startsWith("[初入堂口]") && state.questStep === "prologue_briefing" && state.turn === 1;
   const turn = resolveTurn(state, payload.action, opening);
   if (turn.state.questStep === "chapter_one" || turn.state.flags.ending)
-    return NextResponse.json({ narrative: hardboiledFallback(turn.event, turn.state), options: turn.options, state: turn.state, narrativeSource: turn.state.questStep === "chapter_one" ? "chapter_one" : "ending" });
+    return NextResponse.json({ narrative: appendDangerCue(hardboiledFallback(turn.event, turn.state), turn.state), options: turn.options, state: turn.state, narrativeSource: turn.state.questStep === "chapter_one" ? "chapter_one" : "ending" });
   const previousNarrative = typeof payload.previousNarrative === "string" ? payload.previousNarrative.slice(0, 500) : "";
   const narration = await narrate(turn.state, payload.action, turn.event, Boolean(turn.moneyNote), Boolean(state.combat || turn.state.combat), turn.npcReply, previousNarrative);
   return NextResponse.json({
-    narrative: narration.text, options: turn.options, state: turn.state,
+    narrative: appendDangerCue(narration.text, turn.state), options: turn.options, state: turn.state,
     narrativeSource: narration.source,
     ...("reason" in narration ? { narrativeFallbackReason: narration.reason } : {}),
   });

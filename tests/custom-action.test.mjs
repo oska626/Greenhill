@@ -6,6 +6,8 @@ import { newRelationships } from "../lib/companion-relations.ts";
 import { interpretMarketText, isMarketIntentScene, validateCustomDecision } from "../lib/custom-action.ts";
 import { createCombat } from "../lib/combat-engine.ts";
 import { inferSocialIntent, marketDialogueTarget } from "../lib/social-influence.ts";
+import { objectStatus, sceneFacts } from "../lib/scene-state.ts";
+import { appendDangerCue, explicitActionSteps, resolveActionSequence, sceneDangerCue, validatedActionSteps } from "../lib/action-sequence.ts";
 
 function state() {
   return {
@@ -18,6 +20,74 @@ function state() {
   };
 }
 
+test("ordered tasks stay separate while a single combat maneuver stays together", () => {
+  const [first, second] = explicitActionSteps("先把金創散敷在陸千帆傷口，再向張斷骨談規費");
+  assert.equal(first, "把金創散敷在陸千帆傷口");
+  assert.equal(second, "向張斷骨談規費");
+  const decision = interpretMarketText(state(), first);
+  assert.equal(decision.kind, "market_intent");
+  assert.equal(decision.plan.approach, "救護");
+  assert.deepEqual(explicitActionSteps("左手以砧板擋刀，右手迎擊刀手"), ["左手以砧板擋刀，右手迎擊刀手"]);
+});
+
+test("ordered Blackmud actions settle against the updated scene and stop at the ambush", async () => {
+  const words = "先替陸千帆敷金創散，再逼張斷骨交規費，然後查看巷口";
+  const steps = explicitActionSteps(words);
+  assert.deepEqual(steps, ["替陸千帆敷金創散", "逼張斷骨交規費", "查看巷口"]);
+  assert.deepEqual(validatedActionSteps(words, steps), steps);
+  assert.equal(validatedActionSteps(words, [steps[0]]), null);
+  assert.deepEqual(explicitActionSteps("左手舉砧板擋刀，右手迎擊刀手"), ["左手舉砧板擋刀，右手迎擊刀手"]);
+  const outcome = await resolveActionSequence(state(), steps, async (current, step) => {
+    const target = marketDialogueTarget(current, step);
+    if (target) return resolveMarketDialogue(current, target, step,
+      { reaction: "consider", reason: "尚未同意", memory: "" });
+    const decision = interpretMarketText(current, step);
+    return decision.kind === "market_intent" ? resolveMarketIntent(current, decision.plan) : null;
+  });
+  assert.equal(outcome.state.worldFlags.includes("陸千帆已敷藥"), true);
+  assert.equal(outcome.state.inventory.includes("【金創散】"), false);
+  assert.equal(outcome.state.questStep, "huizhi_ambush");
+  assert.deepEqual(outcome.pending, ["查看巷口"]);
+  assert.equal(outcome.state.flags.collectedMarketFee, true);
+  assert.match(appendDangerCue(outcome.events.join(""), outcome.state), /\n\n（.*刀手.+）$/);
+});
+
+test("a combat exchange interrupts later instructions even when the fight continues", async () => {
+  const opening = { ...state(), questStep: "huizhi_ambush", combat: createCombat("market_ambush", true) };
+  const steps = ["擋住刀手", "轉身離開"];
+  const outcome = await resolveActionSequence(opening, steps, async (current, step) => {
+    const decision = interpretMarketText(current, step);
+    return decision.kind === "market_intent" ? resolveMarketIntent(current, decision.plan) : null;
+  });
+  assert.deepEqual(outcome.attempted, ["擋住刀手"]);
+  assert.deepEqual(outcome.pending, ["轉身離開"]);
+});
+
+test("a scene change leaves later tasks pending and rejects invented planner steps", async () => {
+  assert.equal(validatedActionSteps("先查貨單，再問船工", ["查貨單", "取出不存在的密信"]), null);
+  assert.equal(validatedActionSteps("先查貨單，再問船工", ["問船工", "查貨單"]), null);
+  assert.equal(validatedActionSteps("先打，再跑", ["跑"]), null);
+  const opening = { ...state(), currentLocation: "苦煙館", questStep: "kuyan_medicine" };
+  const outcome = await resolveActionSequence(opening, ["趕往市集", "追問張斷骨"], async (current) => {
+    current.currentLocation = "黑泥街";
+    current.questStep = "market_collection";
+    current.turn += 1;
+    return { state: current, options: [], event: "你趕到黑泥街。", moneyNote: "" };
+  });
+  assert.deepEqual(outcome.attempted, ["趕往市集"]);
+  assert.deepEqual(outcome.pending, ["追問張斷骨"]);
+  assert.equal(outcome.sceneChanged, true);
+});
+
+test("chapter pressure is shown as a concrete scene cue without a turn countdown", () => {
+  const scene = { ...state(), questStep: "chapter_one", currentLocation: "碼頭",
+    flags: { ...state().flags, chapterOne: { stage: "shortage", unrest: 17 } } };
+  const cue = sceneDangerCue(scene);
+  assert.match(cue, /求糧的人群/);
+  assert.doesNotMatch(cue, /回合|剩餘/);
+  assert.match(appendDangerCue("你查過貨單。", scene), /\n\n（.+）$/);
+});
+
 test("negation and hypothetical wording cannot authorize irreversible acts", () => {
   const scene = state();
   const raw = { kind: "special", specials: ["betray"] };
@@ -25,6 +95,8 @@ test("negation and hypothetical wording cannot authorize irreversible acts", () 
   assert.equal(validateCustomDecision(raw, scene, availableOptions(scene), "如果我出賣陸千帆會點？").kind, "reject");
   const affirmative = validateCustomDecision(raw, scene, availableOptions(scene), "我出賣陸千帆");
   assert.equal(affirmative.kind, "special");
+  assert.equal(validateCustomDecision({ kind: "special", specials: ["betray", "maim"] },
+    scene, availableOptions(scene), "出賣陸千帆，打斷張斷骨右手").kind, "reject");
   const direct = resolveTurn(scene, "F. [自訂手段] 我唔會出賣陸千帆", false);
   assert.ok(!direct.state.worldFlags.includes("出賣陸千帆"));
 });
@@ -45,17 +117,20 @@ test("Blackmud free intent persists preparation and reaches combat without spend
   const impossibleKnife = resolveMarketIntent(scene, { approach: "進擊", target: "刀手", object: "剁骨刀", method: "隔街搶刀" });
   assert.equal(impossibleKnife.state.turn, scene.turn);
   assert.match(impossibleKnife.event, /不能隔空/);
-  assert.match(prepared.options.find((option) => option.startsWith("D.")), /肉案已歪/);
-  const rescue = resolveMarketIntent(prepared.state, { approach: "救護", target: "陸千帆", method: "敷藥扶起陸千帆" });
-  assert.equal(rescue.state.questStep, "huizhi_ambush");
-  assert.equal(rescue.state.combat.preparedDefense >= 1, true);
+  assert.match(prepared.state.sceneState.movedObjects["厚砧板"], /傾斜/);
+  const rescue = resolveMarketIntent(prepared.state, { approach: "救護", target: "陸千帆", object: "金創散", method: "把金創散敷在陸千帆傷口" });
+  assert.equal(rescue.state.questStep, "market_collection");
   assert.equal(rescue.state.inventory.includes("【金創散】"), false);
+  assert.equal(rescue.state.worldFlags.includes("陸千帆已敷藥"), true);
   assert.equal(rescue.state.factionFunds, scene.factionFunds);
   assert.equal(rescue.state.customActionUses, 0);
-  const defended = resolveMarketIntent(rescue.state, { approach: "防守", target: "陸千帆", method: "卡在陸千帆前面接刀" });
+  const collection = resolveTurn(rescue.state, rescue.options.find((option) => option.startsWith("B.")), false);
+  assert.equal(collection.state.questStep, "huizhi_ambush");
+  assert.equal(collection.state.combat.preparedDefense >= 1, true);
+  const defended = resolveMarketIntent(collection.state, { approach: "防守", target: "陸千帆", method: "卡在陸千帆前面接刀" });
   assert.equal(defended.state.customActionUses, 0);
-  assert.equal(defended.state.turn, rescue.state.turn + 1);
-  assert.equal(defended.state.flags.marketIntentHistory.length, 3);
+  assert.equal(defended.state.turn, collection.state.turn + 1);
+  assert.equal(defended.state.flags.marketIntentHistory.length, 4);
 });
 
 test("using a butcher's board during ambush does not invent a carried wooden stick", () => {
@@ -140,6 +215,28 @@ test("generic scene gate respects possession, weight, and real disarm risk", () 
   assert.match(grabbed.event, /刀仍在他掌中/);
 });
 
+test("butcher knife ownership and position agree across free-action routes and saves", () => {
+  const generic = resolveSceneAttempt(state(), { effect: "seize", target: "張斷骨",
+    object: "剁骨刀", method: "扣住張斷骨手腕，震落剁骨刀" });
+  const legacy = resolveMarketIntent(state(), { approach: "借物", target: "張斷骨",
+    object: "剁骨刀", method: "扣住張斷骨手腕，震落剁骨刀" });
+  for (const turn of [generic, legacy]) {
+    assert.equal(objectStatus(turn.state.sceneState, "剁骨刀").holder, "");
+    assert.equal(objectStatus(turn.state.sceneState, "剁骨刀").reach, "move");
+    assert.match(turn.state.sceneState.movedObjects["剁骨刀"], /肉案下/);
+    assert.equal(turn.state.worldFlags.includes("張斷骨失刀"), true);
+    assert.doesNotMatch(sceneFacts("黑泥街", turn.state.sceneState), /由張斷骨持有/);
+    const resumed = normalizeState(JSON.parse(JSON.stringify(turn.state)));
+    assert.equal(objectStatus(resumed.sceneState, "剁骨刀").holder, "");
+    const blocked = resolveSceneAttempt(resumed, { effect: "seize", target: "刀手",
+      object: "剁骨刀", method: "交手中再撿剁骨刀" });
+    assert.equal(blocked.state.turn, resumed.turn);
+    assert.match(blocked.event, /碰不到/);
+  }
+  const olderSave = normalizeState({ ...state(), sceneState: undefined, worldFlags: ["張斷骨失刀"] });
+  assert.equal(objectStatus(olderSave.sceneState, "剁骨刀").holder, "");
+});
+
 test("generic attempts follow the positive clause and retreat into the actual alley", () => {
   const scene = state();
   const raw = { kind: "scene_attempt", effect: "harm", target: "刀手", gesture: "踩刀手腳背" };
@@ -162,6 +259,51 @@ test("a barehanded rescue creates no phantom board and medicine is spent", () =>
   const treated = resolveSceneAttempt(scene, { effect: "protect", target: "陸千帆", object: "金創散", method: "把金創散按上陸千帆傷口" });
   assert.equal(treated.state.inventory.includes("【金創散】"), false);
   assert.equal(treated.state.relationships["陸千帆"].wounded, false);
+});
+
+test("free treatment and preset collection share one medicine state", () => {
+  const scene = { ...state(), inventory: ["【金創散】", "【止血散】"] };
+  const free = resolveSceneAttempt(scene, { effect: "protect", target: "陸千帆",
+    object: "金創散", method: "把金創散按上陸千帆傷口" });
+  assert.equal(free.state.inventory.includes("【金創散】"), false);
+  assert.equal(free.state.inventory.includes("【止血散】"), true);
+  assert.equal(free.state.worldFlags.includes("陸千帆已敷藥"), true);
+  assert.match(free.event, /金創散按在陸千帆傷口/);
+  assert.doesNotMatch(free.event, /挪動金創散/);
+  assert.equal(free.options.some((option) => option.includes("[救護同門]")), false);
+  assert.equal(free.options.some((option) => option.startsWith("B.")), true);
+  const resumed = normalizeState(JSON.parse(JSON.stringify(free.state)));
+  assert.equal(availableOptions(resumed).some((option) => option.includes("[救護同門]")), false);
+  const stale = resolveTurn(free.state, availableOptions(scene).find((option) => option.startsWith("A.")), false);
+  assert.equal(stale.state.turn, free.state.turn);
+  const repeated = resolveSceneAttempt(free.state, { effect: "protect", target: "陸千帆",
+    object: "止血散", method: "再敷止血散" });
+  assert.equal(repeated.state.turn, free.state.turn);
+  assert.equal(repeated.state.inventory.includes("【止血散】"), true);
+
+  const collected = resolveTurn(free.state, free.options.find((option) => option.startsWith("B.")), false);
+  assert.equal(collected.state.factionFunds, scene.factionFunds + 50);
+  assert.equal(collected.state.inventory.includes("【止血散】"), true);
+  assert.equal(collected.state.worldFlags.includes("陸千帆已敷藥"), true);
+  assert.doesNotMatch(collected.event, /敷上|金創散/);
+
+  const preset = resolveTurn(scene, availableOptions(scene).find((option) => option.startsWith("A.")), false);
+  assert.equal(preset.state.factionFunds, scene.factionFunds);
+  assert.equal(preset.state.worldFlags.includes("陸千帆已敷藥"), true);
+  assert.equal(preset.state.inventory.includes("【金創散】"), false);
+  assert.equal(preset.state.inventory.includes("【止血散】"), true);
+  const presetCollected = resolveTurn(preset.state, preset.options.find((option) => option.startsWith("B.")), false);
+  assert.equal(collected.state.relationships["陸千帆"].trust, presetCollected.state.relationships["陸千帆"].trust);
+  assert.equal(collected.state.factionFunds, presetCollected.state.factionFunds);
+});
+
+test("market collection without medicine does not invent a treatment item", () => {
+  const scene = { ...state(), inventory: [] };
+  const option = availableOptions(scene).find((item) => item.startsWith("A."));
+  assert.match(option, /撕布壓住/);
+  const turn = resolveTurn(scene, option, false);
+  assert.doesNotMatch(turn.event, /金創散|止血膏藥|敷藥/);
+  assert.equal(turn.state.worldFlags.includes("陸千帆已敷藥"), false);
 });
 
 test("a prepared disarm can win the knife, but a full bag leaves it on the ground", () => {
@@ -188,6 +330,7 @@ test("repeated preparation makes the waiting knife men strike on the third turn"
   const first = resolveMarketIntent(scene, { approach: "查探", target: "街口", method: "看巷口腳印" });
   const second = resolveMarketIntent(first.state, { approach: "交涉", target: "陸千帆", method: "跟陸千帆對手勢" });
   assert.equal(second.state.questStep, "market_collection");
+  assert.match(second.event, /巷口灰衣人已逼到肉檔邊/);
   const third = resolveMarketIntent(second.state, { approach: "查探", target: "刀手", method: "再看刀手袖口" });
   assert.equal(third.state.questStep, "huizhi_ambush");
   assert.match(third.event, /刀手已等不下去/);

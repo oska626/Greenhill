@@ -164,6 +164,10 @@ export function normalizeSceneState(raw: unknown, legacyFlags: readonly string[]
   const objectHolders = value.objectHolders && typeof value.objectHolders === "object"
     ? Object.fromEntries(Object.entries(value.objectHolders).filter(([key, holder]) =>
       typeof key === "string" && typeof holder === "string").slice(0, 40)) : {};
+  if (legacyFlags.includes("張斷骨失刀") && objectHolders["剁骨刀"] === undefined) {
+    objectHolders["剁骨刀"] = "";
+    movedObjects["剁骨刀"] ??= "肉案下";
+  }
   return { discoveredEntrances, openedEntrances, depletedSources, movedObjects, objectHolders,
     medicineIdentified: value.medicineIdentified === true, medicineUsed: value.medicineUsed === true,
     medicineKind: "散氣粉" };
@@ -173,7 +177,9 @@ export function objectStatus(scene: SceneState, name: string): ObjectRule | unde
   if (name === "無名藥粉瓷瓶" && scene.medicineUsed) return undefined;
   const rule = OBJECT_RULES[name];
   if (!rule) return undefined;
-  return { ...rule, holder: scene.objectHolders[name] ?? rule.holder };
+  const droppedButcherKnife = name === "剁骨刀" && scene.objectHolders[name] === "";
+  return { ...rule, reach: droppedButcherKnife ? "move" : rule.reach,
+    holder: scene.objectHolders[name] ?? rule.holder };
 }
 
 export function revealEntrance(scene: SceneState, place: PassageEntrance): void {
@@ -193,7 +199,9 @@ export function sceneFacts(place: Landmark, scene: SceneState): string {
       const reach = rule.reach === "near" ? "可及" : rule.reach === "move" ? "可見、未及" : "可見、受人把守";
       const handling = rule.handling === "take" ? "接近後可取" : rule.handling === "heavy" ? "沉重難取"
         : rule.handling === "fixed" ? "固定不可取" : "藥性未知，不能預知效果";
-      return `${object.name}在${scene.movedObjects[object.name] || object.position}；${reach}；${handling}；${rule.holder ? `由${rule.holder}持有；` : ""}${object.access}；${object.use}${identity}`; }).join("。 ");
+      const access = object.name === "剁骨刀" && !rule.holder && scene.movedObjects[object.name]
+        ? "刀已脫手，須靠近所在位置才可拾起" : object.access;
+      return `${object.name}在${scene.movedObjects[object.name] || object.position}；${reach}；${handling}；${rule.holder ? `由${rule.holder}持有；` : ""}${access}；${object.use}${identity}`; }).join("。 ");
   const entrance = site.entrance && scene.discoveredEntrances.includes(place as PassageEntrance)
     ? `${scene.openedEntrances.includes(place as PassageEntrance) ? "已打開" : "已知但未打開"}暗道入口：${site.entrance.position}；${site.entrance.access}。` : "";
   return `${site.routes}${site.conditions}${objects}。${entrance}`;
