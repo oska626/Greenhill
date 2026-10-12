@@ -1,5 +1,4 @@
 import type { GameState } from "./game-engine.ts";
-import { LANDMARK_SCENES } from "./scene-state.ts";
 
 export const NARRATIVE_MIN = 40;
 export const NARRATIVE_MAX = 60;
@@ -24,28 +23,14 @@ function stripSettlement(event: string): string {
     .replace(/(?:青鋒堂)?(?:氣血|精力|命脈|防線|守備|私銀|公款)(?:減少|增加|回復|淨增|減|升|餘)[零一二三四五六七八九十百千\d]+(?:點|文)?[；，。]?/g, "")
     .replace(/(?:氣血|精力|命脈|私銀|公款)(?:都)?(?:已滿|不足|未動)[；，。]?/g, "")
     .replace(/[零一二三四五六七八九十百千\d]+(?:點|文)(?:精力|氣血|命脈)?/g, "")
+    .replace(/你付私銀買下/g, "你買下")
     .replace(/[；，]{2,}/g, "，")
-    .replace(/^[；，。\s]+|[；，。\s]+$/g, "");
+    .replace(/^[；，。\s]+|[；，\s]+$/g, "");
 }
 
-function head(text: string, maximum: number): string {
-  const characters = Array.from(text);
-  let count = 0;
-  let end = characters.length;
-  for (let index = 0; index < characters.length; index++) {
-    if (/[\u3400-\u9fff]/.test(characters[index])) count++;
-    if (count >= maximum) { end = index + 1; break; }
-  }
-  if (end < characters.length) {
-    const prefix = characters.slice(0, end);
-    const boundary = prefix.findLastIndex((character) => /[，；。！？]/.test(character));
-    if (boundary >= 6) end = boundary;
-  }
-  return characters.slice(0, end).join("").replace(/[，；：、\s]+$/g, "");
-}
-
-function oneSentence(text: string): string {
-  return text.replace(/[。！？!]+/g, "，").replace(/[，；：\s]+$/g, "");
+export function completeSentences(text: string, fallback: string): string[] {
+  const sentences = text.match(/[^。！？!]+[。！？!]/g)?.map((sentence) => sentence.trim()).filter(Boolean) || [];
+  return sentences.length ? sentences : [fallback];
 }
 
 export function validHardboiledNarrative(value: unknown): value is string {
@@ -106,38 +91,21 @@ export function hardboiledFallback(event: string, state: GameState, reply?: { sp
       : `${brokenStick}${opening}你踩過肉檔前的血水，見張斷骨還躲在案後；巷口眼線未散，街坊仍不敢走近。`;
   }
   const clean = stripSettlement(event);
-  const beats = clean.split(/[。！？!]+/).map((beat) => oneSentence(beat.trim())).filter(Boolean);
-  const first = head(beats[0] || `你在${state.currentLocation}動了手`, 26);
-  const last = beats.length > 1 ? head(beats[beats.length - 1], 22) : "";
-  const speaker = reply?.speaker;
-  const line = reply?.line ? head(oneSentence(reply.line), 20) : "";
-  const dialogue = speaker && line ? `${speaker}：「${line}！」` : "";
-  let sentences = [first, last].filter(Boolean).map((beat) => `${beat}。`);
-  if (dialogue) sentences.push(dialogue);
-  if (sentences.length < 2) {
-    const locationBeat = head(LANDMARK_SCENES[state.currentLocation].routes.replace(/[。；]/g, "，"), 18);
-    sentences.push(`${locationBeat}。`);
-  }
-  if (sentences.length > 3) sentences = [sentences[0], sentences.at(-2)!, sentences.at(-1)!];
+  const defaultFirst = `你在${state.currentLocation}站穩身位，留心眼前局勢。`;
+  const eventSentences = completeSentences(clean, defaultFirst)
+    .filter((sentence) => chineseLength(sentence) <= 32 && !containsSettlementLog(sentence));
+  const first = eventSentences[0] || defaultFirst;
+  const last = eventSentences.length > 1 ? eventSentences.at(-1)! : "";
+  const dialogue = reply?.speaker && reply.line && chineseLength(reply.line) <= 20
+    ? `${reply.speaker}：「${reply.line.replace(/[。！？!]+$/g, "")}！」` : "";
+  const detail = `你看清${state.currentLocation}眼前的動靜，收住腳步，仍須留意當前身位與下一步去向，眼下還不能倉促定奪。`;
+  let sentences = [first, last, dialogue].filter(Boolean);
+  if (sentences.length < 2) sentences.push(detail);
   let result = sentences.join("");
-  if (chineseLength(result) < NARRATIVE_MIN) {
-    const extra = beats.slice(1, -1).find((beat) => !result.includes(beat));
-    const addition = extra || LANDMARK_SCENES[state.currentLocation].conditions.replace(/[。；]/g, "，");
-    const needed = Math.min(20, NARRATIVE_MIN - chineseLength(result) + 2);
-    if (dialogue) sentences[0] = `${sentences[0].slice(0, -1)}，${head(addition, needed)}。`;
-    else sentences[1] = `${sentences[1].slice(0, -1)}，${head(addition, needed)}。`;
-    result = sentences.join("");
-  }
-  if (chineseLength(result) < NARRATIVE_MIN) {
-    const extra = "你收住腳步，聽見街口有人踩過泥水，手仍按在袖邊";
-    if (sentences.length < 3) sentences.push(`${extra}。`);
-    else sentences[1] = `${sentences[1].slice(0, -1)}，${extra}。`;
-    result = sentences.join("");
-  }
-  if (chineseLength(result) > NARRATIVE_MAX) {
-    const excess = chineseLength(result) - NARRATIVE_MAX;
-    sentences[0] = `${head(sentences[0].slice(0, -1), Math.max(12, chineseLength(sentences[0]) - excess))}。`;
-    result = sentences.join("");
+  if (chineseLength(result) < NARRATIVE_MIN) result = `${first}${detail}`;
+  if (chineseLength(result) > NARRATIVE_MAX || narrativeSentenceCount(result) > 3) {
+    result = `${first}${detail}`;
+    if (chineseLength(result) > NARRATIVE_MAX) result = `${defaultFirst}${detail}`;
   }
   return result;
 }

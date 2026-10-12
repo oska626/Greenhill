@@ -4,7 +4,7 @@ import { availableOptions, normalizeState, resolveSceneAttempt, resolveTurn } fr
 import { combatOptions, createCombat } from "../lib/combat-engine.ts";
 import { newRelationships } from "../lib/companion-relations.ts";
 import { darkHandCount, dirtyHandTier, rollD20 } from "../lib/dirty-hand.ts";
-import { hardboiledFallback, validHardboiledNarrative } from "../lib/narrative-style.ts";
+import { completeSentences, hardboiledFallback, validHardboiledNarrative } from "../lib/narrative-style.ts";
 import { LANDMARK_SCENES, OBJECT_RULES, normalizeSceneState, objectStatus, openEntrance, revealEntrance, sceneFacts } from "../lib/scene-state.ts";
 import { sceneAttemptObjects } from "../lib/custom-action.ts";
 import { blackmudAnchors, blackmudFocus } from "../lib/blackmud-hud.ts";
@@ -20,6 +20,15 @@ function game(overrides = {}) {
       marketAmbushTriggered: true, darkHandInitialized: true }, ...overrides,
   };
 }
+
+test("fallback uses complete sentences and a full default when punctuation is absent", () => {
+  const defaultSentence = "你站穩身位，眼前局勢仍待分明。";
+  assert.deepEqual(completeSentences("你往巷口走", defaultSentence), [defaultSentence]);
+  assert.deepEqual(completeSentences("你站穩。後半句尚未寫完", defaultSentence), ["你站穩。"]);
+  const prose = hardboiledFallback("你沿街追了很久卻始終沒有看到巷口任何人影也沒有找到下一步的線索", game());
+  assert.equal(validHardboiledNarrative(prose), true, prose);
+  assert.equal(prose.includes("你沿街追了很久卻始終沒有看到巷口任何人影"), false);
+});
 
 test("all forty-eight landmark props have physical rules and the new market props are reachable only at the stall", () => {
   const entries = Object.entries(LANDMARK_SCENES);
