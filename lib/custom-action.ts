@@ -57,7 +57,9 @@ export function marketIntentObjects(state: GameState): string[] {
 }
 export function sceneAttemptObjects(state: GameState): string[] {
   return [...marketIntentObjects(state), ...(state.combat?.scenario === "market_ambush" || state.questStep === "market_collection"
-    ? ["刀手短刀"] : [])];
+    ? ["刀手短刀"] : []), ...(!state.flags.alleyEscape && !state.flags.marketAftermath
+    && (state.combat?.scenario === "market_ambush" || state.questStep === "market_collection")
+      ? ["半扇懸掛生豬胴體", "排污水溝爛木蓋板"] : [])];
 }
 export type CustomDecision =
   | { kind: "option"; option: string }

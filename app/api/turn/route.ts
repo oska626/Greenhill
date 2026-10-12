@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { availableOptions, normalizeState, OPENING_CITY_NARRATION, recordMarketNpcReply, resolveMarketDialogue,
-  resolveMarketIntent, resolveSceneAttempt, resolveSocialIntent, resolveTurn, type GameState, type Landmark } from "@/lib/game-engine";
+  resolveMarketIntent, resolveOpeningKnifeRequest, resolveSceneAttempt, resolveSocialIntent, resolveTurn, type GameState, type Landmark } from "@/lib/game-engine";
 import { COMPANION_IDS, relationshipLabel } from "@/lib/companion-relations";
 import { CREATIVE_GOALS, interpretMarketText, isMarketIntentScene, marketIntentTargets, SCENE_EFFECTS, sceneAttemptObjects, sceneAnchors, validateCustomDecision, type CustomDecision } from "@/lib/custom-action";
 import { appendDangerCue, explicitActionSteps, resolveActionSequence, validatedActionSteps } from "@/lib/action-sequence";
@@ -10,11 +10,12 @@ import { chineseLength, containsSettlementLog, hardboiledFallback, narrativeSent
 import { normalizeSceneState, sceneFacts } from "@/lib/scene-state";
 import { inferSocialIntent, MARKET_NPC_REACTIONS, marketDialogueTarget, socialTargets,
   type MarketNpcProposal, type MarketNpcReaction } from "@/lib/social-influence";
+import { blackmudFocus } from "@/lib/blackmud-hud";
 
 const SYSTEM_PROMPT = `你是青山城城西的文字冒險主持人。這是古代底層幫派江湖；同門情分、欠帳、傷勢與地盤牽動人心。只用自然的繁體中文書面語，不用廣東話、現代口語或網絡用語。沒有神怪、高武或現代物品。
 旁白以第二人稱「你」推進。玩家名號只可在 NPC 對白出現。每回合只寫動作、眼前局勢和必要對白；不寫心理、空泛形容詞或重複的場景介紹。對白須有底層市井的短促狠勁，不說大道理。
 NPC 說話須符合各自的利益與習慣。青鋒堂門生及玩家提及何不歸時稱「堂主」；門派外的人可叫「何不歸」。
-只回 JSON：{"narrative":"..."}。一般段落 40 至 60 個中文字、2 至 3 句；自由行動可用 35 至 120 個中文字、2 至 5 句，以完整交代嘗試、後果和未解局勢為先。禁止寫氣血、精力、命脈、銀兩變動、回合倒數或任何數字結算；數值只由介面顯示。
+只回 JSON：{"narrative":"..."}。一般段落 40 至 60 個中文字、2 至 3 句；自由行動以 40 至 60 字為目標，必要時可用 35 至 120 字、2 至 5 句交代多項後果。黑泥街只點出當前身位正對的威脅或轉機，最多一至兩件物件；不可把場景物件逐一唸成清單。禁止寫氣血、精力、命脈、銀兩變動、回合倒數或任何數字結算；數值只由介面顯示。
 只敘述提供的確定事件與已知場景；玩家的推測、承諾和後續打算不是已發生的事。不可變出未在場的物件、人物、傷勢或道路；第一章可到碼頭，其餘未開放區域不可進入。
 場景狀態是硬約束：Combat_Crisis 表示刀手仍在場、追兵正逼近或尚未脫身；旁白須交代當前身位、受創與仍在場的敵人，句子必須完整，不可宣稱安全或轉寫日常。Scene_Cooldown 表示威脅暫退但傷者、血跡或眼線仍待處置；只寫殘局和撤離。Sandbox_Peace 表示危機與殘局均已處理，才可寫日常生計。選項由程式決定；你的敘事最後一句須與系統給出的場景狀態和下一回合選項相容。`;
 
@@ -277,7 +278,9 @@ async function narrate(state: GameState, action: string, event: string, moneyCha
   const socialNote = social ? `交涉後立場：${social.stance}；接受的信念：${social.beliefs.join("、") || "未有"}。不可忽略已答應的事，也不可把尚未答應的提議寫成既成事實。` : "";
   const sceneState = state.combat || state.flags.alleyEscape ? "Combat_Crisis"
     : state.flags.marketAftermath ? "Scene_Cooldown" : "Sandbox_Peace";
-  const prompt = `地點：${state.currentLocation}；階段：${state.questStep}；場景狀態：${sceneState}；玩家原句（只作意圖參考，不代表全部已完成）：${action.slice(0, 180)}。\n這次唯一確定的結算事件：${event}\n黑泥街近期實際結果：${(state.flags.marketIntentHistory || []).map((entry) => entry.outcome).join("、") || "無"}\n已知場景：${sceneFacts(state.currentLocation, normalizeSceneState(state.sceneState, state.worldFlags))}\n之後可選的做法：${availableOptions(state).join(" | ")}。旁白最後一句須交代與這些選項相符的實際身位與敵人姿態。\n眼前 NPC：${speaker}。聲線：${npcVoiceGuide(speaker)}${relationNote}${socialNote}\n${replyInstruction}已記因果：${state.worldFlags.join("、") || "無"}。${previousNarrative ? `先前敘事（只供避免重複，不能作為新事實來源）：${previousNarrative.slice(0, 180)}。只寫這次新事件。` : ""}數值只更新介面，不寫進正文。`;
+  const focus = state.currentLocation === "黑泥街" ? blackmudFocus(state, event) : [];
+  const focusNote = focus.length ? `旁白若需點出環境，只選與這次事件及身位相符的${focus.join("、")}，最多兩件；其餘物件由介面顯示，不要逐件唸出。\n` : "";
+  const prompt = `地點：${state.currentLocation}；階段：${state.questStep}；場景狀態：${sceneState}；玩家原句（只作意圖參考，不代表全部已完成）：${action.slice(0, 180)}。\n這次唯一確定的結算事件：${event}\n黑泥街近期實際結果：${(state.flags.marketIntentHistory || []).map((entry) => entry.outcome).join("、") || "無"}\n已知場景：${sceneFacts(state.currentLocation, normalizeSceneState(state.sceneState, state.worldFlags))}\n${focusNote}之後可選的做法：${availableOptions(state).join(" | ")}。旁白最後一句須交代與這些選項相符的實際身位與敵人姿態。\n眼前 NPC：${speaker}。聲線：${npcVoiceGuide(speaker)}${relationNote}${socialNote}\n${replyInstruction}已記因果：${state.worldFlags.join("、") || "無"}。${previousNarrative ? `先前敘事（只供避免重複，不能作為新事實來源）：${previousNarrative.slice(0, 180)}。只寫這次新事件。` : ""}數值只更新介面，不寫進正文。`;
   try {
     const response = await fetch(azureUrl(endpoint, deployment), {
       method: "POST",
@@ -313,11 +316,18 @@ export async function POST(req: NextRequest) {
     const maxCustomLength = 300;
     if (Array.from(playerText).length > maxCustomLength)
       return NextResponse.json({ narrative: `這段行動須在${maxCustomLength === 300 ? "三百" : "一百"}字內；請刪短再試。`, options: availableOptions(state), state, narrativeSource: "custom_rejected" });
+    if (explicitActionSteps(playerText).length === 1) {
+      const request = resolveOpeningKnifeRequest(state, playerText);
+      if (request) return NextResponse.json({ narrative: `${request.event}\n何不歸：「${request.npcReply!.line}」`,
+        options: request.options, state: request.state, narrativeSource: "opening_knife_request" });
+    }
     if (playerText && !(state.flags.finalCrisis && state.questStep !== "chapter_one") && !state.flags.ending
       && state.flags.chapterOne?.stage !== "complete" && state.flags.chapterOne?.stage !== "failed") {
       const steps = await planActionSteps(state, playerText);
       if (steps.length > 1) {
         const outcome = await resolveActionSequence(state, steps, async (current, step) => {
+          const request = resolveOpeningKnifeRequest(current, step);
+          if (request) return request;
           const target = marketDialogueTarget(current, step);
           if (target) {
             const raw = await marketNpcJson(

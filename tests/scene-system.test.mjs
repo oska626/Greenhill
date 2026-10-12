@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { availableOptions, normalizeState, resolveTurn } from "../lib/game-engine.ts";
+import { availableOptions, normalizeState, resolveSceneAttempt, resolveTurn } from "../lib/game-engine.ts";
 import { combatOptions, createCombat } from "../lib/combat-engine.ts";
 import { newRelationships } from "../lib/companion-relations.ts";
 import { darkHandCount, dirtyHandTier, rollD20 } from "../lib/dirty-hand.ts";
 import { hardboiledFallback, validHardboiledNarrative } from "../lib/narrative-style.ts";
-import { LANDMARK_SCENES, normalizeSceneState, objectStatus, openEntrance, revealEntrance, sceneFacts } from "../lib/scene-state.ts";
+import { LANDMARK_SCENES, OBJECT_RULES, normalizeSceneState, objectStatus, openEntrance, revealEntrance, sceneFacts } from "../lib/scene-state.ts";
+import { sceneAttemptObjects } from "../lib/custom-action.ts";
+import { blackmudAnchors, blackmudFocus } from "../lib/blackmud-hud.ts";
 import { travelChoices } from "../lib/city-progression.ts";
 
 function game(overrides = {}) {
@@ -18,6 +20,68 @@ function game(overrides = {}) {
       marketAmbushTriggered: true, darkHandInitialized: true }, ...overrides,
   };
 }
+
+test("all forty-eight landmark props have physical rules and the new market props are reachable only at the stall", () => {
+  const entries = Object.entries(LANDMARK_SCENES);
+  assert.equal(entries.length, 8);
+  assert.equal(entries.reduce((total, [, scene]) => total + scene.objects.length, 0), 48);
+  for (const [place, scene] of entries) {
+    const names = scene.objects.map((object) => object.name);
+    assert.equal(new Set(names).size, names.length, `${place} contains a duplicate prop`);
+    for (const name of names) assert.ok(OBJECT_RULES[name], `${place}: ${name} lacks physical rules`);
+  }
+  assert.equal(LANDMARK_SCENES["青鋒堂總壇"].objects.some((object) => object.name === "堂口備用短刀"), false);
+  assert.ok(LANDMARK_SCENES["青鋒堂總壇"].objects.some((object) => object.name === "牛肉刀"));
+  assert.match(sceneFacts("夜雨樓", normalizeSceneState(undefined)), /銅鏡不會碎成玻璃刃/);
+  const market = game({ questStep: "market_collection", flags: { ...game().flags, marketAmbushTriggered: false } });
+  assert.ok(sceneAttemptObjects(market).includes("半扇懸掛生豬胴體"));
+  assert.ok(sceneAttemptObjects(market).includes("排污水溝爛木蓋板"));
+  assert.equal(sceneAttemptObjects(game({ ...market, flags: { ...market.flags, alleyEscape: true } })).includes("半扇懸掛生豬胴體"), false);
+  assert.match(combatOptions(createCombat("arena"), "beef_knife", {}, 40)[0], /提刀/);
+});
+
+test("a heavy hanging carcass can disrupt a knife man but takes extra effort", () => {
+  const scene = game({ questStep: "market_collection", combat: createCombat("market_ambush", true),
+    flags: { ...game().flags, marketAmbushTriggered: true } });
+  const result = resolveSceneAttempt(scene, { effect: "disrupt", target: "刀手",
+    object: "半扇懸掛生豬胴體", gesture: "推動生豬胴體", method: "推動半扇懸掛生豬胴體擋刀手" });
+  assert.match(result.event, /費力挪動半扇懸掛生豬胴體/);
+  assert.equal(result.state.sceneState.movedObjects["半扇懸掛生豬胴體"], "肉架下搖晃，已偏離原位");
+  assert.ok(result.state.playerMp < scene.playerMp - 1);
+  const drain = resolveSceneAttempt(scene, { effect: "disrupt", target: "刀手",
+    object: "排污水溝爛木蓋板", gesture: "掀開爛木蓋板", method: "掀開排污水溝爛木蓋板" });
+  assert.equal(blackmudAnchors(drain.state).find((item) => item.name === "排污水溝爛木蓋板").label, "已設陷阱");
+});
+
+test("Blackmud HUD shows only reachable scene props and reflects spent alley objects", () => {
+  const atStall = game({ questStep: "market_collection" });
+  const stall = blackmudAnchors(atStall);
+  assert.ok(stall.some((item) => item.name === "懸肉鐵鉤" && item.label === "可及"));
+  assert.ok(stall.some((item) => item.name === "剁骨刀" && item.label === "難取"));
+  assert.equal(stall.some((item) => item.name === "廢竹籮"), false);
+  assert.deepEqual(blackmudFocus(atStall), ["懸肉鐵鉤", "剁骨刀"]);
+  assert.deepEqual(blackmudFocus(atStall, "你推動半扇懸掛生豬胴體，刀手退開。"), ["半扇懸掛生豬胴體", "懸肉鐵鉤"]);
+  const inAlley = game({ questStep: "huizhi_ambush", flags: { ...game().flags, alleyEscape: true },
+    sceneState: { depletedSources: ["餿水桶"], movedObjects: { "餿水桶": "巷口倒翻" } } });
+  const alley = blackmudAnchors(inAlley);
+  assert.deepEqual(alley.map((item) => item.name), ["廢竹籮", "餿水桶"]);
+  assert.equal(alley.find((item) => item.name === "餿水桶").label, "已耗盡");
+  assert.equal(alley.some((item) => item.name === "剁骨刀"), false);
+});
+
+test("market combat choice names its actual prop and rotates after moving it", () => {
+  const scene = game({ questStep: "huizhi_ambush", combat: createCombat("market_ambush", true) });
+  const hook = availableOptions(scene).find((option) => option.startsWith("C."));
+  assert.match(hook, /\[扯鐵鉤\]/);
+  const first = resolveTurn(scene, hook, false);
+  assert.match(first.event, /懸肉鐵鉤/);
+  assert.equal(validHardboiledNarrative(hardboiledFallback(first.event, first.state)), true);
+  assert.ok(first.state.sceneState.movedObjects["懸肉鐵鉤"]);
+  assert.match(availableOptions(first.state).find((option) => option.startsWith("C.")), /\[推砧板\]/);
+  const board = availableOptions(first.state).find((option) => option.startsWith("C."));
+  const second = resolveTurn(first.state, board, false);
+  assert.ok(second.state.sceneState.movedObjects["厚砧板"]);
+});
 
 test("market retreat stays in a dead alley until an actual escape", () => {
   const starting = game({ questStep: "huizhi_ambush", combat: createCombat("market_ambush", true) });
@@ -54,6 +118,7 @@ test("kicking the slop bucket leaves the player on a contested wall", () => {
   assert.equal(bucket.options.some((option) => /搬貨|巡街收規|領差|拾碎骨/.test(option)), false);
   assert.equal(bucket.options.some((option) => option.includes("[借牆脫身]")), true);
   assert.equal(bucket.options.some((option) => option.includes("[踢翻餿水桶]")), false);
+  assert.equal(blackmudAnchors(bucket.state).find((item) => item.name === "餿水桶").label, "已耗盡");
   const prose = hardboiledFallback(bucket.event, bucket.state);
   assert.equal(validHardboiledNarrative(prose), true, prose);
   assert.match(prose, /牆背另一名刀手/);
@@ -63,6 +128,8 @@ test("kicking the slop bucket leaves the player on a contested wall", () => {
   assert.equal(escaped.state.flags.alleyEscape, false);
   assert.equal(escaped.state.flags.marketAftermath, true);
   assert.equal(escaped.state.flags.marketAftermathKind, "escape");
+  assert.equal(blackmudAnchors(escaped.state).find((item) => item.name === "廢竹籮").label, "已耗盡");
+  assert.equal(blackmudAnchors(escaped.state).find((item) => item.name === "餿水桶").label, "已耗盡");
   assert.equal(escaped.options.some((option) => /搬貨|巡街收規|領差|盤問張斷骨/.test(option)), false);
   assert.equal(validHardboiledNarrative(hardboiledFallback(escaped.event, escaped.state)), true);
   const settled = resolveTurn(escaped.state, escaped.options.find((option) => option.includes("[離巷收隊]")), false);

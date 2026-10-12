@@ -28,6 +28,7 @@ test("ordered tasks stay separate while a single combat maneuver stays together"
   assert.equal(decision.kind, "market_intent");
   assert.equal(decision.plan.approach, "救護");
   assert.deepEqual(explicitActionSteps("左手以砧板擋刀，右手迎擊刀手"), ["左手以砧板擋刀，右手迎擊刀手"]);
+  assert.deepEqual(explicitActionSteps("問堂主借刀，再送藥到苦煙館"), ["問堂主借刀", "送藥到苦煙館"]);
 });
 
 test("ordered Blackmud actions settle against the updated scene and stop at the ambush", async () => {

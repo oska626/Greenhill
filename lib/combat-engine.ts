@@ -4,6 +4,7 @@ import type { SceneAttempt } from "./custom-action.ts";
 export const WEAPONS = {
   fists: { name: "徒手", power: 0, maxDurability: 0 },
   wooden_stick: { name: "案邊木棍", power: 2, maxDurability: 2 },
+  beef_knife: { name: "牛肉刀", power: 4, maxDurability: 4 },
   rusty_knife: { name: "生鏽鐵刀", power: 4, maxDurability: 4 },
   captured_knife: { name: "奪來短刀", power: 3, maxDurability: 3 },
 } as const;
@@ -109,7 +110,7 @@ export function combatOptions(combat: CombatState, weapon: WeaponId, knownMoves:
       ? "抄起案邊木棍橫掃下盤；逼刀手挪步，自己也得貼近刀口"
       : "蹬住肉案斜身撞去；撞亂刀手守位，也把側腹送到刀前"
     : "扯住擂台圍繩借力；撞亂對手腳步，也得防他反手一拳";
-  const approach = weapon === "rusty_knife" || weapon === "captured_knife"
+  const approach = weapon === "beef_knife" || weapon === "rusty_knife" || weapon === "captured_knife"
     ? "提刀貼身搶攻；刀口要見血，肋下也敞給對手"
     : weapon === "wooden_stick"
       ? `掄起木棍直砸；逼他架住這一棍，自己也可能吃${blow}`
@@ -298,9 +299,11 @@ export function resolveCombatRound(input: CombatInput): CombatResolution {
       cover += 2;
       notes.push(`你合力推歪厚砧板擋住刀勢，精力減${spent}。`);
     } else if (combat.scenario === "market_ambush" && input.terrainObject === "懸肉鐵鉤") {
-      hp = Math.max(1, hp - 1);
       damage += 1;
-      notes.push(`你扯住懸肉鐵鉤撥開刀口，掌心被鏽尖劃破，精力減${spent}。`);
+      if (combat.enemyIntent === "slash") hp = Math.max(1, hp - 1);
+      notes.push(combat.enemyIntent === "slash"
+        ? `你扯住懸肉鐵鉤撥開刀口，掌心被鏽尖劃破，精力減${spent}。`
+        : `你扯住懸肉鐵鉤撥開刀口，鏽尖擦過掌邊，精力減${spent}。`);
     } else if (combat.scenario === "market_ambush" && input.terrainObject === "剁骨刀") {
       hp = Math.max(1, hp - 3);
       notes.push(`你迎著張斷骨的刀口強奪剁骨刀，手背見血，只搶出半步空檔，精力減${spent}。`);

@@ -4,7 +4,6 @@ import type { GameState, TurnResult } from "./game-engine.ts";
 // remains one attempt unless the understanding service identifies distinct tasks.
 export function explicitActionSteps(text: string): string[] {
   const trimmed = text.trim();
-  if (!/^(?:我)?先\s*/.test(trimmed)) return [trimmed];
   const parts = trimmed.replace(/^(?:我)?先\s*/, "").split(/[，,；;。]\s*(?:再|然後|跟住|之後)\s*/);
   return parts.length > 1 && parts.length <= 3 && parts.every((part) => part.trim())
     ? parts.map((part) => part.trim()) : [trimmed];

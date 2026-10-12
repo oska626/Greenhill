@@ -12,6 +12,7 @@ import { chapterPressureForecast } from "@/lib/chapter-one";
 import { actionEnergyCost, FATIGUE_THRESHOLD, MAX_ENERGY } from "@/lib/energy";
 import { STARTING_DARK_HAND, readyDarkHand } from "@/lib/dirty-hand";
 import { hardboiledFallback } from "@/lib/narrative-style";
+import { blackmudAnchors } from "@/lib/blackmud-hud";
 
 interface ApiResponse {
   narrative: string;
@@ -129,6 +130,8 @@ export default function GamePage() {
             state.flags.alleyEscape = true;
             state.flags.alleyWall = true;
             state.worldFlags = state.worldFlags.filter((flag) => flag !== "黑泥街巷尾脫險");
+            state.sceneState!.movedObjects["餿水桶"] = "巷口倒翻，餿水流滿地";
+            if (!state.sceneState!.depletedSources.includes("餿水桶")) state.sceneState!.depletedSources.push("餿水桶");
           }
           const migratedAftermath = state.flags.marketAftermath && parsed.state?.flags?.marketAftermath !== true;
           const restored: SavedGameData = { saveVersion: 2, state,
@@ -508,6 +511,8 @@ export default function GamePage() {
     );
   }
 
+  const blackmudItems = gameState ? blackmudAnchors(gameState) : [];
+
   return (
     <div className="min-h-screen bg-stone-950 text-stone-200 flex flex-col font-sans">
       <header className="border-b border-stone-800 bg-stone-900/80 backdrop-blur px-4 py-3 sticky top-0 z-20">
@@ -609,6 +614,29 @@ export default function GamePage() {
               </div>
             )}
           </div>
+
+          {blackmudItems.length > 0 && (
+            <div className="rounded-lg border border-stone-800 bg-stone-900/70 px-3 py-2.5" aria-live="polite">
+              <div className="mb-2 text-[11px] font-semibold tracking-wider text-stone-400">
+                黑泥街・{gameState?.flags.alleyEscape ? gameState.flags.alleyWall ? "牆頭" : "死巷"
+                  : gameState?.flags.marketAftermath && gameState.flags.marketAftermathKind === "escape" ? "後巷" : "肉檔前"}・眼下之物
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {blackmudItems.map((item) => (
+                  <details key={`${gameState?.turn}-${item.name}-${item.label}`} className={`group rounded border text-xs ${item.tone === "ready"
+                    ? "border-stone-500 bg-stone-800/80 text-stone-100"
+                    : item.tone === "risk" ? "border-amber-800/70 bg-amber-950/25 text-amber-200"
+                      : item.tone === "spent" ? "border-stone-800 bg-stone-950/60 text-stone-500"
+                        : "border-stone-700 bg-stone-900 text-stone-400"}`}>
+                    <summary title={item.detail} className="cursor-pointer list-none px-2.5 py-1.5 focus-visible:outline focus-visible:outline-amber-400">
+                      <span className="mr-1">[{item.label}]</span>{item.name}
+                    </summary>
+                    <p className="max-w-56 border-t border-stone-700/60 px-2.5 py-2 leading-relaxed">{item.detail}</p>
+                  </details>
+                ))}
+              </div>
+            </div>
+          )}
 
           {handoff && (
             <div className="bg-amber-950/25 border border-amber-700/50 rounded-lg p-4 space-y-2">
@@ -722,9 +750,9 @@ export default function GamePage() {
               <span className="text-xs font-semibold text-stone-400">身體狀況</span>
               <span className="text-[10px] text-amber-300/80">{gameState?.skill || gameState?.trait}</span>
             </div>
-            <div className="text-xs text-stone-400">兵器：<span className="text-stone-200">{gameState?.equippedWeapon === "rusty_knife" ? "生鏽鐵刀" : gameState?.equippedWeapon === "wooden_stick" ? "案邊木棍" : "徒手"}</span>
+            <div className="text-xs text-stone-400">兵器：<span className="text-stone-200">{gameState?.equippedWeapon === "beef_knife" ? "牛肉刀" : gameState?.equippedWeapon === "rusty_knife" ? "生鏽鐵刀" : gameState?.equippedWeapon === "captured_knife" ? "奪來短刀" : gameState?.equippedWeapon === "wooden_stick" ? "案邊木棍" : "徒手"}</span>
               {gameState?.equippedWeapon && gameState.equippedWeapon !== "fists" && <span className="ml-2 text-stone-500">耐用 {gameState.weaponDurability}</span>}
-              {gameState?.equippedWeapon === "fists" && gameState.inventory.includes("【生鏽鐵刀】") && <span className="ml-2 text-stone-500">藏刀耐用 {gameState.weaponDurability}</span>}
+              {gameState?.equippedWeapon === "fists" && (gameState.inventory.includes("【牛肉刀】") || gameState.inventory.includes("【生鏽鐵刀】")) && <span className="ml-2 text-stone-500">藏刀耐用 {gameState.weaponDurability}</span>}
             </div>
             {(gameState?.knownMoves?.mud_step || gameState?.knownMoves?.short_punch || gameState?.knownMoves?.soft_parry || gameState?.knownMoves?.point_strike) ? (
               <div className="text-xs text-stone-400">所學：<span className="text-stone-200">{[

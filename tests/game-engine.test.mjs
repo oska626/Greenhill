@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { aptitude, availableOptions, PROLOGUE_LANDMARKS, normalizeState, OPENING_CITY_NARRATION, resolveTurn } from "../lib/game-engine.ts";
+import { aptitude, availableOptions, PROLOGUE_LANDMARKS, normalizeState, OPENING_CITY_NARRATION, resolveOpeningKnifeRequest, resolveTurn } from "../lib/game-engine.ts";
 import { NPC_VOICES, hasSectAddressViolation, npcVoiceGuide, renameLegacyWorldNames, repeatedNpcLine, sectMemberAddress } from "../lib/npc-voices.ts";
 import { createCombat, resolveCombatRound, trainMove } from "../lib/combat-engine.ts";
 import { ENDING_OPTIONS, MISSIONS, guardLayersForLifeline, missionOptions, travelChoices } from "../lib/city-progression.ts";
@@ -8,7 +8,7 @@ import { companionLeads, newRelationships } from "../lib/companion-relations.ts"
 import { PACKED_MEDICINE, USE_PACKED_MEDICINE } from "../lib/recovery.ts";
 import { actionEnergyCost, FATIGUE_THRESHOLD, MAX_ENERGY } from "../lib/energy.ts";
 import { darkHandCount } from "../lib/dirty-hand.ts";
-import { objectStatus } from "../lib/scene-state.ts";
+import { objectStatus, sceneFacts } from "../lib/scene-state.ts";
 
 function newGame() {
   const stats = aptitude("阿七", "賭坊收帳人", "察言觀色");
@@ -41,6 +41,57 @@ test("creation varies only health, while every background starts with fifty ener
     const opened = resolveTurn({ ...newGame(), maxHp: stats.hp, maxMp: stats.mp }, "[初入堂口] 阿七", true);
     assert.equal(opened.state.playerMp, MAX_ENERGY);
   }
+});
+
+test("the chief lends a real knife from the headquarters armory before the first errand", () => {
+  const opening = resolveTurn(newGame(), "[初入堂口] 阿七", true);
+  assert.match(sceneFacts("青鋒堂總壇", opening.state.sceneState), /兵器架.*刀、劍、棍與長槍/);
+  const loan = resolveOpeningKnifeRequest(opening.state, "叫堂主俾把刀仔我防身");
+  assert.ok(loan);
+  assert.equal(loan.state.questStep, "prologue_briefing");
+  assert.equal(loan.state.currentLocation, "青鋒堂總壇");
+  assert.equal(loan.state.inventory.filter((item) => item === "【牛肉刀】").length, 1);
+  assert.equal(loan.state.equippedWeapon, "beef_knife");
+  assert.equal(loan.state.weaponDurability, 4);
+  assert.equal(objectStatus(loan.state.sceneState, "牛肉刀").holder, "玩家");
+  assert.equal(objectStatus(loan.state.sceneState, "牛肉刀").reach, "near");
+  assert.match(sceneFacts("青鋒堂總壇", loan.state.sceneState), /堂主已借出，現由玩家攜帶/);
+  assert.equal(normalizeState(loan.state).inventory.includes("【牛肉刀】"), true);
+  assert.equal(loan.state.worldFlags.includes("堂主借出牛肉刀"), true);
+  const again = resolveOpeningKnifeRequest(loan.state, "再問堂主借把短刀");
+  assert.equal(again.state.inventory.filter((item) => item === "【牛肉刀】").length, 1);
+});
+
+test("asking about, declining or lacking room for a knife cannot create one", () => {
+  const opening = resolveTurn(newGame(), "[初入堂口] 阿七", true).state;
+  assert.equal(resolveOpeningKnifeRequest(opening, "如果叫堂主借把刀仔會點？"), null);
+  assert.equal(resolveOpeningKnifeRequest(opening, "我唔要堂主俾把刀仔"), null);
+  const full = { ...opening, inventory: [...opening.inventory, "【止血散】", "【金創散】"] };
+  const denied = resolveOpeningKnifeRequest(full, "叫堂主俾把刀仔我防身");
+  assert.ok(denied);
+  assert.equal(denied.state.inventory.includes("【牛肉刀】"), false);
+  assert.equal(objectStatus(denied.state.sceneState, "牛肉刀").holder, undefined);
+});
+
+test("an older borrowed short knife save becomes a beef knife without duplicating gear", () => {
+  const old = { ...newGame(), equippedWeapon: "rusty_knife", weaponDurability: 2,
+    inventory: ["【生鏽鐵刀】", "【生石灰包】"],
+    sceneState: { objectHolders: { "堂口備用短刀": "玩家" }, movedObjects: { "堂口備用短刀": "玩家腰間" } } };
+  const migrated = normalizeState(old);
+  assert.equal(migrated.inventory.includes("【牛肉刀】"), true);
+  assert.equal(migrated.inventory.includes("【生鏽鐵刀】"), false);
+  assert.equal(migrated.equippedWeapon, "beef_knife");
+  assert.equal(migrated.weaponDurability, 2);
+  assert.equal(migrated.sceneState.objectHolders["牛肉刀"], "玩家");
+});
+
+test("a member can borrow the headquarters beef knife on a later visit", () => {
+  const scene = { ...newGame(), questStep: "sandbox", turn: 12 };
+  const result = resolveOpeningKnifeRequest(scene, "向堂主借把牛肉刀防身");
+  assert.ok(result);
+  assert.equal(result.state.questStep, "sandbox");
+  assert.equal(result.state.turn, 13);
+  assert.equal(result.state.equippedWeapon, "beef_knife");
 });
 
 test("small health scale preserves the injury ratio of old saves once", () => {
