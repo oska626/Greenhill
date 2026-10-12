@@ -14,15 +14,21 @@ export function validatedActionSteps(text: string, proposed: unknown): string[] 
     || proposed.some((part) => typeof part !== "string" || !part.trim() || part.length > 150)) return null;
   const steps = proposed.map((part: string) => part.trim());
   let cursor = 0;
+  let previousStep = "";
   for (const step of steps) {
     const index = text.indexOf(step, cursor);
     if (index < cursor) return null;
     const connector = text.slice(cursor, index);
+    // Closing in on someone or something is part of the following local move
+    // unless the player explicitly asks to do it first, then act later.
+    if (/^(?:我)?(?:慢慢|小心|悄悄)?(?:靠近|走近|貼近|挪近|移近).{1,20}$/.test(previousStep)
+      && !/(?:再|然後|跟住|之後)/.test(connector)) return null;
     // A stance after a comma describes how the physical act is done. It is not
     // a separate later task unless the player explicitly orders it afterward.
     if (cursor > 0 && /^(?:備戰|戒備|防備|準備迎敵|作好準備|伺機而動)$/.test(step)
       && !/(?:再|然後|跟住|之後)/.test(connector)) return null;
     cursor = index + step.length;
+    previousStep = step;
   }
   // The model may remove connective words, but cannot discard an attempted act.
   const remainder = steps.reduce((rest, step) => rest.replace(step, ""), text)

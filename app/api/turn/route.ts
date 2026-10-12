@@ -196,6 +196,7 @@ async function marketNpcJson(system: string, prompt: string, temperature: number
 
 async function planActionSteps(state: GameState, playerText: string): Promise<string[]> {
   const fallback = explicitActionSteps(playerText);
+  if (fallback.length === 1 && interpretGroundedObjectHandling(state, playerText)) return fallback;
   const proposed = await marketNpcJson(
     "你只分析整句玩家行動的先後，不裁定成敗。只回 JSON。不得把同一招中的配合動作拆開，也不得省略玩家肯定要做的事。",
     `階段：${state.questStep}；地點：${state.currentLocation}；現場：${sceneFacts(state.currentLocation, normalizeSceneState(state.sceneState, state.worldFlags))}\n玩家原句：${playerText}\n回傳 {"steps":["原句中第一項完整嘗試","原句中第二項完整嘗試"]}，最多三項。每項必須是原句連續出現的字串；動作與伴隨喊話可屬同一項。先做甲再做乙要分開；左手擋刀、右手出拳等同時招式維持一項。不能改寫、補造或宣稱成功。`, 0);

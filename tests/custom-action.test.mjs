@@ -59,6 +59,15 @@ test("taking down the meat hook to prepare after treating Lu is one grounded act
   const words = "慢慢將鐵鉤取下、備戰";
   assert.deepEqual(explicitActionSteps(words), [words]);
   assert.equal(validatedActionSteps(words, ["慢慢將鐵鉤取下", "備戰"]), null);
+  const fullWords = "我靠近肉架，小心取下懸肉鐵鉤，準備用它防備巷口刀手。";
+  assert.deepEqual(explicitActionSteps(fullWords), [fullWords]);
+  assert.equal(validatedActionSteps(fullWords,
+    ["靠近肉架", "小心取下懸肉鐵鉤", "準備用它防備巷口刀手"]), null);
+  const fullDecision = interpretGroundedObjectHandling(aid.state, fullWords);
+  assert.equal(fullDecision.kind, "market_intent");
+  assert.equal(fullDecision.plan.approach, "借物");
+  assert.equal(fullDecision.plan.target, "肉檔");
+  assert.equal(fullDecision.plan.object, "懸肉鐵鉤");
   assert.equal(interpretGroundedObjectHandling(aid.state, "我不將鐵鉤取下、備戰"), null);
   assert.equal(interpretGroundedObjectHandling(aid.state, "如果將鐵鉤取下備戰會點？"), null);
   const decision = interpretGroundedObjectHandling(aid.state, words);

@@ -217,9 +217,10 @@ export function interpretMarketText(state: GameState, playerText: string): Custo
       : approach === "交涉" || approach === "施壓" ? "張斷骨"
         : approach === "查探" ? targets.includes("巷口") ? "巷口" : "街口"
           : approach === "防守" ? targets.includes("陸千帆") ? "陸千帆" : "自己"
-            : approach === "借物" && /備戰|戒備|準備迎敵/.test(text) ? targets.includes("肉檔") ? "肉檔" : "自己"
+            : approach === "借物" && /備戰|戒備|防備|準備/.test(text) ? targets.includes("肉檔") ? "肉檔" : "自己"
               : approach === "借物" || approach === "進擊" || approach === "奪械" ? targets.includes("刀手") ? "刀手" : "街口" : "自己";
-  const target = namedTarget || inferred;
+  const target = approach === "借物" && /備戰|戒備|防備|準備/.test(text)
+    ? targets.includes("肉檔") ? "肉檔" : "自己" : namedTarget || inferred;
   return validateCustomDecision({ kind: "market_intent", approach, target, ...(object ? { object } : {}), method: text.slice(0, 100) },
     state, [], playerText);
 }
