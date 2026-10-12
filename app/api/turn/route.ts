@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { availableOptions, normalizeState, OPENING_CITY_NARRATION, recordMarketNpcReply, resolveMarketDialogue,
+import { availableOptions, normalizeState, recordMarketNpcReply, resolveMarketDialogue,
   resolveMarketIntent, resolveOpeningKnifeRequest, resolveSceneAttempt, resolveSocialIntent, resolveTurn, type GameState, type Landmark } from "@/lib/game-engine";
 import { relationshipLabel } from "@/lib/companion-relations";
 import { CREATIVE_GOALS, interpretGroundedObjectHandling, interpretMarketText, isMarketIntentScene, marketIntentTargets, SCENE_EFFECTS, sceneAttemptObjects, sceneAnchors, validateCustomDecision, type CustomDecision } from "@/lib/custom-action";
@@ -23,7 +23,7 @@ function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker
   if (state.questStep === "prologue_briefing" && npcReply?.speaker === "何不歸") {
     const detail = "你看見何不歸指節上的舊傷，也看見傷勢記錄旁那本未合上的帳。";
     const settled = completeSentences(event, "你踏進堂口，何不歸仍在案前等你。").join("");
-    return `${OPENING_CITY_NARRATION}\n\n${settled}${detail}\n何不歸：「${npcReply.line}」`;
+    return `${settled}${detail}\n何不歸：「${npcReply.line}」`;
   }
   if (combatTurn) {
     const sentences = completeSentences(event, "你守住眼前身位，對方仍在近處，局勢尚未分明。");

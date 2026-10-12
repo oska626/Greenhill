@@ -35,19 +35,19 @@ export function MapModal({ open, onOpenChange, state }: MapModalProps) {
   const position = (name: string) => MAP_AREAS.find((area) => area.name === name)!;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl border-zinc-800 bg-zinc-950 p-0 overflow-hidden">
-        <DialogHeader className="px-6 pt-5 pb-3 border-b border-zinc-800">
-          <DialogTitle className="text-lg font-semibold text-zinc-100">
-            青山城 · {state?.questStep === 'chapter_one' ? '城西七處據點與碼頭' : '城西七處據點'}
+      <DialogContent className="max-w-2xl rounded-sm border-[#765739] bg-[#1b1713] p-0 overflow-hidden font-serif">
+        <DialogHeader className="px-6 pt-5 pb-3 border-b border-[#4a3727]">
+          <DialogTitle className="text-lg font-semibold tracking-widest text-amber-200">
+            【 青山城 · {state?.questStep === 'chapter_one' ? '城西據點與碼頭' : '城西據點'} 】
           </DialogTitle>
-          <DialogDescription className="text-sm text-zinc-500">
+          <DialogDescription className="text-sm text-[#a98d69]">
             江湖路險，步步為營
           </DialogDescription>
         </DialogHeader>
 
         <div className="px-6 py-4 space-y-4">
           {/* ASCII / Block map */}
-          <div className="relative rounded-lg border border-zinc-800 bg-zinc-900/60 p-4 overflow-hidden">
+          <div className="relative rounded-sm border border-[#57422c] bg-[#211b15] p-4 overflow-hidden shadow-inner">
             <div className="relative h-72 w-full">
               {/* Map grid background */}
               <svg className="absolute inset-0 h-full w-full opacity-20" xmlns="http://www.w3.org/2000/svg">
@@ -60,7 +60,7 @@ export function MapModal({ open, onOpenChange, state }: MapModalProps) {
               </svg>
 
               {/* City walls */}
-              <div className="absolute inset-2 border-2 border-dashed border-zinc-700/60 rounded-lg" />
+              <div className="absolute inset-2 border-2 border-dashed border-[#59432e]/60 rounded-sm" />
 
               <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="城西明路與已發現暗道">
                 {ROAD_LINKS.filter((road) => areas.some((area) => area.name === road.from)
@@ -89,44 +89,44 @@ export function MapModal({ open, onOpenChange, state }: MapModalProps) {
                       {i + 1}
                     </span>
                   </div>
-                  <span className="whitespace-nowrap text-[11px] font-medium text-zinc-300 bg-zinc-900/80 px-1.5 py-0.5 rounded">
+                  <span className="whitespace-nowrap text-[11px] font-medium text-[#e4d8bf] bg-[#211b15]/90 px-1.5 py-0.5 rounded-sm">
                     {area.name}{lostLandmarks.has(area.name as GameState['currentLocation']) ? ' · 失守' : ''}
                   </span>
                 </div>
               ))}
             </div>
           </div>
-          <p className="text-xs text-zinc-400">灰線：明路；金色虛線：已發現暗道；紅點：失守地標。選目的地後可比較路程與風險。</p>
+          <p className="text-xs text-[#bca887]">灰線：明路；金色虛線：已發現暗道；硃砂點：失守地標。選目的地後可比較路程與風險。</p>
 
           {/* Area legend */}
           <div className="grid grid-cols-2 gap-2">
             {areas.map((area, i) => (
               <div
                 key={i}
-                className="flex items-start gap-2 rounded-md border border-zinc-800 bg-zinc-900/40 px-3 py-2"
+                className="flex items-start gap-2 rounded-sm border border-[#4a3727] bg-[#211b15] px-3 py-2 shadow-inner"
               >
                 <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded bg-amber-900/30 text-[10px] font-mono text-amber-500">
                   {i + 1}
                 </span>
                 <div className="min-w-0">
-                  <div className={`text-xs font-medium ${lostLandmarks.has(area.name as GameState['currentLocation']) ? 'text-rose-300' : 'text-zinc-200'}`}>
+                  <div className={`text-xs font-medium ${lostLandmarks.has(area.name as GameState['currentLocation']) ? 'text-[#a83232]' : 'text-[#e4d8bf]'}`}>
                     {area.name}{lostLandmarks.has(area.name as GameState['currentLocation']) ? ' · 失守' : ''}
                   </div>
-                  <div className="text-[11px] text-zinc-500 leading-snug">{area.desc}</div>
+                  <div className="text-[11px] text-[#a98d69] leading-snug">{area.desc}</div>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 px-6 pb-5 pt-2 border-t border-zinc-800">
+        <div className="flex justify-end gap-2 px-6 pb-5 pt-2 border-t border-[#4a3727]">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
-            className="border-zinc-700 bg-zinc-900 text-zinc-300 hover:bg-zinc-800"
+            className="rounded-sm border-[#765739] bg-[#261c14] font-serif text-amber-300 shadow-inner hover:bg-[#352718]"
           >
             <X className="h-4 w-4 mr-1.5" />
-            關閉
+            合上密卷
           </Button>
         </div>
       </DialogContent>

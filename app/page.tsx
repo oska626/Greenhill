@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { aptitude, availableOptions, CUSTOM_ACTION_START, LANDMARKS, normalizeState, type GameState, type Landmark } from "@/lib/game-engine";
+import { aptitude, availableOptions, CUSTOM_ACTION_START, LANDMARKS, normalizeState, OPENING_CITY_NARRATION, type GameState, type Landmark } from "@/lib/game-engine";
 import { guardLayersForLifeline, MISSIONS, travelChoices } from "@/lib/city-progression";
 import { newRelationships } from "@/lib/companion-relations";
 import { renameLegacyWorldNames } from "@/lib/npc-voices";
 import { createPrologueHandoff, type PrologueHandoff } from "@/lib/prologue-handoff";
 import { MapModal } from "@/components/game/map-modal";
+import { FactionsModal } from "@/components/game/factions-modal";
 import { shouldCapturePrologueCheckpoint } from "@/lib/prologue-checkpoint";
 import { chapterPressureForecast } from "@/lib/chapter-one";
 import { actionEnergyCost, FATIGUE_THRESHOLD, MAX_ENERGY } from "@/lib/energy";
@@ -34,6 +35,10 @@ interface SavedGameData {
 const SAVE_KEY = "qingshan_game_save_v1";
 const READ_KEY = "qingshan_read_narratives_v1";
 const CUSTOM_STARTING_ITEMS = ["【開鎖鐵線】", "【止血散】", "【粗鐵護腕】", "【灌鉛假骰】"];
+const BACKGROUND_TAGS: Record<string, string> = {
+  "賭坊收帳人": "收帳人", "城西街童扒手": "扒手", "落魄武館棄徒": "武館棄徒",
+  "黑市醫道學徒": "醫道學徒", "自定義市井流民": "市井流民",
+};
 const showActionWithoutTurnCount = (option: string) => option
   .replace(/每三回合/g, "持續")
   .replace(/(?:用|耗)一回合/g, "需時")
@@ -98,6 +103,7 @@ export default function GamePage() {
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [selectedDestination, setSelectedDestination] = useState<Landmark | null>(null);
   const [mapOpen, setMapOpen] = useState(false);
+  const [factionsOpen, setFactionsOpen] = useState(false);
   const [skipRead, setSkipRead] = useState(false);
   const [previouslyRead, setPreviouslyRead] = useState(false);
   const [showReadNarrative, setShowReadNarrative] = useState(false);
@@ -136,7 +142,8 @@ export default function GamePage() {
           const migratedAftermath = state.flags.marketAftermath && parsed.state?.flags?.marketAftermath !== true;
           const restored: SavedGameData = { saveVersion: 2, state,
             narrative: migratedAftermath || migratedAlleyWall ? hardboiledFallback(parsed.narrative, state)
-              : renameLegacyWorldNames(parsed.narrative), options: availableOptions(state),
+              : renameLegacyWorldNames(parsed.narrative.replace(OPENING_CITY_NARRATION, "").trimStart()),
+            options: availableOptions(state),
             handoff, checkpoint };
           setSavedGame(restored);
           if (state.flags.ending || parsed.state?.maxMp !== MAX_ENERGY || migratedAftermath || migratedAlleyWall)
@@ -389,9 +396,13 @@ export default function GamePage() {
     const curStats = aptitude(playerName.trim(), curBg.name, selectedBgId === "custom" ? customSkill.trim() || curBg.trait : curBg.trait);
 
     return (
-      <div className="min-h-screen bg-stone-950 text-stone-200 flex flex-col justify-center items-center p-4">
-        <div className="max-w-2xl w-full bg-stone-900/90 border border-stone-800 rounded-lg p-6 shadow-2xl space-y-6">
-          <div className="text-center space-y-1 border-b border-stone-800 pb-4">
+      <div className="min-h-screen bg-[#121110] text-[#e4d8bf] flex flex-col justify-center items-center p-4 font-serif">
+        <div className="max-w-2xl w-full wood-panel p-6 shadow-2xl space-y-6">
+          <div className="relative text-center space-y-1 border-b border-[#4a3727] pb-4">
+            <button type="button" onClick={() => setFactionsOpen(true)}
+              className="mb-3 rounded-sm border border-[#765739] bg-[#201811] px-2.5 py-1 text-[11px] text-amber-500/90 shadow-inner hover:border-[#a68150] sm:absolute sm:right-0 sm:top-0 sm:mb-0">
+              青山風雲
+            </button>
             <h1 className="text-2xl font-bold tracking-widest text-amber-500">青山城 · 泥潭入道</h1>
             <p className="text-xs text-stone-400">城西的雨還未停。報上名號，走進青鋒堂那扇尚未關上的門。</p>
           </div>
@@ -425,7 +436,7 @@ export default function GamePage() {
               value={playerName}
               onChange={(e) => setPlayerName(e.target.value)}
               placeholder="輸入名號（例：阿七、生番、啞仔）"
-              className="w-full bg-stone-950 border border-stone-700 rounded px-3 py-2 text-sm text-stone-100 focus:outline-none focus:border-amber-600"
+                  className="w-full bg-[#17130f] border border-[#59432e] rounded-sm px-3 py-2 text-sm text-[#e6d7bd] focus:outline-none focus:border-[#a68150]"
             />
           </div>
 
@@ -437,10 +448,10 @@ export default function GamePage() {
                   key={bg.id}
                   type="button"
                   onClick={() => setSelectedBgId(bg.id)}
-                  className={`text-left p-3 rounded border transition ${
+                  className={`text-left p-3 rounded-sm border shadow-inner transition ${
                     selectedBgId === bg.id
-                      ? "border-amber-600 bg-stone-800/90 text-stone-100"
-                      : "border-stone-800 bg-stone-950/60 hover:bg-stone-800/40 text-stone-400"
+                      ? "border-[#a68150] bg-[#302317] text-[#e6d7bd]"
+                      : "border-[#3a2e26] bg-[#17130f] hover:border-[#765739] text-[#bca887]"
                   }`}
                 >
                   <div className="font-semibold text-sm flex justify-between items-center">
@@ -502,11 +513,12 @@ export default function GamePage() {
           <button
             type="button"
             onClick={handleStartGame}
-            className="w-full bg-amber-700/90 hover:bg-amber-600 text-stone-100 font-medium py-2.5 rounded transition duration-150 shadow-md text-sm tracking-wider mt-2"
+            className="w-full bg-[#6f4d2a] hover:bg-[#8c6747] text-[#f0e2c5] font-medium py-2.5 rounded-sm border border-[#a47a45] transition duration-150 shadow-inner text-sm tracking-wider mt-2"
           >
             推門入局
           </button>
         </div>
+        <FactionsModal open={factionsOpen} onOpenChange={setFactionsOpen} />
       </div>
     );
   }
@@ -514,20 +526,24 @@ export default function GamePage() {
   const blackmudItems = gameState ? blackmudAnchors(gameState) : [];
 
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-200 flex flex-col font-sans">
-      <header className="border-b border-stone-800 bg-stone-900/80 backdrop-blur px-4 py-3 sticky top-0 z-20">
+    <div className="min-h-screen bg-[#121110] text-[#e4d8bf] flex flex-col font-serif">
+      <header className="border-b border-[#3a2e26] bg-[#1a1511]/95 backdrop-blur px-4 py-3 sticky top-0 z-20">
         <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-3 text-xs md:text-sm">
           <div className="flex items-center gap-2">
             <span className="font-bold text-amber-600 tracking-wider">青山城</span>
             <span className="text-stone-500">|</span>
-            <span className="text-stone-100 font-medium">{gameState?.playerName || "無名氏"}</span>
-            <span className="text-stone-500 text-[11px]">({gameState?.background}{gameState?.gender ? ` · ${gameState.gender}` : ""})</span>
+            <span className="text-[#e9d8b6] font-semibold tracking-widest">{gameState?.playerName || "無名氏"} 【{BACKGROUND_TAGS[gameState?.background || ""] || gameState?.background || "無名"}】</span>
             <span className="text-stone-500">|</span>
             <span className="text-stone-400">當前地標:</span>
             <span className="text-stone-100 font-semibold">{gameState?.currentLocation}</span>
           </div>
 
           <div className="flex items-center gap-3.5 text-stone-300">
+            <button type="button" onClick={() => setFactionsOpen(true)}
+              className="rounded-sm border border-[#765739] bg-[#201811] px-2.5 py-1 text-[11px] text-amber-500/90 shadow-inner hover:border-[#a68150]"
+              aria-label="查看青山風雲與城西形勢">
+              青山風雲
+            </button>
             <div>
               <span className="text-stone-500 mr-1">私銀:</span>
               <span className="text-amber-400 font-mono font-medium">{gameState?.silver ?? 0}</span> 文
@@ -578,7 +594,7 @@ export default function GamePage() {
 
       <main className="flex-1 max-w-6xl w-full mx-auto p-4 grid grid-cols-1 lg:grid-cols-4 gap-4">
         <section className="lg:col-span-3 flex flex-col gap-4">
-          <div ref={narrativeScrollRef} className="bg-stone-900/60 border border-stone-800/80 rounded-lg p-5 min-h-[380px] max-h-[520px] overflow-y-auto shadow-inner flex flex-col justify-between">
+          <div ref={narrativeScrollRef} className="parchment-panel p-5 min-h-[380px] max-h-[520px] overflow-y-auto flex flex-col justify-between">
             {errorMsg ? (
               <div className="p-4 bg-rose-950/40 border border-rose-800 text-rose-300 rounded text-sm">
                 ⚠️ {errorMsg}
@@ -597,7 +613,7 @@ export default function GamePage() {
                 {skipRead && previouslyRead && !showReadNarrative ? (
                   <button type="button" onClick={() => setShowReadNarrative(true)} className="text-left text-sm text-stone-400 underline">這段敘事已讀過；按此重看</button>
                 ) : (
-                  <div className="space-y-5 text-sm md:text-base leading-relaxed tracking-wide text-stone-200 font-serif">
+                  <div className="space-y-5 text-sm md:text-base leading-relaxed tracking-wide text-[#e9dcc4] font-serif">
                     {narrative.split(/\n\s*\n/).map((paragraph, index) => (
                       /^（[^\n]+）$/.test(paragraph.trim())
                         ? <p key={index} className="whitespace-pre-line italic text-amber-200/80">{paragraph.trim()}</p>
@@ -616,22 +632,22 @@ export default function GamePage() {
           </div>
 
           {blackmudItems.length > 0 && (
-            <div className="rounded-lg border border-stone-800 bg-stone-900/70 px-3 py-2.5" aria-live="polite">
+            <div className="wood-panel px-3 py-2.5" aria-live="polite">
               <div className="mb-2 text-[11px] font-semibold tracking-wider text-stone-400">
                 黑泥街・{gameState?.flags.alleyEscape ? gameState.flags.alleyWall ? "牆頭" : "死巷"
                   : gameState?.flags.marketAftermath && gameState.flags.marketAftermathKind === "escape" ? "後巷" : "肉檔前"}・眼下之物
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {blackmudItems.map((item) => (
-                  <details key={`${gameState?.turn}-${item.name}-${item.label}`} className={`group rounded border text-xs ${item.tone === "ready"
-                    ? "border-stone-500 bg-stone-800/80 text-stone-100"
-                    : item.tone === "risk" ? "border-amber-800/70 bg-amber-950/25 text-amber-200"
-                      : item.tone === "spent" ? "border-stone-800 bg-stone-950/60 text-stone-500"
-                        : "border-stone-700 bg-stone-900 text-stone-400"}`}>
+                  <details key={`${gameState?.turn}-${item.name}-${item.label}`} className={`group rounded-sm border text-xs shadow-inner ${item.tone === "ready"
+                    ? "border-[#8c6747] bg-[#2b2118] text-[#e9d8b6]"
+                    : item.tone === "risk" ? "border-[#765739] bg-[#261c14] text-amber-300"
+                      : item.tone === "spent" ? "border-[#3a2e26] bg-[#17130f] text-stone-500"
+                        : "border-[#4a3929] bg-[#1b1713] text-stone-400"}`}>
                     <summary title={item.detail} className="cursor-pointer list-none px-2.5 py-1.5 focus-visible:outline focus-visible:outline-amber-400">
-                      <span className="mr-1">[{item.label}]</span>{item.name}
+                      <span className="text-amber-500/90">〔{item.name}〕</span><span className="ml-1 text-[10px] opacity-75">{item.label}</span>
                     </summary>
-                    <p className="max-w-56 border-t border-stone-700/60 px-2.5 py-2 leading-relaxed">{item.detail}</p>
+                    <p className="max-w-56 border-t border-[#4a3929] px-2.5 py-2 leading-relaxed">{item.detail}</p>
                   </details>
                 ))}
               </div>
@@ -649,7 +665,7 @@ export default function GamePage() {
             </div>
           )}
 
-          <div className="bg-stone-900/80 border border-stone-800 rounded-lg p-4 flex flex-col gap-3">
+          <div className="wood-panel p-4 flex flex-col gap-3">
             <div className="text-xs font-semibold text-stone-400 tracking-wider">江湖抉擇與據點差事</div>
             {gameState?.combat && (
               <div className="rounded border border-red-900/50 bg-red-950/25 px-3 py-2 text-xs text-red-200">
@@ -692,10 +708,10 @@ export default function GamePage() {
                   key={idx}
                   disabled={loading}
                   onClick={() => handleAction(opt)}
-                  className="text-left text-xs md:text-sm px-3.5 py-2.5 rounded border transition duration-150 disabled:opacity-40 disabled:cursor-not-allowed bg-stone-800/70 hover:bg-stone-700/80 border-stone-700/50 text-stone-200 hover:border-stone-500"
+                  className="text-left text-xs md:text-sm px-3.5 py-2.5 rounded-sm border border-[#382b20] bg-[#161311] text-[#e6d7bd] shadow-inner transition duration-150 hover:border-[#8c6747] hover:bg-[#271d15] active:translate-y-px disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {showActionWithoutTurnCount(opt)}
-                  {gameState && <span className="block mt-1 text-[11px] text-sky-300">
+                  {gameState && <span className="block mt-1 text-[11px] text-[#a98d69]">
                     {(() => {
                       const turns = Number(/(?:共)?(\d+)回合/.exec(opt)?.[1] || 1);
                       const cost = actionEnergyCost(gameState, opt, turns);
@@ -730,12 +746,12 @@ export default function GamePage() {
                   onChange={(e) => setCustomInput(e.target.value)}
                   placeholder={gameState.currentLocation === "黑泥街" ? "直接說話，或寫出你要做的事。" : "寫明眼前人物或物件，以及你要做的事。"}
                   maxLength={300}
-                  className="flex-1 bg-stone-950 border border-stone-700/80 rounded px-3 py-2 text-xs md:text-sm focus:outline-none focus:border-amber-600 text-stone-200 placeholder:text-stone-600 disabled:opacity-50"
+                  className="flex-1 bg-[#17130f] border border-[#59432e] rounded-sm px-3 py-2 text-xs md:text-sm focus:outline-none focus:border-[#a68150] text-[#e6d7bd] placeholder:text-[#806f5c] disabled:opacity-50"
                 />
                 <button
                   type="submit"
                   disabled={loading || !customInput.trim() || !gameState}
-                  className="bg-amber-700 hover:bg-amber-600 text-amber-100 px-5 py-2 rounded text-xs md:text-sm font-medium transition disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
+                  className="bg-[#6f4d2a] hover:bg-[#8c6747] border border-[#a47a45] text-[#f0e2c5] px-5 py-2 rounded-sm text-xs md:text-sm font-medium transition disabled:opacity-30 disabled:cursor-not-allowed shadow-inner"
                 >
                   出招
                 </button>
@@ -745,7 +761,7 @@ export default function GamePage() {
         </section>
 
         <aside className="lg:col-span-1 flex flex-col gap-4">
-          <div className="bg-stone-900/80 border border-stone-800 rounded-lg p-4 space-y-3">
+          <div className="wood-panel p-4 space-y-3">
             <div className="flex justify-between items-center">
               <span className="text-xs font-semibold text-stone-400">身體狀況</span>
               <span className="text-[10px] text-amber-300/80">{gameState?.skill || gameState?.trait}</span>
@@ -802,7 +818,7 @@ export default function GamePage() {
           </div>
 
           {gameState?.socialMemory && Object.keys(gameState.socialMemory).length > 0 && (
-            <div className="bg-stone-900/80 border border-stone-800 rounded-lg p-4 space-y-2">
+            <div className="wood-panel p-4 space-y-2">
               <div className="text-xs font-semibold text-amber-400">人物立場</div>
               {Object.entries(gameState.socialMemory).map(([name, person]) => (
                 <div key={name} className="text-xs text-stone-300">
@@ -816,7 +832,7 @@ export default function GamePage() {
 
           {/* 江湖因果標籤面板 */}
           {gameState?.worldFlags && gameState.worldFlags.length > 0 && (
-            <div className="bg-stone-900/80 border border-amber-900/40 rounded-lg p-4 space-y-2">
+            <div className="wood-panel p-4 space-y-2">
               <div className="flex justify-between items-center text-xs">
                 <span className="font-semibold text-amber-400">江湖因果事跡</span>
                 <span className="text-stone-500 font-mono text-[10px]">{gameState.worldFlags.length} 樁</span>
@@ -834,7 +850,7 @@ export default function GamePage() {
             </div>
           )}
 
-          <div className="bg-stone-900/80 border border-stone-800 rounded-lg p-4 space-y-2">
+          <div className="wood-panel p-4 space-y-2">
             <div className="flex justify-between items-center text-xs">
               <span className="font-semibold text-stone-400">行囊負重</span>
               <span className="text-stone-400 font-mono">
@@ -858,7 +874,7 @@ export default function GamePage() {
             </div>
           </div>
 
-          <div className="bg-stone-900/80 border border-stone-800 rounded-lg p-4 space-y-2 text-xs">
+          <div className="wood-panel p-4 space-y-2 text-xs">
             <div className="flex items-center justify-between mb-2"><div className="font-semibold text-stone-400">城西地標與路程</div>
               <button type="button" onClick={() => setMapOpen(true)} className="text-amber-400 hover:text-amber-200">查看地圖</button></div>
             <div className="space-y-1.5 text-stone-400">
@@ -899,6 +915,7 @@ export default function GamePage() {
         </aside>
       </main>
       <MapModal open={mapOpen} onOpenChange={setMapOpen} state={gameState} />
+      <FactionsModal open={factionsOpen} onOpenChange={setFactionsOpen} />
     </div>
   );
 }
