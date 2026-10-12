@@ -3,7 +3,7 @@ import test from "node:test";
 import { availableOptions, normalizeState, recordMarketNpcReply, resolveMarketDialogue,
   resolveMarketIntent, resolveSceneAttempt, resolveSocialIntent, resolveTurn } from "../lib/game-engine.ts";
 import { newRelationships } from "../lib/companion-relations.ts";
-import { interpretMarketText, isMarketIntentScene, validateCustomDecision } from "../lib/custom-action.ts";
+import { interpretGroundedObjectHandling, interpretMarketText, isMarketIntentScene, validateCustomDecision } from "../lib/custom-action.ts";
 import { createCombat } from "../lib/combat-engine.ts";
 import { inferSocialIntent, marketDialogueTarget } from "../lib/social-influence.ts";
 import { objectStatus, sceneFacts } from "../lib/scene-state.ts";
@@ -53,6 +53,30 @@ test("ordered Blackmud actions settle against the updated scene and stop at the 
   assert.match(appendDangerCue(outcome.events.join(""), outcome.state), /\n\n（.*刀手.+）$/);
 });
 
+test("taking down the meat hook to prepare after treating Lu is one grounded action", () => {
+  const aid = resolveTurn(state(), availableOptions(state()).find((option) => option.startsWith("A. [救護同門]")), false);
+  assert.equal(aid.state.worldFlags.includes("陸千帆已敷藥"), true);
+  const words = "慢慢將鐵鉤取下、備戰";
+  assert.deepEqual(explicitActionSteps(words), [words]);
+  assert.equal(validatedActionSteps(words, ["慢慢將鐵鉤取下", "備戰"]), null);
+  assert.equal(interpretGroundedObjectHandling(aid.state, "我不將鐵鉤取下、備戰"), null);
+  assert.equal(interpretGroundedObjectHandling(aid.state, "如果將鐵鉤取下備戰會點？"), null);
+  const decision = interpretGroundedObjectHandling(aid.state, words);
+  assert.ok(decision);
+  assert.equal(decision.kind, "market_intent");
+  assert.equal(decision.plan.approach, "借物");
+  assert.equal(decision.plan.object, "懸肉鐵鉤");
+  assert.equal(decision.plan.target, "肉檔");
+  const result = resolveMarketIntent(aid.state, decision.plan);
+  assert.match(result.event, /扯下肉架鐵鉤/);
+  assert.equal(result.state.worldFlags.includes("肉檔鐵鉤已移位"), true);
+  assert.equal(result.state.flags.marketIntentHistory.length, 2);
+  assert.equal(interpretGroundedObjectHandling(result.state, words), null);
+  const board = interpretGroundedObjectHandling(aid.state, "抄起厚砧板備戰");
+  assert.equal(board.kind, "market_intent");
+  assert.equal(board.plan.object, "厚砧板");
+});
+
 test("a combat exchange interrupts later instructions even when the fight continues", async () => {
   const opening = { ...state(), questStep: "huizhi_ambush", combat: createCombat("market_ambush", true) };
   const steps = ["擋住刀手", "轉身離開"];
@@ -78,6 +102,15 @@ test("a scene change leaves later tasks pending and rejects invented planner ste
   assert.deepEqual(outcome.attempted, ["趕往市集"]);
   assert.deepEqual(outcome.pending, ["追問張斷骨"]);
   assert.equal(outcome.sceneChanged, true);
+});
+
+test("a rejected step is distinguished from later unattempted steps", async () => {
+  const outcome = await resolveActionSequence(state(), ["取下眼前物件", "再向張斷骨問話"], async (current) =>
+    ({ state: current, options: [], event: "眼前沒有這件物事。", moneyNote: "" }));
+  assert.deepEqual(outcome.attempted, []);
+  assert.equal(outcome.blockedStep, "取下眼前物件");
+  assert.deepEqual(outcome.pending, ["再向張斷骨問話"]);
+  assert.deepEqual(outcome.events, ["眼前沒有這件物事。"]);
 });
 
 test("chapter pressure is shown as a concrete scene cue without a turn countdown", () => {

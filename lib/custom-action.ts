@@ -35,6 +35,22 @@ export function isMarketIntentScene(state: GameState): boolean {
   return state.currentLocation === "黑泥街" && (state.questStep === "market_collection"
     || state.combat?.scenario === "market_ambush" || Boolean(state.flags.alleyEscape) || Boolean(state.flags.marketAftermath));
 }
+
+// Clear handling of a named, reachable prop can use the deterministic physical
+// rules directly. The model remains responsible for less explicit free actions.
+export function interpretGroundedObjectHandling(state: GameState, playerText: string): CustomDecision | null {
+  if (!isMarketIntentScene(state) || !/(?:取下|取出|扯下|摘下|拿下|解下|拿起|拎起|拾起|抄起)/.test(playerText)
+    || /(?:如果|假如|假設|會點|可唔可以|能否)/.test(playerText)) return null;
+  const active = playerText.split(/(?:反而|改為|改用|但係|但是|不過)/).at(-1)?.trim() || "";
+  if (/(?:唔|不|別|不要|唔好|未|冇|沒有)[^，、。]{0,8}(?:取下|取出|扯下|摘下|拿下|解下|拿起|拎起|拾起|抄起)/.test(active)) return null;
+  const decision = interpretMarketText(state, playerText);
+  if (decision.kind !== "market_intent" || decision.plan.approach !== "借物" || !decision.plan.object)
+    return null;
+  const status = objectStatus(normalizeSceneState(state.sceneState, state.worldFlags), decision.plan.object);
+  return status?.visibility === "visible" && status.reach === "near" && !status.holder
+    && !state.sceneState?.movedObjects?.[decision.plan.object]
+    ? decision : null;
+}
 export function marketIntentTargets(state: GameState): string[] {
   const behindWall = state.flags.marketAftermathKind === "escape" && state.flags.marketAftermath;
   const alley = Boolean(state.flags.alleyEscape || behindWall);
@@ -183,7 +199,7 @@ export function interpretMarketText(state: GameState, playerText: string): Custo
   const approach: MarketApproach | undefined = isDisarmAttemptText(text) ? "奪械"
     : /敷|上藥|包紮|止血|救|療傷/.test(text) ? "救護"
     : /撤|逃|脫身|翻牆|離開/.test(text) ? "脫身"
-      : object && /推|踢|扯|撒|擲|丟|拿|奪|拾|抄/.test(text) && !/護住陸千帆|護住千帆/.test(text) ? "借物"
+      : object && /推|踢|扯|撒|擲|丟|拿|拎|奪|拾|抄|取下|取出|摘下|解下/.test(text) && !/護住陸千帆|護住千帆/.test(text) ? "借物"
       : /護|擋|守住|護住/.test(text) ? "防守"
         : /問|追問|打聽|談|勸|說服/.test(text) ? "交涉"
           : /查|看|盯|觀察|聽|探/.test(text) ? "查探"
@@ -201,7 +217,8 @@ export function interpretMarketText(state: GameState, playerText: string): Custo
       : approach === "交涉" || approach === "施壓" ? "張斷骨"
         : approach === "查探" ? targets.includes("巷口") ? "巷口" : "街口"
           : approach === "防守" ? targets.includes("陸千帆") ? "陸千帆" : "自己"
-            : approach === "借物" || approach === "進擊" || approach === "奪械" ? targets.includes("刀手") ? "刀手" : "街口" : "自己";
+            : approach === "借物" && /備戰|戒備|準備迎敵/.test(text) ? targets.includes("肉檔") ? "肉檔" : "自己"
+              : approach === "借物" || approach === "進擊" || approach === "奪械" ? targets.includes("刀手") ? "刀手" : "街口" : "自己";
   const target = namedTarget || inferred;
   return validateCustomDecision({ kind: "market_intent", approach, target, ...(object ? { object } : {}), method: text.slice(0, 100) },
     state, [], playerText);

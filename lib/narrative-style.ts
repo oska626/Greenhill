@@ -58,6 +58,19 @@ export function validHardboiledNarrative(value: unknown): value is string {
 }
 
 export function hardboiledFallback(event: string, state: GameState, reply?: { speaker: string; line: string }): string {
+  if (state.questStep === "market_collection" && state.currentLocation === "黑泥街"
+    && event.includes("你從顧忘生手中領了止血膏藥，趕到黑泥街市集肉檔")) {
+    const clinic = event.includes("顧忘生遣人通知堂口")
+      ? "苦煙館裡，顧忘生遣人傳信，遞來膏藥，低聲道"
+      : event.includes("顧忘生說有袖口繫灰線的刀手")
+        ? "苦煙館裡，顧忘生說起灰線刀手，遞來膏藥，低聲道"
+        : event.includes("你在藥煙散去的窗邊調勻氣息")
+          ? "苦煙館裡，你調勻氣息，顧忘生遞來膏藥，低聲道"
+          : event.includes("顧忘生教你認清膏藥封口")
+            ? "苦煙館裡，你認清封口，顧忘生遞來膏藥，低聲道"
+            : "苦煙館裡，顧忘生遞來膏藥，低聲道";
+    return `${clinic}：「先壓住千帆的傷口。」\n\n你帶藥趕到黑泥街肉檔。陸千帆仍帶傷，張斷骨隔著肉案拒交規費。`;
+  }
   if (state.questStep === "kuyan_medicine" && state.currentLocation === "苦煙館"
     && event.includes("你到苦煙館見顧忘生")) {
     const arrival = event.includes("你向何不歸討路費") ? "你踏進苦煙館，腰間新添的銅錢輕響。"

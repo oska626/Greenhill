@@ -17,6 +17,11 @@ export function validatedActionSteps(text: string, proposed: unknown): string[] 
   for (const step of steps) {
     const index = text.indexOf(step, cursor);
     if (index < cursor) return null;
+    const connector = text.slice(cursor, index);
+    // A stance after a comma describes how the physical act is done. It is not
+    // a separate later task unless the player explicitly orders it afterward.
+    if (cursor > 0 && /^(?:備戰|戒備|防備|準備迎敵|作好準備|伺機而動)$/.test(step)
+      && !/(?:再|然後|跟住|之後)/.test(connector)) return null;
     cursor = index + step.length;
   }
   // The model may remove connective words, but cannot discard an attempted act.
@@ -32,6 +37,7 @@ export type SequenceOutcome = {
   attempted: string[];
   pending: string[];
   sceneChanged: boolean;
+  blockedStep?: string;
 };
 
 export async function resolveActionSequence(initial: GameState, steps: string[],
@@ -44,11 +50,13 @@ export async function resolveActionSequence(initial: GameState, steps: string[],
       chapterStage: state.flags.chapterOne?.stage, incident: state.flags.pendingIncident,
       combat: Boolean(state.combat), alley: Boolean(state.flags.alleyEscape), flags: state.worldFlags.join("|") };
     const result = await settle(state, steps[index]);
-    if (!result) return { state, events, attempted, pending: steps.slice(index), sceneChanged: false };
+    if (!result) return { state, events, attempted, pending: steps.slice(index + 1), sceneChanged: false,
+      blockedStep: steps[index] };
     state = result.state;
     events.push(result.event);
     if (state.turn === before.turn && state.questStep === before.questStep && state.worldFlags.join("|") === before.flags)
-      return { state, events, attempted, pending: steps.slice(index), sceneChanged: false };
+      return { state, events, attempted, pending: steps.slice(index + 1), sceneChanged: false,
+        blockedStep: steps[index] };
     attempted.push(steps[index]);
     if (state.questStep !== before.questStep || state.currentLocation !== before.location
       || state.flags.chapterOne?.stage !== before.chapterStage

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { availableOptions, normalizeState, OPENING_CITY_NARRATION, recordMarketNpcReply, resolveMarketDialogue,
   resolveMarketIntent, resolveOpeningKnifeRequest, resolveSceneAttempt, resolveSocialIntent, resolveTurn, type GameState, type Landmark } from "@/lib/game-engine";
 import { COMPANION_IDS, relationshipLabel } from "@/lib/companion-relations";
-import { CREATIVE_GOALS, interpretMarketText, isMarketIntentScene, marketIntentTargets, SCENE_EFFECTS, sceneAttemptObjects, sceneAnchors, validateCustomDecision, type CustomDecision } from "@/lib/custom-action";
+import { CREATIVE_GOALS, interpretGroundedObjectHandling, interpretMarketText, isMarketIntentScene, marketIntentTargets, SCENE_EFFECTS, sceneAttemptObjects, sceneAnchors, validateCustomDecision, type CustomDecision } from "@/lib/custom-action";
 import { appendDangerCue, explicitActionSteps, resolveActionSequence, validatedActionSteps } from "@/lib/action-sequence";
 import { hasSectAddressViolation, npcVoiceGuide, sectMemberAddress } from "@/lib/npc-voices";
 import { resolveChapterPetition } from "@/lib/chapter-one";
@@ -137,6 +137,8 @@ async function interpretCustomAction(state: GameState, playerText: string): Prom
     }
     return { kind: "reject", reason: "unavailable" };
   };
+  const groundedHandling = interpretGroundedObjectHandling(state, playerText);
+  if (groundedHandling) return groundedHandling;
   if (!key || !endpoint) return offline();
   const deployment = (process.env.AZURE_OPENAI_DEPLOYMENT_NAME || process.env.AZURE_OPENAI_DEPLOYMENT || "gpt-4o").trim();
   const options = availableOptions(state);
@@ -158,7 +160,12 @@ async function interpretCustomAction(state: GameState, playerText: string): Prom
       return offline();
     }
     const data = await response.json();
-    return validateCustomDecision(JSON.parse(data.choices?.[0]?.message?.content || "{}"), state, options, playerText);
+    const decision = validateCustomDecision(JSON.parse(data.choices?.[0]?.message?.content || "{}"), state, options, playerText);
+    if (marketMode && decision.kind === "reject" && decision.reason === "unclear") {
+      const grounded = interpretMarketText(state, playerText);
+      if (grounded.kind !== "reject") return grounded;
+    }
+    return decision;
   } catch (error) {
     console.warn("自訂手段理解服務未能完成", error instanceof Error ? error.name : "unknown");
     return offline();
@@ -261,6 +268,9 @@ async function narrate(state: GameState, action: string, event: string, moneyCha
   if (state.questStep === "prologue_briefing" && state.turn === 1) return fallbackResult("authored_opening");
   if (state.questStep === "kuyan_medicine" && state.currentLocation === "苦煙館"
     && event.includes("你到苦煙館見顧忘生")) return fallbackResult("authored_clinic_handoff");
+  if (state.questStep === "market_collection" && state.currentLocation === "黑泥街"
+    && event.includes("你從顧忘生手中領了止血膏藥，趕到黑泥街市集肉檔"))
+    return fallbackResult("authored_market_arrival");
   if (combatTurn && !freeScene) return fallbackResult("calculated_combat");
   if ((state.flags.alleyEscape || state.flags.marketAftermath) && !freeScene) return fallbackResult("scene_state_gate");
   // The deterministic account already contains the exact transaction.
@@ -352,12 +362,15 @@ export async function POST(req: NextRequest) {
                 : decision.kind === "creative" ? resolveTurn(current, `F. [自訂手段] ${step}`, false, decision.plan, false)
                   : resolveTurn(current, decision.kind === "option" ? decision.option : decision.action, false, undefined, false);
         });
+        const blockedNote = outcome.blockedStep
+          ? `${outcome.events.length ? "" : "眼前無法判明這個做法。"}「${outcome.blockedStep}」未執行。` : "";
         const pendingNote = outcome.pending.length
-          ? `${outcome.sceneChanged ? "眼前局勢已變" : "下一項未能結算"}；你原本還打算「${outcome.pending.join("、")}」，尚未嘗試。` : "";
-        const account = outcome.events.join("") + pendingNote;
+          ? `${outcome.sceneChanged ? "眼前局勢已變；" : ""}「${outcome.pending.join("、")}」尚未嘗試。` : "";
+        const account = outcome.events.join("") + blockedNote + pendingNote;
         return NextResponse.json({ narrative: appendDangerCue(account || "眼前未能判明這段行動，請換個講法。", outcome.state),
           options: availableOptions(outcome.state), state: outcome.state, narrativeSource: "sequenced_action",
-          actionOutcome: { attempted: outcome.attempted, pending: outcome.pending } });
+          actionOutcome: { attempted: outcome.attempted, pending: outcome.pending,
+            ...(outcome.blockedStep ? { blocked: outcome.blockedStep } : {}) } });
       }
     }
     if (state.questStep === "chapter_one") {

@@ -119,6 +119,25 @@ test("all opening choices enter the clinic in one camera beat without a stat log
   assert.equal(containsSettlementLog("何不歸留下補強守備，防線升四。"), true);
 });
 
+test("all clinic choices finish Gu's dialogue before the Blackmud arrival", () => {
+  const opening = resolveTurn(newGame(), "[初入堂口] 阿七", true);
+  const clinic = resolveTurn(opening.state, opening.options[0], false);
+  for (const option of clinic.options) {
+    const turn = resolveTurn(clinic.state, option, false);
+    assert.equal(turn.state.currentLocation, "黑泥街");
+    const prose = hardboiledFallback(turn.event, turn.state, turn.npcReply);
+    assert.equal(validHardboiledNarrative(prose), true, prose);
+    const [departure, arrival] = prose.split("\n\n");
+    assert.match(departure, /^苦煙館裡，/);
+    assert.match(departure, /顧忘生.*低聲道：「先壓住千帆的傷口。」$/);
+    assert.match(arrival, /^你帶藥趕到黑泥街肉檔。/);
+    assert.doesNotMatch(arrival, /顧忘生/);
+    assert.match(arrival, /陸千帆.*張斷骨/);
+    assert.equal(containsSettlementLog(prose), false);
+    if (option.includes("傳信")) assert.match(departure, /遣人傳信/);
+  }
+});
+
 test("small health scale preserves the injury ratio of old saves once", () => {
   assert.equal(aptitude("阿七", "賭坊收帳人", "察言觀色").hp, 20);
   assert.equal(aptitude("阿七", "落魄武館棄徒", "皮糙肉厚").hp, 28);
