@@ -96,6 +96,7 @@ export default function GamePage() {
   const [customStartingItem, setCustomStartingItem] = useState<string>(CUSTOM_STARTING_ITEMS[0]);
 
   const [gameState, setGameState] = useState<GameState | null>(null);
+  const [silverDelta, setSilverDelta] = useState(0);
   const [narrative, setNarrative] = useState<string>("");
   const [options, setOptions] = useState<string[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -194,6 +195,7 @@ export default function GamePage() {
 
   const handleLoadSavedGame = () => {
     if (!savedGame) return;
+    setSilverDelta(0);
     setGameState(savedGame.state);
     setNarrative(savedGame.narrative);
     setOptions(savedGame.options);
@@ -208,6 +210,7 @@ export default function GamePage() {
     localStorage.setItem(SAVE_KEY, JSON.stringify(restored));
     setSavedGame(restored);
     setGameState(restored.state);
+    setSilverDelta(0);
     setNarrative(restored.narrative);
     setOptions(restored.options);
     setSelectedDestination(null);
@@ -225,6 +228,7 @@ export default function GamePage() {
       }
       setSavedGame(null);
       setGameState(null);
+      setSilverDelta(0);
       setNarrative("");
       setOptions([]);
       setCustomInput("");
@@ -285,6 +289,7 @@ export default function GamePage() {
     };
 
     setGameState(initialCharacterState);
+    setSilverDelta(0);
     setNarrative("");
     setOptions([]);
     setView("game");
@@ -362,6 +367,7 @@ export default function GamePage() {
       }
 
       setGameState(nextState);
+      setSilverDelta(nextState.silver - gameState.silver);
       setNarrative(nextNarrative);
       setOptions(nextOptions);
       setCustomInput("");
@@ -547,6 +553,11 @@ export default function GamePage() {
             <div>
               <span className="text-stone-500 mr-1">私銀:</span>
               <span className="text-amber-400 font-mono font-medium">{gameState?.silver ?? 0}</span> 文
+              {silverDelta !== 0 && (
+                <span className={`ml-1 text-xs font-semibold ${silverDelta < 0 ? "text-rose-400" : "text-emerald-400"}`}>
+                  {silverDelta < 0 ? "↓" : "↑"}{Math.abs(silverDelta)}
+                </span>
+              )}
             </div>
             <div>
               <span className="text-stone-500 mr-1">青鋒堂命脈:</span>

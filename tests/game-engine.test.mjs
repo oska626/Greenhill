@@ -32,6 +32,19 @@ function finishCombat(turn) {
   return turn;
 }
 
+test("opening choices state one short action and settle costs after selection", () => {
+  const opening = resolveTurn(newGame(), "[初入堂口] 阿七", true);
+  assert.equal(opening.options.length, 5);
+  for (const option of opening.options) {
+    const count = Array.from(option.matchAll(/[\u3400-\u9fff]/g)).length;
+    assert.ok(count <= 12, `${option}: ${count} characters`);
+    assert.doesNotMatch(option, /私銀增加|公款減少|命脈升|防線升|得以留下/);
+  }
+  const roadMoney = resolveTurn(opening.state, opening.options[1], false);
+  assert.equal(roadMoney.state.silver, opening.state.silver + 10);
+  assert.equal(roadMoney.state.factionFunds, opening.state.factionFunds - 10);
+});
+
 test("creation varies only health, while every background starts with fifty energy", () => {
   const builds = [
     ["賭坊收帳人", "察言觀色"], ["城西街童扒手", "手疾眼快"],
