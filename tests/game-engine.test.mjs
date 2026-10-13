@@ -32,6 +32,22 @@ function finishCombat(turn) {
   return turn;
 }
 
+test("history defaults for old saves and records each resolved action with its event", () => {
+  const oldSave = normalizeState(newGame());
+  assert.deepEqual(oldSave.history, []);
+  const openingAction = "[初入堂口] 阿七";
+  const opening = resolveTurn(oldSave, openingAction, true);
+  assert.deepEqual(opening.state.history, [{ turn: opening.state.turn, action: openingAction, narrative: opening.event }]);
+  assert.deepEqual(oldSave.history, [], "resolving a turn must leave the prior save untouched");
+
+  const action = opening.options[0];
+  const next = resolveTurn(opening.state, action, false);
+  assert.equal(next.state.history.length, 2);
+  assert.deepEqual(next.state.history[1], { turn: next.state.turn, action, narrative: next.event });
+  assert.equal(opening.state.history.length, 1);
+  assert.deepEqual(normalizeState(next.state).history, next.state.history);
+});
+
 test("opening choices state one short action and settle costs after selection", () => {
   const opening = resolveTurn(newGame(), "[初入堂口] 阿七", true);
   assert.equal(opening.options.length, 5);

@@ -32,6 +32,7 @@ export const CUSTOM_ACTION_START = CUSTOM_ACTION_MAX;
 
 export interface GameState {
   turn: number;
+  history?: { turn: number; action: string; narrative: string }[];
   playerName: string;
   background: string;
   trait: string;
@@ -471,6 +472,9 @@ export function normalizeState(raw: unknown): GameState | null {
     && (flags.alleyEscape === true || flags.alleyWall === true);
   return {
     turn: finite(value.turn, 1, 1, 100000),
+    history: Array.isArray(value.history) ? value.history.filter((entry) => entry && typeof entry === "object"
+      && Number.isFinite(entry.turn) && typeof entry.action === "string" && typeof entry.narrative === "string")
+      .map((entry) => ({ turn: entry.turn, action: entry.action, narrative: entry.narrative })) : [],
     playerName: value.playerName.slice(0, 30), background: background.slice(0, 60), trait: value.trait.slice(0, 60),
     gender: typeof value.gender === "string" ? value.gender.replace(/[\r\n「」]/g, "").trim().slice(0, 8) : undefined,
     skill: typeof value.skill === "string" ? value.skill.replace(/[\r\n「」]/g, "").trim().slice(0, 12) : undefined,
@@ -747,7 +751,7 @@ export function resolveOpeningKnifeRequest(rawState: GameState, playerText: stri
     moneyNote: "", npcReply };
 }
 
-export function resolveTurn(rawState: GameState, action: string, opening: boolean, creative?: CreativeAction, spendCustomUse = false,
+function resolveTurnCore(rawState: GameState, action: string, opening: boolean, creative?: CreativeAction, spendCustomUse = false,
   terrainObject?: "厚砧板" | "懸肉鐵鉤" | "剁骨刀", disarmAttempt = false, freeAttempt?: SceneAttempt): TurnResult {
   const state = normalizeState(rawState);
   if (!state) throw new Error("遊戲狀態無效");
@@ -1640,6 +1644,20 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
   }
   return { state, options: availableOptions(state), event: event.trim(), moneyNote: changes.join("，"),
     npcReply: localNpcReply(state, npcReply) };
+}
+
+export function resolveTurn(rawState: GameState, action: string, opening: boolean, creative?: CreativeAction, spendCustomUse = false,
+  terrainObject?: "厚砧板" | "懸肉鐵鉤" | "剁骨刀", disarmAttempt = false, freeAttempt?: SceneAttempt): TurnResult {
+  const result = resolveTurnCore(rawState, action, opening, creative, spendCustomUse, terrainObject, disarmAttempt, freeAttempt);
+  const history = result.state.history || [];
+  const entry = { turn: result.state.turn, action, narrative: result.event };
+  if (history.length > (rawState.history?.length || 0) && history[history.length - 1]?.turn === result.state.turn) {
+    history[history.length - 1] = entry;
+  } else {
+    history.push(entry);
+  }
+  result.state.history = history;
+  return result;
 }
 
 export function resolveMarketDialogue(rawState: GameState, target: string, utterance: string,

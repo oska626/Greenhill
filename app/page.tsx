@@ -8,6 +8,7 @@ import { renameLegacyWorldNames } from "@/lib/npc-voices";
 import { createPrologueHandoff, type PrologueHandoff } from "@/lib/prologue-handoff";
 import { MapModal } from "@/components/game/map-modal";
 import { FactionsModal } from "@/components/game/factions-modal";
+import { HistoryModal } from "@/components/game/history-modal";
 import { shouldCapturePrologueCheckpoint } from "@/lib/prologue-checkpoint";
 import { chapterPressureForecast } from "@/lib/chapter-one";
 import { actionEnergyCost, FATIGUE_THRESHOLD, MAX_ENERGY } from "@/lib/energy";
@@ -35,6 +36,16 @@ interface SavedGameData {
 
 const SAVE_KEY = "qingshan_game_save_v1";
 const READ_KEY = "qingshan_read_narratives_v1";
+function recordDisplayedHistory(state: GameState, previous: GameState, action: string, narrative: string): GameState {
+  const history = [...(state.history || [])];
+  const entry = { turn: state.turn, action, narrative };
+  if (history.length > (previous.history?.length || 0) && history[history.length - 1]?.turn === state.turn) {
+    history[history.length - 1] = entry;
+  } else {
+    history.push(entry);
+  }
+  return { ...state, history };
+}
 const BACKGROUND_TAGS: Record<string, string> = {
   "賭坊收帳人": "收帳人", "城西街童扒手": "扒手", "落魄武館棄徒": "武館棄徒",
   "黑市醫道學徒": "醫道學徒", "自定義市井流民": "市井流民",
@@ -100,6 +111,7 @@ export default function GamePage() {
   const [selectedDestination, setSelectedDestination] = useState<Landmark | null>(null);
   const [mapOpen, setMapOpen] = useState(false);
   const [factionsOpen, setFactionsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [skipRead, setSkipRead] = useState(false);
   const [previouslyRead, setPreviouslyRead] = useState(false);
   const [showReadNarrative, setShowReadNarrative] = useState(false);
@@ -270,6 +282,7 @@ export default function GamePage() {
       factionFunds: 10,
       sectLifeline: 60,
       worldFlags: selectedBgId === "martial_dropout" ? ["武館舊傷"] : [],
+      history: [],
       relationships: newRelationships(),
       equippedWeapon: "fists",
       weaponDurability: 0,
@@ -313,10 +326,11 @@ export default function GamePage() {
         throw new Error(data.error || `開局生成失敗 (HTTP ${res.status})`);
       }
 
-      setGameState(data.state);
+      const openedState = recordDisplayedHistory(data.state, initialCharacterState, lastActionRef.current, data.narrative);
+      setGameState(openedState);
       setNarrative(data.narrative);
       setOptions(data.options || []);
-      saveToLocalStorage(data.state, data.narrative, data.options || []);
+      saveToLocalStorage(openedState, data.narrative, data.options || []);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "開局連線失敗";
       setErrorMsg(msg);
@@ -353,7 +367,6 @@ export default function GamePage() {
         throw new Error(data.error || `伺服器拒絕請求 (HTTP ${res.status})`);
       }
 
-      const nextState = data.state;
       const nextNarrative = data.narrative;
       const nextOptions = data.options || [];
 
@@ -362,6 +375,7 @@ export default function GamePage() {
         return;
       }
 
+      const nextState = recordDisplayedHistory(data.state, gameState, actionText, nextNarrative);
       setGameState(nextState);
       setSilverDelta(nextState.silver - gameState.silver);
       setNarrative(nextNarrative);
@@ -560,6 +574,10 @@ export default function GamePage() {
               className="rounded-sm border border-[#765739] bg-[#201811] px-2.5 py-1 text-[11px] text-amber-500/90 shadow-inner hover:border-[#a68150]"
               aria-label="查看青山風雲與城西形勢">
               青山風雲
+            </button>
+            <button type="button" onClick={() => setHistoryOpen(true)}
+              className="rounded-sm border border-[#3d2e20] bg-[#201811] px-2.5 py-1 text-[11px] text-[#a3907c] shadow-inner hover:border-[#765739] hover:text-amber-300">
+              殘卷紀錄
             </button>
             <div>
               <span className="text-stone-500 mr-1">私銀:</span>
@@ -964,6 +982,7 @@ export default function GamePage() {
       </main>
       <MapModal open={mapOpen} onOpenChange={setMapOpen} state={gameState} />
       <FactionsModal open={factionsOpen} onOpenChange={setFactionsOpen} />
+      <HistoryModal open={historyOpen} onOpenChange={setHistoryOpen} history={gameState?.history || []} />
     </div>
   );
 }
