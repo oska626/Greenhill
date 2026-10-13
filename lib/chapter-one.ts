@@ -4,7 +4,7 @@ import { PACKED_MEDICINE, USE_PACKED_MEDICINE, USE_HEMOSTATIC_POWDER,
   canUsePackedMedicine, canUseHemostaticPowder, consumePackedMedicine, consumeHemostaticPowder,
   restoreVitals } from "./recovery.ts";
 import { actionEnergyCost, availableWithEnergy, canAffordEnergy, spendEnergy } from "./energy.ts";
-import { travelChoices } from "./city-progression.ts";
+import { missionOptions, travelChoices } from "./city-progression.ts";
 import type { GameState, Landmark, TurnResult } from "./game-engine.ts";
 import { conciseOption } from "./option-text.ts";
 import { getPseudoRandom } from "./state-random.ts";
@@ -29,6 +29,7 @@ export interface ChapterOneState {
   crewHired?: boolean;
   dockRouteKnown?: boolean;
   petitionHeard?: boolean;
+  foundShortageLocation?: boolean;
   result?: string;
 }
 
@@ -67,7 +68,7 @@ const companionChoices = (state: GameState): string[] => {
   if (state.flags.chapterOne?.selectedCompanion) return [];
   const leads = state.flags.prologueCompanionLeads || [];
   return COMPANION_IDS.filter((name) => leads.includes(name) && (name !== "容晚秋" || state.silver >= 10))
-    .map((name) => `B. [選同伴：${name}] 與${name}同行`);
+    .map((name) => `B. [選同伴：${name}] ${name === "容晚秋" ? "付十文請她帶路" : `與${name}同行`}`);
 };
 export function chapterPressureForecast(state: GameState): { loss: number; tributeIn: number | null; tributeCost: number; unrestGain: number } | null {
   const chapter = state.flags.chapterOne;
@@ -91,6 +92,8 @@ const SHORTAGE_OPTIONS = [
   "D. [查夜雨樓] 查夜雨樓酒水貨車",
   "E. [問接應] 問同伴可疑貨帳",
 ];
+const SUBMIT_SHORTAGE = "A. [交斷貨帳] 向堂主呈交斷貨帳";
+const TEA_INTEL = "A. [買斷貨訊] 付錢向容晚秋問貨路";
 const RECOVER_OPTION = "R. [總壇休養] 返回總壇休養";
 const DEFEND_OPTION = "G. [派人守街] 請堂主派人守街";
 
@@ -105,7 +108,7 @@ const addFunds = (state: GameState, delta: number, reason: string) => {
     reason: previous ? `${previous.reason}；${reason}` : reason, turn: state.turn };
 };
 const drawBusiness = (state: GameState): Business => BUSINESSES[getPseudoRandom(state) % BUSINESSES.length];
-const finishTurn = (state: GameState, event: string): TurnResult => {
+export const finishChapterTurn = (state: GameState, event: string): TurnResult => {
   const chapter = state.flags.chapterOne;
   if (state.questStep === "chapter_one" && chapter && chapter.stage !== "complete" && chapter.stage !== "failed"
     && (chapter.lostLandmarks.length >= MAX_LOST_LANDMARKS || state.sectLifeline === 0)) {
@@ -116,6 +119,7 @@ const finishTurn = (state: GameState, event: string): TurnResult => {
   }
   return { state, event, options: chapterOneOptions(state), moneyNote: "" };
 };
+const finishTurn = finishChapterTurn;
 
 function rawChapterOneOptions(state: GameState): string[] {
   if (state.questStep !== "chapter_one") return state.flags.ending === "守住城西" ? [CHAPTER_START]
@@ -126,9 +130,17 @@ function rawChapterOneOptions(state: GameState): string[] {
     ...(canUseHemostaticPowder(state) ? [USE_HEMOSTATIC_POWDER] : [])];
   if (chapter.stage === "rest") return availableWithEnergy(state, [REST_OPTIONS[0], ...companionChoices(state), ...REST_OPTIONS.slice(1),
     ...medicineOptions]);
-  if (chapter.stage === "shortage") return availableWithEnergy(state, [...SHORTAGE_OPTIONS,
-    ...(state.factionFunds >= 8 ? [DEFEND_OPTION] : []), RECOVER_OPTION,
-    ...medicineOptions]);
+  if (chapter.stage === "shortage") {
+    const local = SHORTAGE_OPTIONS.filter((option, index) => index < 4 && BUSINESSES[index] === state.currentLocation);
+    const travel = (state.currentLocation === "碼頭" ? [] : (["青鋒堂總壇", "晚秋茶寮", "黑泥街", "鬼骰坊", "裂石擂", "苦煙館", "夜雨樓"] as Landmark[])
+      .flatMap((destination) => travelChoices(state, destination).map((route) => route.label)));
+    return availableWithEnergy(state, [
+      ...(state.currentLocation === "青鋒堂總壇" ? [chapter.foundShortageLocation ? SUBMIT_SHORTAGE : SHORTAGE_OPTIONS[4],
+        ...(state.factionFunds >= 8 ? [DEFEND_OPTION] : []), RECOVER_OPTION] : []),
+      ...(state.currentLocation === "晚秋茶寮" ? [TEA_INTEL] : []),
+      ...local, ...missionOptions(state), ...travel, ...medicineOptions,
+    ]);
+  }
   const directAssault = chapter.selectedCompanion === "衛沉岳" || chapter.selectedCompanion === "霍破陣";
   const evidenceNeeded = chapter.selectedCompanion === "霍破陣" ? 2 : 3;
   const readyToRetake = chapter.evidence >= evidenceNeeded && (directAssault || chapter.dockRouteKnown);
@@ -146,6 +158,7 @@ function rawChapterOneOptions(state: GameState): string[] {
     "A. [查碼頭貨單] 核對被扣糧車數目",
     "D. [夜探碼頭] 潛入探明進港路線",
     "E. [硬奪碼頭] 帶人強行奪回碼頭",
+    ...(!chapter.selectedCompanion ? ["J. [隻身硬闖] 獨身闖入碼頭"] : []),
     ...(readyToRetake && state.playerMp >= 6
       ? ["G. [運勁奪港] 運勁奪回碼頭"] : []),
     ...(!chapter.dockRouteKnown && state.playerMp >= 4
@@ -238,32 +251,41 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
     state.flags.chapterOne = { stage: "rest", turns: 0, evidence: 0, allies: 0,
       affectedBusiness: drawBusiness(state), deficitStreak: 0, foodShortageDays: 0, unrest: 0,
       lostLandmarks: [], tribute: "pending" };
+    state.flags.pendingIncident = undefined;
+    state.pendingEncounter = undefined;
+    state.flags.finalCrisis = false;
+    state.flags.lastIncidentTurn = state.turn;
+    state.lastEncounterTurn = state.turn;
     state.customActionUses = CUSTOM_ACTION_MAX;
-    state.sectLifeline = Math.min(100, Math.max(10, state.sectLifeline + 8));
+    // The chapter now requires a round trip on the road before the dock opens.
+    state.sectLifeline = Math.min(100, Math.max(50, state.sectLifeline + 8));
     addFunds(state, GRATITUDE_DUES, "市販自願加繳半個月規費");
     remember(state, "第一章市販加繳規費");
     return finishTurn(state, CHAPTER_OPENING);
   }
   const chapter = state.flags.chapterOne;
   if (!chapter) return finishTurn(state, "第一章狀態無效，請載入較早的存檔。");
-  const route = chapter.stage === "dock" ? (["青鋒堂總壇", "碼頭"] as const)
-    .flatMap((destination) => travelChoices(state, destination)).find((candidate) => candidate.label === action) : undefined;
+  const route = chapter.stage === "dock" || chapter.stage === "shortage"
+    ? (["青鋒堂總壇", "晚秋茶寮", "黑泥街", "鬼骰坊", "裂石擂", "苦煙館", "夜雨樓", "碼頭"] as Landmark[])
+      .flatMap((destination) => travelChoices(state, destination)).find((candidate) => candidate.label === action) : undefined;
   if (route) {
     let travelledTurns = 0;
     let event = "";
     for (let turn = 0; turn < route.turns; turn++) {
       state.turn += 1;
       chapter.turns += 1;
-      event += collectPressure(state, chapter, 4) + settleTribute(state, chapter);
+      event += collectPressure(state, chapter, chapter.stage === "shortage" ? 6 : 4) + settleTribute(state, chapter);
       travelledTurns += 1;
       if (chapter.lostLandmarks.length >= MAX_LOST_LANDMARKS || state.sectLifeline === 0) break;
     }
     if (travelledTurns === route.turns) state.currentLocation = route.destination;
     event = `${travelledTurns === route.turns
-      ? `你從${route.destination === "碼頭" ? "青鋒堂總壇經晚秋茶寮、黑泥街" : "碼頭經黑泥街、晚秋茶寮"}，沿明路抵達${state.currentLocation}。`
+      ? chapter.stage === "shortage" ? `你沿明路走到${state.currentLocation}。`
+        : `你從${route.destination === "碼頭" ? "青鋒堂總壇經晚秋茶寮、黑泥街" : "碼頭經黑泥街、晚秋茶寮"}，沿明路抵達${state.currentLocation}。`
       : `你仍在${state.currentLocation}一帶，往${route.destination}的路尚未走完。`}${event}`;
     event += spendEnergy(state, travelledTurns, 0, true);
     if (travelledTurns < route.turns) return finishTurn(state, `${event}前路未到，街面已經失守。`);
+    if (chapter.stage === "shortage") return finishTurn(state, event);
     return finishTurn(state, `${event}\n\n${route.destination === "碼頭"
       ? "被扣的糧藥仍堆在岸邊。你可以核對貨單、摸清守衛換班，再決定如何復航。"
       : "你回到總壇，可以找同伴、請堂主僱船工或休養，碼頭的欠收仍在繼續。"}`);
@@ -323,8 +345,16 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
     const chosen = choice < 4 ? BUSINESSES[choice] : undefined;
     const pressure = collectPressure(state, chapter, 6);
     const tribute = settleTribute(state, chapter);
-    if (chosen === chapter.affectedBusiness) {
-      state.currentLocation = chosen as Landmark;
+    if (action === SUBMIT_SHORTAGE && state.currentLocation === "青鋒堂總壇" && chapter.foundShortageLocation) {
+      chapter.stage = "dock";
+      event = `你把${chapter.affectedBusiness}的斷貨帳拍在堂主桌上。何不歸叫人備船，碼頭換班時刻已記在帳邊。${pressure}${tribute}`;
+    } else if (action === TEA_INTEL) {
+      if (state.worldFlags.includes("第一章茶寮貨訊已買")) event = "貨路已記在帳上，容晚秋沒有再收錢。";
+      else if (state.silver < 10) event = "私銀不足十文，容晚秋沒有收錢，也沒有交出貨路消息。";
+      else { state.silver -= 10; remember(state, "第一章茶寮貨訊已買");
+        event = `你付十文私銀，容晚秋指出${chapter.affectedBusiness}的貨車先斷。`; }
+      event += pressure + tribute;
+    } else if (chosen === chapter.affectedBusiness && !chapter.foundShortageLocation) {
       chapter.evidence += 2;
       if (chapter.selectedCompanion === "祁觀衡" || (chapter.selectedCompanion === "顧忘生" && chosen === "苦煙館")) {
         chapter.evidence += 1;
@@ -332,13 +362,12 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
           ? "祁觀衡對出多一筆偽造運費，證據再加一點。"
           : "顧忘生認出封口與藥材數目不符，證據再加一點。";
       }
-      chapter.stage = "dock";
-      state.currentLocation = "青鋒堂總壇";
+      chapter.foundShortageLocation = true;
       remember(state, `第一章${chosen}斷貨已查`);
-      event = `你帶著${chosen}的貨帳回到青鋒堂總壇，指出貨是被玄武樓從碼頭扣下。帳上還記著：${BUSINESS_HINTS[chosen]}${event}${pressure}${tribute}`;
-      event += "\n\n腳夫在堂前說出碼頭的守衛換班。你把船次記在帳邊，等堂主決定接應人手與貨路。";
+      event = `你在${chosen}查出貨車被玄武樓扣在碼頭。${BUSINESS_HINTS[chosen]}${event}${pressure}${tribute}帳已抄好，須親自帶回總壇交給堂主。`;
+    } else if (chosen === chapter.affectedBusiness) {
+      event = `你已查清${chosen}的斷貨帳，帶回總壇才能調人奪港。${pressure}${tribute}`;
     } else if (chosen) {
-      state.currentLocation = chosen as Landmark;
       event = `你在${chosen}核對帳目，這裏的虧空尚不足以解釋整筆斷貨。${pressure}${tribute}\n\n線索仍指向另一處地標，碼頭的貨卻還在玄武樓手上。`;
     } else {
       event = `${chapter.selectedCompanion ? `${chapter.selectedCompanion}指出${chapter.affectedBusiness}的入帳最不對勁。` : "你尚未選定同行同伴，只能再核對各地標的貨運記錄。"}${pressure}${tribute}\n\n城西的糧藥仍未到，你須親自去查出缺口。`;
@@ -360,7 +389,7 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
         event = `你夜探碼頭，記下玄武樓守衛換班。${focused ? "你耗四點精力輕身避開刀鋒。" : ""}${chapter.selectedCompanion === "顧忘生" ? "顧忘生護住傷處。" : ""}氣血減${beforeHp - state.playerHp}。`;
       } else event = "你再探同一條水路，守衛位置沒有新變化。";
     }
-    if (choice === 4 || choice === 6) {
+    if (choice === 4 || choice === 6 || choice === 9) {
       const focused = choice === 6;
       const guard = chapter.selectedCompanion === "衛沉岳" || chapter.selectedCompanion === "霍破陣";
       if (chapter.evidence >= (chapter.selectedCompanion === "霍破陣" ? 2 : 3) && (guard || chapter.dockRouteKnown)) {
@@ -368,7 +397,8 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
         chapter.stage = "complete"; chapter.result = "奪回碼頭"; chapter.deficitStreak = 0;
         remember(state, "第一章碼頭復航");
         addFunds(state, focused ? 12 : 8, "碼頭復航後首批地標收入");
-        const help = chapter.selectedCompanion === "衛沉岳" ? "衛沉岳守住堤口，同你接住被扣的糧藥"
+        const help = choice === 9 ? "你沿已查明的水路獨自打開貨閘，腳夫接走被扣的糧藥"
+          : chapter.selectedCompanion === "衛沉岳" ? "衛沉岳守住堤口，同你接住被扣的糧藥"
           : chapter.selectedCompanion === "霍破陣" ? "霍破陣衝開刀手，同你接住被扣的糧藥"
             : chapter.selectedCompanion === "陸千帆" ? "陸千帆先認清退路，領腳夫從側巷接走糧藥"
               : chapter.selectedCompanion === "容晚秋" ? "容晚秋領腳夫循暗道接走糧藥"

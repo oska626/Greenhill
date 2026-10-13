@@ -50,6 +50,12 @@ export type TravelChoice = { destination: Landmark; kind: "road" | "shortcut"; t
 export function travelChoices(state: GameState, destination: Landmark): TravelChoice[] {
   if (destination === state.currentLocation) return [];
   if (state.questStep === "chapter_one") {
+    if (state.flags.chapterOne?.stage === "shortage") {
+      if (destination === "碼頭" || state.currentLocation === "碼頭"
+        || !ROAD_ADJACENCY[state.currentLocation as Exclude<Landmark, "碼頭">]?.includes(destination)) return [];
+      return [{ destination, kind: "road", turns: 1,
+        label: `F. [明路前往] 前往${destination}`, danger: "", riskPeriod: 0, riskDamage: 0, riskLifeline: 0 }];
+    }
     if (state.flags.chapterOne?.stage !== "dock"
       || !["青鋒堂總壇", "碼頭"].includes(destination)
       || !["青鋒堂總壇", "碼頭"].includes(state.currentLocation)) return [];

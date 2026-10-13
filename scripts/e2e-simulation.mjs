@@ -67,16 +67,26 @@ function step(state, action, route, opening = false) {
 }
 
 function walkTo(state, destination, route) {
-  for (let count = 0; count < 12 && state.currentLocation !== destination; count++) {
+  for (let count = 0; count < 40; count++) {
+    if (state.pendingEncounter) {
+      state = step(state, availableOptions(state)[0], route);
+      continue;
+    }
+    if (state.flags.pendingIncident) {
+      const local = availableOptions(state).find((option) => !option.startsWith("F."));
+      if (local) { state = step(state, local.match(/\[[^\]]+\]/)?.[0], route); continue; }
+    }
+    if (state.currentLocation === destination && !state.flags.pendingIncident && !state.pendingEncounter) return state;
+    const nextDestination = state.flags.pendingIncident === "market_raid" ? "黑泥街" : destination;
     const queue = [[state.currentLocation]];
     let path;
     while (queue.length) {
       const candidate = queue.shift();
-      if (candidate.at(-1) === destination) { path = candidate; break; }
+      if (candidate.at(-1) === nextDestination) { path = candidate; break; }
       for (const next of ROAD_ADJACENCY[candidate.at(-1)] || [])
         if (!candidate.includes(next)) queue.push([...candidate, next]);
     }
-    assert.ok(path, `${route}: no road to ${destination}`);
+    assert.ok(path, `${route}: no road to ${nextDestination}`);
     const next = path[1];
     assert.ok(ROAD_ADJACENCY[state.currentLocation].includes(next));
     state = step(state, `[明路前往] ${next}`, route);
@@ -171,7 +181,13 @@ function reachChapter(state, route) {
   for (let i = 0; i < 3 && state.flags.chapterOne.stage === "rest"; i++)
     state = step(state, "[核對貨帳]", route);
   assert.equal(state.flags.chapterOne.stage, "shortage");
+  state = walkTo(state, state.flags.chapterOne.affectedBusiness, route);
   state = step(state, `[查${state.flags.chapterOne.affectedBusiness}]`, route);
+  assert.equal(state.currentLocation, state.flags.chapterOne.affectedBusiness);
+  assert.equal(state.flags.chapterOne.stage, "shortage");
+  assert.equal(state.flags.chapterOne.foundShortageLocation, true);
+  state = walkTo(state, "青鋒堂總壇", route);
+  state = step(state, "[交斷貨帳]", route);
   assert.equal(state.flags.chapterOne.stage, "dock");
   state = step(state, "[明路前往] 碼頭", route);
   state = step(state, "[查碼頭貨單]", route);

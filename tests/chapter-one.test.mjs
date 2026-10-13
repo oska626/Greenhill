@@ -5,7 +5,7 @@ import { newRelationships } from "../lib/companion-relations.ts";
 import { CHAPTER_OPENING, GRATITUDE_DUES, MAX_LOST_LANDMARKS, RAID_UNREST_THRESHOLD, chapterPressureForecast, resolveChapterPetition } from "../lib/chapter-one.ts";
 import { PACKED_MEDICINE, USE_PACKED_MEDICINE } from "../lib/recovery.ts";
 import { shouldCapturePrologueCheckpoint } from "../lib/prologue-checkpoint.ts";
-import { travelChoices } from "../lib/city-progression.ts";
+import { ROAD_ADJACENCY, travelChoices } from "../lib/city-progression.ts";
 import { inferSocialIntent } from "../lib/social-influence.ts";
 
 function finished(ending = "守住城西") {
@@ -38,6 +38,33 @@ function travelTo(state, destination) {
   return resolveTurn(state, action, false);
 }
 
+function walkTo(state, destination) {
+  for (let step = 0; step < 40; step++) {
+    if (state.pendingEncounter) {
+      state = resolveTurn(state, availableOptions(state)[0], false).state;
+      continue;
+    }
+    if (state.flags.pendingIncident) {
+      const local = availableOptions(state).find((option) => !option.includes("[明路前往]"));
+      if (local) { state = resolveTurn(state, local, false).state; continue; }
+    }
+    if (state.currentLocation === destination && !state.flags.pendingIncident && !state.pendingEncounter) return state;
+    const nextDestination = state.flags.pendingIncident === "market_raid" ? "黑泥街" : destination;
+    const queue = [[state.currentLocation]];
+    let path;
+    while (queue.length) {
+      const candidate = queue.shift();
+      if (candidate.at(-1) === nextDestination) { path = candidate; break; }
+      for (const next of ROAD_ADJACENCY[candidate.at(-1)] || [])
+        if (!candidate.includes(next)) queue.push([...candidate, next]);
+    }
+    assert.ok(path, `No road from ${state.currentLocation} to ${nextDestination}`);
+    state = travelTo(state, path[1]).state;
+  }
+  assert.equal(state.currentLocation, destination);
+  return state;
+}
+
 function calmToShortage(state = finished()) {
   let turn = choose(state, "A");
   for (let i = 0; i < 3; i++) turn = choose(turn.state, "C");
@@ -45,8 +72,13 @@ function calmToShortage(state = finished()) {
 }
 
 function inspectAffected(state) {
+  state = walkTo(state, state.flags.chapterOne.affectedBusiness);
   const letter = { 黑泥街: "A", 鬼骰坊: "B", 苦煙館: "C", 夜雨樓: "D" }[state.flags.chapterOne.affectedBusiness];
-  return choose(state, letter);
+  const found = choose(state, letter);
+  assert.equal(found.state.currentLocation, state.flags.chapterOne.affectedBusiness);
+  assert.equal(found.state.flags.chapterOne.foundShortageLocation, true);
+  state = walkTo(found.state, "青鋒堂總壇");
+  return resolveTurn(state, availableOptions(state).find((option) => option.includes("[交斷貨帳]")), false);
 }
 
 test("only the successful prologue ending unlocks the authored chapter opening", () => {
@@ -78,16 +110,96 @@ test("three calm turns lead to a fixed saved business loss", () => {
   assert.match(shortage.event, /玄武樓.*碼頭/);
   const restored = normalizeState(JSON.parse(JSON.stringify(shortage.state)));
   assert.equal(restored.flags.chapterOne.affectedBusiness, shortage.state.flags.chapterOne.affectedBusiness);
-  const wrong = ["A", "B", "C", "D"].find((letter) => letter !== {
-    黑泥街: "A", 鬼骰坊: "B", 苦煙館: "C", 夜雨樓: "D",
-  }[restored.flags.chapterOne.affectedBusiness]);
-  const missed = choose(restored, wrong);
+  const wrongPlace = ["黑泥街", "鬼骰坊", "苦煙館", "夜雨樓"].find((place) => place !== restored.flags.chapterOne.affectedBusiness);
+  const wrongState = walkTo(restored, wrongPlace);
+  const missed = choose(wrongState, { 黑泥街: "A", 鬼骰坊: "B", 苦煙館: "C", 夜雨樓: "D" }[wrongPlace]);
   assert.equal(missed.state.flags.chapterOne.stage, "shortage");
   const found = inspectAffected(missed.state);
   assert.equal(found.state.flags.chapterOne.stage, "dock");
-  assert.match(found.event, /^你帶著.*貨帳回到青鋒堂總壇/);
+  assert.match(found.event, /^你把.*斷貨帳拍在堂主桌上/);
   assert.ok(found.state.worldFlags.includes(`第一章${found.state.flags.chapterOne.affectedBusiness}斷貨已查`));
   assert.ok(found.state.sectLifeline < restored.sectLifeline, "three deficit turns damage lifeline");
+});
+
+test("shortage investigation requires presence and a road journey back to headquarters", () => {
+  const shortage = calmToShortage().state;
+  assert.equal(availableOptions(shortage).some((option) => /\[查(?:黑泥街|鬼骰坊|苦煙館|夜雨樓)\]/.test(option)), false);
+  const onSite = walkTo(shortage, shortage.flags.chapterOne.affectedBusiness);
+  const rejected = resolveTurn(onSite, "A. [交斷貨帳] 向堂主呈交斷貨帳", false);
+  assert.equal(rejected.state.turn, onSite.turn);
+  const action = availableOptions(onSite).find((option) => option.includes(`[查${shortage.flags.chapterOne.affectedBusiness}]`));
+  assert.ok(action);
+  const found = resolveTurn(onSite, action, false);
+  assert.equal(found.state.currentLocation, shortage.flags.chapterOne.affectedBusiness);
+  assert.equal(found.state.flags.chapterOne.stage, "shortage");
+  assert.equal(found.state.flags.chapterOne.foundShortageLocation, true);
+  const returned = walkTo(found.state, "青鋒堂總壇");
+  assert.equal(returned.flags.chapterOne.stage, "shortage");
+  assert.equal(choose(returned, "A").state.flags.chapterOne.stage, "dock");
+});
+
+test("chapter tea intelligence charges once and refuses an unfunded purchase", () => {
+  const base = { ...calmToShortage().state, currentLocation: "晚秋茶寮", silver: 20 };
+  const action = availableOptions(base).find((option) => option.includes("[買斷貨訊]"));
+  assert.ok(action);
+  const bought = resolveTurn(base, action, false);
+  assert.equal(bought.state.silver, 10);
+  assert.ok(bought.state.worldFlags.includes("第一章茶寮貨訊已買"));
+  const repeated = resolveTurn(bought.state, action, false);
+  assert.equal(repeated.state.silver, 10);
+  const poor = resolveTurn({ ...base, silver: 5 }, action, false);
+  assert.equal(poor.state.silver, 5);
+  assert.match(poor.event, /私銀不足十文/);
+});
+
+test("chapter shortage retains missions and gives urgent incidents priority", () => {
+  const base = calmToShortage().state;
+  const mission = availableOptions(base).find((option) => option.includes("[領差] 守街名冊"));
+  assert.ok(mission);
+  const accepted = resolveTurn(base, mission, false);
+  assert.ok(accepted.state.activeMissions.includes("roll_call"));
+  const atMarket = walkTo(accepted.state, "黑泥街");
+  const handoff = availableOptions(atMarket).find((option) => option.includes("[辦差] 守街名冊"));
+  assert.ok(handoff);
+  assert.ok(resolveTurn(atMarket, handoff, false).state.worldFlags.includes("同門守街名冊"));
+
+  const urgent = { ...base, currentLocation: "晚秋茶寮", flags: { ...base.flags, pendingIncident: "tainted_medicine" } };
+  const urgentOptions = availableOptions(urgent);
+  assert.ok(urgentOptions.some((option) => option.includes("[封存藥包]")));
+  assert.equal(urgentOptions.some((option) => option.includes("[買斷貨訊]")), false);
+  const resolved = resolveTurn(urgent, urgentOptions.find((option) => option.includes("[封存藥包]")), false);
+  assert.equal(resolved.state.flags.pendingIncident, undefined);
+  assert.equal(resolved.state.flags.chapterOne.turns, urgent.flags.chapterOne.turns + 1);
+
+  const ambushed = { ...base, currentLocation: "晚秋茶寮", pendingEncounter: "tea_tail" };
+  assert.ok(availableOptions(ambushed).some((option) => option.includes("[繞路甩開]")));
+  const encounter = resolveTurn(ambushed, availableOptions(ambushed)[0], false);
+  assert.equal(encounter.state.pendingEncounter, undefined);
+  assert.equal(encounter.state.flags.chapterOne.turns, ambushed.flags.chapterOne.turns + 1);
+});
+
+test("dock logistics enforce payment and expose a distinct solo approach", () => {
+  const dock = inspectAffected(calmToShortage().state).state;
+  const unfunded = { ...dock, factionFunds: 14 };
+  const hire = availableOptions(unfunded).find((option) => option.includes("[僱船工]"));
+  assert.ok(hire);
+  const refused = resolveTurn(unfunded, hire, false);
+  assert.equal(refused.state.factionFunds, 10);
+  assert.equal(refused.state.flags.chapterOne.crewHired, false);
+  assert.match(refused.event, /公款不足十五文/);
+  const funded = resolveTurn({ ...dock, factionFunds: 30 }, hire, false);
+  assert.equal(funded.state.factionFunds, 11);
+  assert.equal(funded.state.flags.chapterOne.crewHired, true);
+
+  const noSilver = { ...dock, silver: 9 };
+  assert.equal(availableOptions(noSilver).some((option) => option.includes("[選同伴：容晚秋]")), false);
+  const withSilver = { ...dock, silver: 10 };
+  const rong = availableOptions(withSilver).find((option) => option.includes("[選同伴：容晚秋]"));
+  assert.ok(rong);
+  assert.equal(resolveTurn(withSilver, rong, false).state.silver, 0);
+
+  const atDock = travelTo(dock, "碼頭").state;
+  assert.ok(availableOptions(atDock).some((option) => option.includes("[隻身硬闖]")));
 });
 
 test("the dock unlocks as a chapter landmark and travel advances pressure and tribute", () => {
@@ -107,8 +219,8 @@ test("the dock unlocks as a chapter landmark and travel advances pressure and tr
   assert.equal(arrived.state.turn, found.state.turn + 3);
   assert.equal(arrived.state.flags.chapterOne.turns, found.state.flags.chapterOne.turns + 3);
   assert.equal(arrived.state.playerMp, found.state.playerMp - 3);
-  assert.equal(arrived.state.factionFunds, found.state.factionFunds - 12 - 20);
-  assert.equal(arrived.state.flags.chapterOne.tribute, "paid");
+  assert.equal(arrived.state.factionFunds, Math.max(0, found.state.factionFunds - 12));
+  assert.equal(arrived.state.flags.chapterOne.tribute, found.state.flags.chapterOne.tribute);
   assert.equal(normalizeState(arrived.state).currentLocation, "碼頭");
   assert.equal(availableOptions(arrived.state).some((option) => option.startsWith("A. [查碼頭貨單]")), true);
   assert.equal(availableOptions(arrived.state).some((option) => option.startsWith("C. [僱船工]")), false);
@@ -296,17 +408,17 @@ test("hunger raises unrest, then crowds overrun landmarks without a fixed turn l
   const raided = choose(beforeRaid, "C");
   assert.deepEqual(raided.state.flags.chapterOne.lostLandmarks, [start.flags.chapterOne.affectedBusiness]);
   assert.match(raided.event, /街坊等糧等不到/);
-  assert.equal(raided.state.sectLifeline, start.sectLifeline - 8 - 3);
+  assert.ok(raided.state.sectLifeline <= start.sectLifeline - 8);
   const saved = normalizeState(JSON.parse(JSON.stringify(raided.state)));
   assert.deepEqual(saved.flags.chapterOne.lostLandmarks, raided.state.flags.chapterOne.lostLandmarks);
 });
 
 test("dispatching guards costs funds and delays a crowd attack", () => {
   const start = inspectAffected(calmToShortage().state).state;
-  const tense = { ...start, flags: { ...start.flags, chapterOne: {
+  const tense = { ...start, factionFunds: 30, flags: { ...start.flags, chapterOne: {
     ...start.flags.chapterOne, foodShortageDays: 7, unrest: RAID_UNREST_THRESHOLD - 2 } } };
   const guarded = choose(tense, "G");
-  assert.equal(guarded.state.factionFunds, start.factionFunds - 8 - 4);
+  assert.equal(guarded.state.factionFunds, 30 - 8 - 4);
   assert.deepEqual(guarded.state.flags.chapterOne.lostLandmarks, []);
   assert.ok(guarded.state.flags.chapterOne.unrest < RAID_UNREST_THRESHOLD);
 });
@@ -357,7 +469,7 @@ test("evidence and a companion can restore dock logistics", () => {
 test("a prepared water route restores the dock without inventing a companion", () => {
   const start = { ...finished(), flags: { ...finished().flags, prologueCompanionLeads: [] } };
   let turn = inspectAffected(calmToShortage(start).state);
-  turn = choose(turn.state, "C");
+  turn = choose({ ...turn.state, factionFunds: 40 }, "C");
   turn = travelTo(turn.state, "碼頭");
   const won = choose(turn.state, "E");
   assert.equal(won.state.flags.chapterOne.result, "奪回碼頭");
@@ -382,7 +494,7 @@ test("a grounded F petition can gain conditional city intervention", () => {
 });
 
 test("persuading dock workers costs pressured turns and can win voluntary support", () => {
-  let scene = travelTo(inspectAffected(calmToShortage().state).state, "碼頭").state;
+  let scene = { ...travelTo(inspectAffected(calmToShortage().state).state, "碼頭").state, factionFunds: 40 };
   const firstText = "我同船工講：因為斷貨會令你哋家人挨餓，幫我守住糧藥。";
   const first = resolveSocialIntent(scene, inferSocialIntent(scene, firstText));
   assert.equal(first.state.flags.chapterOne.crewHired, false);

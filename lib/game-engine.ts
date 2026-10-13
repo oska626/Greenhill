@@ -6,7 +6,7 @@ import { COMPANION_IDS, applyMissionRelationship, changeTrust, companionLeads, n
   type CompanionId, type CompanionRelationships } from "./companion-relations.ts";
 import { CREATIVE_GOALS, CUSTOM_ACTION_MAX, isMarketIntentScene, marketIntentTargets, negatesIrreversibleAction,
   sceneAttemptObjects, type CreativeAction, type MarketIntent, type SceneAttempt } from "./custom-action.ts";
-import { RAID_TARGETS, advanceChapterSocialTurn, chapterOneOptions, resolveChapterOne, type Business, type ChapterOneState } from "./chapter-one.ts";
+import { RAID_TARGETS, advanceChapterSocialTurn, chapterOneOptions, finishChapterTurn, resolveChapterOne, type Business, type ChapterOneState } from "./chapter-one.ts";
 import { localNpcReply, MARKET_NPC_REACTIONS, marketDialogueTarget, normalizeMarketNpcHistory, normalizeSocialMemory, socialTargets, socialTopic,
   type MarketNpcExchange, type MarketNpcProposal, type MarketNpcReaction, type SocialIntent, type SocialMemory } from "./social-influence.ts";
 import { PACKED_MEDICINE, USE_PACKED_MEDICINE, USE_HEMOSTATIC_POWDER,
@@ -508,7 +508,7 @@ export function normalizeState(raw: unknown): GameState | null {
     : activeCombat?.scenario === "arena" ? "裂石擂"
       : value.questStep === "sandbox" && (flags.alleyEscape === true || flags.alleyWall === true || flags.marketAftermath === true)
         ? "黑泥街" : restoredLocation;
-  const pendingEncounter = value.questStep === "sandbox" && !pendingIncident && !activeCombat
+  const pendingEncounter = (value.questStep === "sandbox" || value.questStep === "chapter_one" && flags.chapterOne?.stage === "shortage") && !pendingIncident && !activeCombat
     && !flags.marketAftermath && !flags.alleyEscape && !flags.alleyWall && !flags.finalCrisis
     && ENCOUNTERS.some((encounter) => encounter.id === value.pendingEncounter && encounter.location === currentLocation)
     ? value.pendingEncounter as EncounterId : undefined;
@@ -611,6 +611,8 @@ export function normalizeState(raw: unknown): GameState | null {
             : [],
           tribute: ["pending", "paid", "missed"].includes(flags.chapterOne.tribute) ? flags.chapterOne.tribute : "pending",
           manifestFound: flags.chapterOne.manifestFound === true, crewHired: flags.chapterOne.crewHired === true,
+          foundShortageLocation: flags.chapterOne.foundShortageLocation === true
+            || worldFlags.includes(`第一章${flags.chapterOne.affectedBusiness}斷貨已查`),
           dockRouteKnown: flags.chapterOne.dockRouteKnown === true, petitionHeard: flags.chapterOne.petitionHeard === true,
           result: !oldDeadlineFailure && typeof flags.chapterOne.result === "string" ? flags.chapterOne.result.slice(0, 30) : undefined } : undefined,
       treasuryChange: flags.treasuryChange && typeof flags.treasuryChange.reason === "string"
@@ -813,6 +815,31 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
   terrainObject?: "厚砧板" | "懸肉鐵鉤" | "剁骨刀", disarmAttempt = false, freeAttempt?: SceneAttempt): TurnResult {
   const state = normalizeState(rawState);
   if (!state) throw new Error("遊戲狀態無效");
+  if (state.questStep === "chapter_one" && state.flags.chapterOne?.stage === "shortage") {
+    const offered = availableOptions(state);
+    if (!offered.includes(action)) return { state, options: offered, event: "眼前不能採取這項行動。", moneyNote: "" };
+    const pending = state.flags.pendingIncident;
+    const incidentAction = pending && INCIDENT_OPTIONS[pending].findIndex((option) => conciseOption(option) === action);
+    if (pending && incidentAction !== undefined && incidentAction >= 0) {
+      const resolved = resolveIncident(state, pending, incidentAction);
+      const pressure = advanceChapterSocialTurn(state, actionEnergyCost(state, action));
+      const result = finishChapterTurn(state, resolved.event + pressure);
+      result.npcReply = localNpcReply(state, resolved.reply);
+      return result;
+    }
+    if (state.pendingEncounter) {
+      const resolved = resolveEncounter(state, state.pendingEncounter, action);
+      if (!resolved) return { state, options: offered, event: "眼前須先處置這樁急事。", moneyNote: "" };
+      state.pendingEncounter = undefined;
+      return finishChapterTurn(state, resolved + advanceChapterSocialTurn(state, actionEnergyCost(state, action)));
+    }
+    const mission = missionOptions(state).includes(action) ? resolveMission(state, action) : undefined;
+    if (mission) {
+      const result = finishChapterTurn(state, mission.event + advanceChapterSocialTurn(state, actionEnergyCost(state, action)));
+      result.npcReply = localNpcReply(state, { speaker: mission.speaker, line: mission.line });
+      return result;
+    }
+  }
   if (state.questStep === "chapter_one" || state.flags.ending) {
     return resolveChapterOne(state, action, false);
   }
@@ -1756,6 +1783,27 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
 export function resolveTurn(rawState: GameState, action: string, opening: boolean, creative?: CreativeAction, spendCustomUse = false,
   terrainObject?: "厚砧板" | "懸肉鐵鉤" | "剁骨刀", disarmAttempt = false, freeAttempt?: SceneAttempt): TurnResult {
   const result = resolveTurnCore(rawState, action, opening, creative, spendCustomUse, terrainObject, disarmAttempt, freeAttempt);
+  if (rawState.flags.chapterOne?.stage === "shortage"
+    && result.state.questStep === "chapter_one" && result.state.flags.chapterOne?.stage === "shortage"
+    && result.state.turn > rawState.turn && !rawState.flags.pendingIncident && !rawState.pendingEncounter
+    && !result.state.flags.pendingIncident && !result.state.pendingEncounter) {
+    if (result.state.turn - (result.state.flags.lastIncidentTurn || 0) >= 8
+      && getPseudoRandom(result.state) < 20) {
+      const incident = INCIDENTS[(result.state.flags.incidentCount || 0) % INCIDENTS.length];
+      result.state.flags.pendingIncident = incident;
+      result.state.flags.lastIncidentTurn = result.state.turn;
+      result.state.flags.incidentCount = (result.state.flags.incidentCount || 0) + 1;
+      result.event += INCIDENT_REPORTS[incident](result.state.currentLocation);
+    } else {
+      const encounter = drawEncounter(result.state);
+      if (encounter) {
+        result.state.pendingEncounter = encounter.id;
+        result.state.lastEncounterTurn = result.state.turn;
+        result.event += encounter.report;
+      }
+    }
+    result.options = availableOptions(result.state);
+  }
   const history = result.state.history || [];
   const entry: HistoryEntry = { turn: result.state.turn, action, narrative: result.event,
     narrativeSource: "Fallback", preLocation: rawState.currentLocation,
@@ -2466,6 +2514,16 @@ function marketCollectionOptions(state: GameState): string[] {
 }
 
 function rawAvailableOptions(state: GameState): string[] {
+  if (state.questStep === "chapter_one" && state.flags.chapterOne?.stage === "shortage") {
+    if (state.flags.pendingIncident) return availableWithEnergy(state, [
+      ...INCIDENT_OPTIONS[state.flags.pendingIncident].filter((_, index) => {
+        const destination = incidentDestination(state.flags.pendingIncident!, index);
+        return !destination || destination === state.currentLocation;
+      }),
+      ...LANDMARKS.flatMap((destination) => travelChoices(state, destination).map((route) => route.label)),
+    ]);
+    if (state.pendingEncounter) return availableWithEnergy(state, encounterOptions(state.pendingEncounter));
+  }
   if (state.questStep === "chapter_one" || state.flags.ending) return chapterOneOptions(state);
   if (state.flags.finalCrisis) return ENDING_OPTIONS;
   if (state.combat || state.questStep === "huizhi_ambush") {
