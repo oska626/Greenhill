@@ -1339,8 +1339,8 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
       && action.startsWith("O. [向堂主交代]")) {
       state.flags.checkpointReady = false;
       state.flags.midpointBriefed = true;
-      event += "你將市集插旗、規費帳失頁與換封傷藥逐件交代。何不歸翻過帳頁，讓你看清還有多少人手肯守街。";
-      npcReply = { speaker: "何不歸", line: "前頭的帳已記下。後半程，你要把沒查完的差事補上。" };
+      event += "你將市集插旗、規費帳失頁與換封傷藥逐件交代。何不歸為你倒了杯茶：「最難捱的硬仗快到了，坐下回氣。」他攤開七處據點的守街名冊，與你逐一商量缺口。";
+      npcReply = { speaker: "何不歸", line: "後半程，把沒查完的差事補上。" };
     } else if (creative && customAction(action)) {
       const flag = `${state.currentLocation}機變${creative.goal}`;
       if (state.worldFlags.includes(flag)) {
@@ -1759,6 +1759,10 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
     && state.worldFlags.includes("打斷張斷骨右手") && !state.worldFlags.includes("屠戶避讓")) {
     remember(state, "屠戶避讓");
     event += "你見張斷骨避開目光，肉檔再沒人敢當面頂撞。";
+  }
+  if (wasInAftermath && state.worldFlags.includes("救下陸千帆") && state.worldFlags.includes("市集殘局已定")
+    && !state.flags.marketAftermath && !state.flags.alleyEscape && state.flags.marketAftermathKind !== "defeat") {
+    event += `同門帶來何不歸的口信。口信寫道：「裴無鋒的人退去了東市，今晚必定大舉反撲。天黑前，尚餘${Math.max(0, 70 - state.turn)}回合，盡快跑勻七處據點穩住陣腳。」`;
   }
   event += settleCustomEchoes(state);
   if (state.questStep === "sandbox" && (state.sectLifeline === 0 || state.turn >= 70)) {

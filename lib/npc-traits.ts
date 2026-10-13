@@ -33,6 +33,10 @@ const AUDIENCE: Record<Landmark, readonly NamedNpc[]> = {
   "碼頭": [],
 };
 
+export function namedNpcAudienceAt(location: Landmark): readonly NamedNpc[] {
+  return AUDIENCE[location];
+}
+
 const PRAISE: Partial<Record<ActionTag, string>> = {
   ruthless: "狠辣表示讚賞", brave: "膽氣表示讚賞", cautious: "謹慎表示認同",
   protective: "護人之舉表示認同", profitable: "識得算帳表示認同",

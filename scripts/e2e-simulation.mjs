@@ -331,6 +331,28 @@ function main() {
         flags: { ...sandboxSeed.flags, pendingIncident: incident } }), "all-incidents");
   }
 
+  const finalClues = ["同門守街名冊", "假借據完成", "拳手暗傷底細"];
+  const endingSeed = normalizeState({ ...sandboxSeed, questStep: "sandbox", turn: 70,
+    sectLifeline: 60, worldFlags: finalClues,
+    flags: { ...sandboxSeed.flags, finalCrisis: true } });
+  for (const [route, action, expected] of [
+    ["ending-success", "[固守城西]", "守住城西"],
+    ["ending-cede", "[割地求存]", "割地求存"],
+    ["ending-leave", "[獨自撤走]", "獨自撤走"],
+  ]) {
+    const ended = step(endingSeed, action, route);
+    assert.equal(ended.flags.ending, expected, route);
+    if (expected === "守住城西") {
+      const chapter = step(ended, "[踏入第一章]", route);
+      assert.equal(chapter.flags.chapterOne.stage, "rest", route);
+    } else assert.ok(availableOptions(ended)[0].includes("[回顧結局]"), route);
+  }
+  const failedStand = step(normalizeState({ ...endingSeed, sectLifeline: 59,
+    worldFlags: ["刀手進城路線", "假借據完成", "拳手暗傷底細"] }),
+  "[固守城西]", "ending-failure");
+  assert.equal(failedStand.flags.ending, "城西陷落");
+  assert.ok(availableOptions(failedStand)[0].includes("[回顧結局]"));
+
   const byKind = [...findings.values()].reduce((groups, item) => {
     (groups[item.kind] ||= []).push(item);
     return groups;

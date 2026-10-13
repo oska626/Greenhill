@@ -14,6 +14,7 @@ import { appendDangerCue, resolveActionSequence } from "../lib/action-sequence.t
 import { hasOffSceneDirectSpeech, localNpcReply, localSpeaker, socialTargets } from "../lib/social-influence.ts";
 import { drawEncounter, encounterOptions, ENCOUNTERS } from "../lib/encounters.ts";
 import { NPC_TRAITS } from "../lib/npc-traits.ts";
+import { npcPromptContext } from "../lib/npc-prompt-context.ts";
 
 function newGame() {
   const stats = aptitude("阿七", "賭坊收帳人", "察言觀色");
@@ -158,6 +159,26 @@ test("all named NPC scores initialize, clamp and survive save normalization", ()
   assert.equal(restored.relationshipScores["何不歸"], 50);
   assert.equal(restored.relationshipScores["霍破陣"], -50);
   assert.deepEqual(normalizeState(JSON.parse(JSON.stringify(restored))).relationshipScores, restored.relationshipScores);
+});
+
+test("NPC prompt context uses current local scores and excludes off-scene people", () => {
+  const base = normalizeState(newGame());
+  const tea = normalizeState({ ...base, currentLocation: "晚秋茶寮", relationshipScores: {
+    ...base.relationshipScores, "容晚秋": -5, "祁觀衡": 15 } });
+  const teaContext = npcPromptContext(tea);
+  assert.match(teaContext, /^<Context>\n\[當前位置\]: 晚秋茶寮/m);
+  assert.match(teaContext, /容晚秋 \(關係度: -5\)/);
+  assert.doesNotMatch(teaContext, /祁觀衡 \(關係度:/);
+  assert.match(teaContext, /關係度 < 0|關係度 0~19|關係度 >= 20/);
+  assert.match(teaContext, /02_characters\.md/);
+  assert.match(teaContext, /威懾、制伏、逼退/);
+
+  const arena = npcPromptContext(normalizeState({ ...base, currentLocation: "裂石擂" }));
+  assert.match(arena, /衛沉岳 \(關係度: 15\)/);
+  assert.match(arena, /霍破陣 \(關係度: 20\)/);
+  const dock = npcPromptContext({ ...base, currentLocation: "碼頭" });
+  assert.match(dock, /無具名 NPC 在場/);
+  assert.doesNotMatch(dock, /容晚秋 \(關係度:/);
 });
 
 test("encounter action tags score local personalities with deterministic feedback", () => {
@@ -1264,7 +1285,7 @@ test("zero lifeline opens a final choice and failed ending closes chapter access
   assert.equal(crisis.options.length, 3);
   const collapse = resolveTurn(crisis.state, crisis.options[0], false);
   assert.equal(collapse.state.flags.ending, "城西陷落");
-  assert.match(collapse.event, /守街名冊/);
+  assert.match(collapse.event, /據名冊封死黑泥街暗巷/);
   assert.equal(collapse.options.length, 1);
   assert.match(collapse.options[0], /回顧結局/);
   const repeated = resolveTurn(collapse.state, "A. [休整]", false);
@@ -1297,6 +1318,41 @@ test("high lifeline grants one guard layer per ten points from sixty", () => {
     flags: { ...newGame().flags, finalCrisis: true } }, ENDING_OPTIONS[1], false);
   assert.equal(cede.state.sectLifeline, 60);
   assert.equal(cede.state.flags.finalGuardLayers, undefined);
+});
+
+test("rescuing Lu opens exploration with Ho's nightfall deadline", () => {
+  const base = newGame();
+  const aftermath = { ...base, questStep: "sandbox", currentLocation: "黑泥街", turn: 8,
+    worldFlags: ["救下陸千帆", "擊退伏擊刀手"],
+    flags: { ...base.flags, marketAftermath: true, marketAftermathKind: "victory", lastIncidentTurn: 8 } };
+  const settled = resolveTurn(aftermath,
+    availableOptions(aftermath).find((option) => option.includes("[安頓收隊]")), false);
+  assert.equal(settled.state.flags.marketAftermath, false);
+  assert.match(settled.event, /何不歸的口信/);
+  assert.match(settled.event, /裴無鋒的人退去了東市，今晚必定大舉反撲/);
+  assert.match(settled.event, /尚餘61回合/);
+  assert.equal(hasOffSceneDirectSpeech(settled.state, settled.event), false);
+});
+
+test("the final battle report follows secured support and names missing defenses", () => {
+  const base = { ...newGame(), questStep: "sandbox", turn: 70,
+    flags: { ...newGame().flags, finalCrisis: true } };
+  const clues = ["同門守街名冊", "假借據完成", "拳手暗傷底細"];
+  const won = resolveTurn({ ...base, sectLifeline: 60, worldFlags: clues }, ENDING_OPTIONS[0], false);
+  assert.equal(won.state.flags.ending, "守住城西");
+  assert.equal(won.state.flags.finalSupport, 3);
+  assert.match(won.event, /據名冊封死黑泥街暗巷/);
+  assert.match(won.event, /揚出假帳.*臨陣退縮/);
+  assert.match(won.event, /猛藥來源.*避開了毒害/);
+  assert.match(won.event, /裴無鋒並未現身/);
+  assert.doesNotMatch(won.event, /未能掌握街區暗巷/);
+
+  const lost = resolveTurn({ ...base, sectLifeline: 59,
+    worldFlags: ["刀手進城路線", "假借據完成", "拳手暗傷底細"] }, ENDING_OPTIONS[0], false);
+  assert.equal(lost.state.flags.ending, "城西陷落");
+  assert.equal(lost.state.sectLifeline, 34);
+  assert.match(lost.event, /未能掌握街區暗巷.*撕破防線/);
+  assert.doesNotMatch(lost.event, /假帳未查清|猛藥來源未查明/);
 });
 
 test("successive road edges can pass turn seventy before the crisis opens", () => {

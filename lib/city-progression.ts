@@ -177,17 +177,8 @@ export function guardLayersForLifeline(lifeline: number): number {
 }
 
 export function resolveEnding(state: GameState, action: string): string {
-  const support = MISSIONS.filter((mission) => state.worldFlags.includes(mission.clue)).length;
-  const help: Record<MissionId, string> = {
-    roll_call: "守街名冊讓何不歸召齊仍肯留下的同門",
-    missing_courier: "送茶腳夫指出刀手入城的窄巷",
-    double_dues: "受過你照應的攤販敲鑼報信",
-    forged_deed: "扣下的假帳證明城東暗改藥材借據",
-    arena_probe: "鬼骰坊賭盤暗帳揭出裂石擂的假賽",
-    tainted_medicine: "裂石擂拳手的暗傷底細讓顧忘生備好救命藥",
-    hidden_spy: "城主府密報讓堂主提前封住刺客入總壇的路",
-  };
-  const aid = MISSIONS.filter((mission) => state.worldFlags.includes(mission.clue)).map((mission) => help[mission.id]).join("；");
+  const secured = MISSIONS.filter((mission) => state.worldFlags.includes(mission.clue));
+  const support = secured.length;
   if (action.startsWith("B.")) {
     state.flags.ending = "割地求存";
     state.flags.prologueCompanionLeads = companionLeads(state.relationships, state.flags.ending);
@@ -207,7 +198,26 @@ export function resolveEnding(state: GameState, action: string): string {
   const battleReport = `玄武樓攻勢原可削去二十五點命脈；守備${guardLayers}層抵銷${damageBlocked}點，戰後命脈餘${state.sectLifeline}點。`;
   state.flags.ending = support >= 3 && state.sectLifeline + support * 10 >= 65 ? "守住城西" : "城西陷落";
   state.flags.prologueCompanionLeads = companionLeads(state.relationships, state.flags.ending);
+  const supportReports: Record<MissionId, string> = {
+    roll_call: "你據名冊封死黑泥街暗巷，令偷襲部隊撲空。",
+    missing_courier: "腳夫指出刀手入城的窄巷，同門趕在敵人前頭設伏。",
+    double_dues: "受過你照應的攤販敲鑼報信，守街同門及時趕到。",
+    forged_deed: "你揚出假帳，玄武樓外圍刀手畏懼清算，臨陣退縮。",
+    arena_probe: "鬼骰坊賭盤暗帳揭出裂石擂的假賽，敵人安插的拳手被認了出來。",
+    tainted_medicine: "提前查清的猛藥來源，讓堂口兄弟避開了毒害。",
+    hidden_spy: "城主府密報指出刺客盯上的人，何不歸提前封住總壇側門。",
+  };
+  const missingReports: Record<MissionId, string> = {
+    roll_call: "由於未能掌握街區暗巷，玄武樓刀手輕易從後方撕破防線。",
+    missing_courier: "送茶腳夫未能指出刀手進城的路，守街同門趕不及堵住窄巷。",
+    double_dues: "攤販沒有答應報信，街口告急時無人及時敲鑼。",
+    forged_deed: "假帳未查清，玄武樓外圍刀手沒有顧忌，繼續壓向總壇。",
+    arena_probe: "賭盤暗帳未能揭出假賽，敵人安插的拳手混進了守街人群。",
+    tainted_medicine: "猛藥來源未查明，堂口兄弟用上被換過封口的傷藥，守勢漸亂。",
+    hidden_spy: "城主府密報未能送到，刺客從總壇側門闖入。",
+  };
+  const aid = secured.map((mission) => supportReports[mission.id]).join("");
   return state.flags.ending === "守住城西"
-    ? `玄武樓刀手衝進城西。${battleReport}${aid}。青鋒堂與街坊終將刀手逼退。何不歸守住總壇，城西仍由自己人作主。`
-    : `你召集僅餘的人守街。${battleReport}${aid ? `${aid}，仍缺了足夠接應。` : "卻缺了足夠接應。"}玄武樓逐巷插旗，總壇終於失守。何不歸帶著傷者撤走，青鋒堂的基業在這一夜散盡。`;
+    ? `玄武樓刀手衝進城西。${aid}${battleReport}你滿身血污立於街頭，玄武樓的刀手如退潮般散去。城西暫時守住了，但裴無鋒並未現身。何不歸帶同門回總壇休整，街口短暫安靜下來。`
+    : `你召集僅餘的人守街。${aid}${MISSIONS.filter((mission) => !state.worldFlags.includes(mission.clue)).map((mission) => missingReports[mission.id]).join("")}${battleReport}玄武樓逐巷插旗，城西陷落。何不歸帶著傷者撤走，青鋒堂的基業在這一夜散盡。`;
 }

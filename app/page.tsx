@@ -730,13 +730,15 @@ export default function GamePage() {
               </div>
             )}
             {gameState?.questStep === "sandbox" && !gameState.flags.ending && (
-              <div className="text-[11px] text-stone-400">行路耗時，玄武樓持續施壓；差事、線索與欠帳都會留到終局。</div>
+              <div className="text-[11px] text-stone-400">{gameState.flags.finalCrisis
+                ? "入夜了，玄武樓已向七處據點同時進攻。"
+                : `距離入夜玄武樓大舉進攻：尚餘 ${Math.max(0, 70 - gameState.turn)} 回合。行路與辦差都會耗時。`}</div>
             )}
             {gameState?.questStep === "sandbox" && gameState.flags.checkpointReady && !gameState.flags.midpointBriefed && (
-              <div className="rounded border border-amber-800/60 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">首輪三件急事已處理；返回青鋒堂總壇向堂主交代，即可留下中期存檔。</div>
+              <div className="rounded border border-amber-800/60 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">三件城西急事已處理；返回總壇與何不歸開戰前會議。</div>
             )}
             {gameState?.questStep === "sandbox" && savedGame?.checkpoint && (
-              <div className="text-[11px] text-emerald-400">序章中期存檔已建立。</div>
+              <div className="text-[11px] text-emerald-400">（已記錄堂口備戰狀態，若固守失敗可由此重新推演）</div>
             )}
             {gameState?.questStep === "sandbox" && (gameState.turn >= 20 || gameState.flags.finalCrisis) && (
               <div className="rounded border border-amber-900/50 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">

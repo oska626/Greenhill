@@ -35,9 +35,9 @@ export interface ChapterOneState {
 
 export const CHAPTER_START = "A. [踏入第一章] 返回總壇盤點生意";
 export const CHAPTER_RECAP = "A. [回顧結局] 查看本章收局";
-export const CHAPTER_OPENING = `你回到青鋒堂總壇，見市販捧著銅錢踏進堂門。眾人說黑泥街的攤位已重新架好，願加繳半個月規費；何不歸當面致謝，逐筆列入公帳。
+export const CHAPTER_OPENING = `你回到青鋒堂總壇，衣上血污未乾，見市販捧著銅錢踏進堂門。眾人說黑泥街的攤位已重新架好，願加繳半個月規費；何不歸當面致謝，逐筆列入公帳。
 
-你站在公匣旁，聽腳夫說貨車已重新上路，傷者也有人照料。城西暫獲喘息，碼頭貨路卻仍須有人盯守；堂主把帳簿推到你面前，等你盤點下一步。`;
+你站在公匣旁，聽腳夫說貨車已重新上路，傷者也有人照料。街口安靜得反常，裴無鋒始終沒有現身；碼頭貨路仍須有人盯守。何不歸把帳簿推到你面前，叫你趁這幾日休整，盤點下一步。`;
 export const GRATITUDE_DUES = 45;
 const BUSINESSES: Business[] = ["黑泥街", "鬼骰坊", "苦煙館", "夜雨樓"];
 export const RAID_TARGETS = ["黑泥街", "鬼骰坊", "苦煙館", "夜雨樓", "晚秋茶寮", "裂石擂"] as const satisfies readonly Landmark[];
@@ -218,7 +218,7 @@ function finishRestTurn(state: GameState, chapter: ChapterOneState, event: strin
       + collectPressure(state, chapter, 6)
       + "\n\n市販見貨車不來，開始問青鋒堂能否再護住生意。你須查出哪處地標先受衝擊，才能追到截貨的路。";
   }
-  return `${event}\n\n城西今日尚能開市，苦煙館仍替傷者備藥。你趁這幾日喘息，仍可再作準備。`;
+  return `${event}\n\n城西今日尚能開市，苦煙館仍替傷者備藥。裴無鋒沒有露面，碼頭那邊也遲遲未傳來貨車消息；你趁這短暫喘息再作準備。`;
 }
 
 function selectCompanion(state: GameState, chapter: ChapterOneState, action: string): string {

@@ -87,7 +87,9 @@ test("only the successful prologue ending unlocks the authored chapter opening",
   const start = choose(finished(), "A");
   assert.equal(start.event, CHAPTER_OPENING);
   assert.match(start.event, /^你回到青鋒堂總壇/);
+  assert.match(start.event, /裴無鋒始終沒有現身/);
   assert.equal(start.state.questStep, "chapter_one");
+  assert.equal(start.state.flags.chapterOne.stage, "rest");
   assert.equal(start.state.factionFunds, 12 + GRATITUDE_DUES);
   assert.equal(start.state.flags.treasuryChange.reason, "市販自願加繳半個月規費");
   assert.equal(start.state.customActionUses, 2);
@@ -538,8 +540,10 @@ test("checkpoint is captured once after the first three incidents, before a cris
     ending: undefined, finalCrisis: false, checkpointReady: true, midpointBriefed: false, lastIncidentTurn: 20 } };
   const action = availableOptions(before).find((option) => option.startsWith("O. [向堂主交代]"));
   assert.ok(action);
-  const after = resolveTurn(before, action, false).state;
+  const meeting = resolveTurn(before, action, false);
+  const after = meeting.state;
   assert.equal(after.flags.midpointBriefed, true);
+  assert.match(meeting.event, /何不歸為你倒了杯茶/);
   assert.equal(shouldCapturePrologueCheckpoint(before, after), true);
   assert.equal(shouldCapturePrologueCheckpoint({ ...before, flags: { ...before.flags, midpointBriefed: true } }, after), false);
   assert.equal(shouldCapturePrologueCheckpoint(before, { ...after, flags: { ...after.flags, finalCrisis: true } }), false);
