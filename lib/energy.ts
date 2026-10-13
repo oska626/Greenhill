@@ -9,6 +9,10 @@ export function actionEnergyCost(state: GameState, action: string, turns = 1): n
   if (action.startsWith("[初入堂口]") || action.startsWith("A. [踏入第一章]")) return 0;
   const tag = tagOf(action);
   if (/休整|療傷調息|總壇休養|買藥療傷|服用療傷藥|敷止血散/.test(tag)) return 0;
+  if (state.pendingEncounter) {
+    if (["無視", "退開", "介入", "冷眼", "讓藥", "退讓"].includes(tag)) return 0;
+    return tag === "反制" || tag === "立威" ? 2 : 1;
+  }
   if (/^(明路前往|暗道前往|前往)$/.test(tag)) return turns;
 
   let cost = 1;

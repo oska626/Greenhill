@@ -63,6 +63,13 @@ test("only the successful prologue ending unlocks the authored chapter opening",
   assert.equal(resolveTurn(start.state, "A. [踏入第一章]", false).state.factionFunds, start.state.factionFunds);
 });
 
+test("chapter shortage draw replays from the same state", () => {
+  const saved = finished();
+  const first = choose(saved, "A");
+  const replay = choose(JSON.parse(JSON.stringify(saved)), "A");
+  assert.equal(first.state.flags.chapterOne.affectedBusiness, replay.state.flags.chapterOne.affectedBusiness);
+});
+
 test("three calm turns lead to a fixed saved business loss", () => {
   const shortage = calmToShortage();
   assert.equal(shortage.state.flags.chapterOne.stage, "shortage");

@@ -54,6 +54,7 @@ export async function resolveActionSequence(initial: GameState, steps: string[],
   for (let index = 0; index < steps.length; index++) {
     const before = { turn: state.turn, questStep: state.questStep, location: state.currentLocation,
       chapterStage: state.flags.chapterOne?.stage, incident: state.flags.pendingIncident,
+      encounter: state.pendingEncounter,
       combat: Boolean(state.combat), alley: Boolean(state.flags.alleyEscape), flags: state.worldFlags.join("|") };
     const result = await settle(state, steps[index]);
     if (!result) return { state, events, attempted, pending: steps.slice(index + 1), sceneChanged: false,
@@ -67,6 +68,7 @@ export async function resolveActionSequence(initial: GameState, steps: string[],
     if (state.questStep !== before.questStep || state.currentLocation !== before.location
       || state.flags.chapterOne?.stage !== before.chapterStage
       || state.flags.pendingIncident !== before.incident
+      || state.pendingEncounter !== before.encounter
       || Boolean(state.combat) || before.combat
       || Boolean(state.flags.alleyEscape) || before.alley
       || state.flags.finalCrisis || state.flags.ending)

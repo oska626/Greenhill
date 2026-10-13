@@ -7,6 +7,7 @@ import { actionEnergyCost, availableWithEnergy, canAffordEnergy, spendEnergy } f
 import { travelChoices } from "./city-progression.ts";
 import type { GameState, Landmark, TurnResult } from "./game-engine.ts";
 import { conciseOption } from "./option-text.ts";
+import { getPseudoRandom } from "./state-random.ts";
 
 export type ChapterOneStage = "rest" | "shortage" | "dock" | "complete" | "failed";
 export const RAID_UNREST_THRESHOLD = 20;
@@ -103,7 +104,7 @@ const addFunds = (state: GameState, delta: number, reason: string) => {
   state.flags.treasuryChange = { delta: (previous?.delta || 0) + state.factionFunds - before,
     reason: previous ? `${previous.reason}；${reason}` : reason, turn: state.turn };
 };
-const drawBusiness = (): Business => BUSINESSES[Math.floor(Math.random() * BUSINESSES.length)];
+const drawBusiness = (state: GameState): Business => BUSINESSES[getPseudoRandom(state) % BUSINESSES.length];
 const finishTurn = (state: GameState, event: string): TurnResult => {
   const chapter = state.flags.chapterOne;
   if (state.questStep === "chapter_one" && chapter && chapter.stage !== "complete" && chapter.stage !== "failed"
@@ -235,7 +236,7 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
     state.currentLocation = "青鋒堂總壇";
     state.turn += 1;
     state.flags.chapterOne = { stage: "rest", turns: 0, evidence: 0, allies: 0,
-      affectedBusiness: drawBusiness(), deficitStreak: 0, foodShortageDays: 0, unrest: 0,
+      affectedBusiness: drawBusiness(state), deficitStreak: 0, foodShortageDays: 0, unrest: 0,
       lostLandmarks: [], tribute: "pending" };
     state.customActionUses = CUSTOM_ACTION_MAX;
     state.sectLifeline = Math.min(100, Math.max(10, state.sectLifeline + 8));
@@ -259,7 +260,7 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
     }
     if (travelledTurns === route.turns) state.currentLocation = route.destination;
     event = `${travelledTurns === route.turns
-      ? `你抵達${state.currentLocation}，沿途走的是${route.kind === "shortcut" ? "暗道" : "明路"}。`
+      ? `你從${route.destination === "碼頭" ? "青鋒堂總壇經晚秋茶寮、黑泥街" : "碼頭經黑泥街、晚秋茶寮"}，沿明路抵達${state.currentLocation}。`
       : `你仍在${state.currentLocation}一帶，往${route.destination}的路尚未走完。`}${event}`;
     event += spendEnergy(state, travelledTurns, 0, true);
     if (travelledTurns < route.turns) return finishTurn(state, `${event}前路未到，街面已經失守。`);

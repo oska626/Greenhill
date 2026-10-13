@@ -5,16 +5,26 @@ import { normalizeSceneState, revealEntrance } from "./scene-state.ts";
 import { conciseOption } from "./option-text.ts";
 
 type Route = { from: Landmark; to: Landmark; turns: number };
+// Ordinary streets are traversed one edge at a time. Hidden passages below are separate, unlockable edges.
+export const ROAD_ADJACENCY: Readonly<Record<Exclude<Landmark, "碼頭">, readonly Landmark[]>> = {
+  "青鋒堂總壇": ["晚秋茶寮", "鬼骰坊"],
+  "晚秋茶寮": ["青鋒堂總壇", "苦煙館", "黑泥街"],
+  "鬼骰坊": ["青鋒堂總壇", "苦煙館", "夜雨樓"],
+  "苦煙館": ["晚秋茶寮", "鬼骰坊", "裂石擂", "夜雨樓"],
+  "黑泥街": ["晚秋茶寮", "裂石擂"],
+  "裂石擂": ["黑泥街", "苦煙館"],
+  "夜雨樓": ["鬼骰坊", "苦煙館"],
+};
 const ROADS: Route[] = [
   { from: "青鋒堂總壇", to: "晚秋茶寮", turns: 1 },
   { from: "青鋒堂總壇", to: "鬼骰坊", turns: 1 },
   { from: "晚秋茶寮", to: "黑泥街", turns: 1 },
-  { from: "晚秋茶寮", to: "苦煙館", turns: 2 },
+  { from: "晚秋茶寮", to: "苦煙館", turns: 1 },
   { from: "鬼骰坊", to: "苦煙館", turns: 1 },
-  { from: "鬼骰坊", to: "夜雨樓", turns: 2 },
+  { from: "鬼骰坊", to: "夜雨樓", turns: 1 },
   { from: "苦煙館", to: "夜雨樓", turns: 1 },
-  { from: "苦煙館", to: "裂石擂", turns: 2 },
-  { from: "黑泥街", to: "裂石擂", turns: 2 },
+  { from: "苦煙館", to: "裂石擂", turns: 1 },
+  { from: "黑泥街", to: "裂石擂", turns: 1 },
   { from: "黑泥街", to: "碼頭", turns: 1 },
 ];
 const SHORTCUTS: (Route & { flag: string; danger: string; riskPeriod: number; riskDamage: number; riskLifeline: number })[] = [
@@ -36,22 +46,6 @@ export function shortcutKnown(state: GameState, route: Route & { flag: string })
   return state.worldFlags.includes(route.flag);
 }
 
-function roadDistance(from: Landmark, to: Landmark): number {
-  const distances = new Map<Landmark, number>([[from, 0]]);
-  const seen = new Set<Landmark>();
-  while (true) {
-    const next = Array.from(distances).filter(([place]) => !seen.has(place)).sort((a, b) => a[1] - b[1])[0];
-    if (!next) return 9;
-    const [place, distance] = next;
-    if (place === to) return distance;
-    seen.add(place);
-    for (const road of ROADS) {
-      const other = road.from === place ? road.to : road.to === place ? road.from : undefined;
-      if (other && distance + road.turns < (distances.get(other) ?? Infinity)) distances.set(other, distance + road.turns);
-    }
-  }
-}
-
 export type TravelChoice = { destination: Landmark; kind: "road" | "shortcut"; turns: number; label: string; danger: string; riskPeriod: number; riskDamage: number; riskLifeline: number };
 export function travelChoices(state: GameState, destination: Landmark): TravelChoice[] {
   if (destination === state.currentLocation) return [];
@@ -59,10 +53,14 @@ export function travelChoices(state: GameState, destination: Landmark): TravelCh
     if (state.flags.chapterOne?.stage !== "dock"
       || !["青鋒堂總壇", "碼頭"].includes(destination)
       || !["青鋒堂總壇", "碼頭"].includes(state.currentLocation)) return [];
-  } else if (destination === "碼頭" || state.currentLocation === "碼頭") return [];
-  const road = Math.min(3, roadDistance(state.currentLocation, destination));
-  const choices: TravelChoice[] = [{ destination, kind: "road", turns: road,
-    label: `F. [明路前往] 前往${destination}`, danger: "", riskPeriod: 0, riskDamage: 0, riskLifeline: 0 }];
+    // The chapter's escorted supply expedition follows headquarters → tea stall → Blackmud → dock.
+    return [{ destination, kind: "road", turns: 3,
+      label: `F. [明路前往] 前往${destination}`, danger: "", riskPeriod: 0, riskDamage: 0, riskLifeline: 0 }];
+  }
+  if (destination === "碼頭" || state.currentLocation === "碼頭") return [];
+  const roadConnected = ROAD_ADJACENCY[state.currentLocation as Exclude<Landmark, "碼頭">]?.includes(destination) || false;
+  const choices: TravelChoice[] = roadConnected ? [{ destination, kind: "road", turns: 1,
+    label: `F. [明路前往] 前往${destination}`, danger: "", riskPeriod: 0, riskDamage: 0, riskLifeline: 0 }] : [];
   const shortcut = SHORTCUTS.find((route) =>
     ((route.from === state.currentLocation && route.to === destination) || (route.to === state.currentLocation && route.from === destination))
     && shortcutKnown(state, route));
@@ -75,34 +73,52 @@ export function travelChoices(state: GameState, destination: Landmark): TravelCh
 export const MISSIONS = [
   { id: "roll_call", title: "守街名冊", giver: "何不歸", origin: "青鋒堂總壇", target: "黑泥街", pay: 12,
     clue: "同門守街名冊", good: "你逐戶查實守街人手，記下誰仍願替青鋒堂守街。", bad: "你草草抄下幾個名字，名冊有了，卻未能查出誰已離心。" },
-  { id: "missing_courier", title: "失蹤腳夫", giver: "容晚秋", origin: "晚秋茶寮", target: "黑泥街", pay: 15,
-    clue: "刀手進城路線", good: "你循茶寮收據救出送茶腳夫，也問出刀手進城的路。", bad: "你追到腳夫留下的茶擔，先取走他藏的線索，卻讓人被刀手帶走。" },
+  { id: "missing_courier", title: "失蹤腳夫", giver: "容晚秋", origin: "晚秋茶寮", target: "夜雨樓", pay: 15,
+    clue: "刀手進城路線", good: "你在夜雨樓酒窖找到失蹤腳夫，撬開他攥著的送貨單，查出刀手入城的路。", bad: "你在夜雨樓取走腳夫藏的送貨單，卻讓他落在刀手手裡。" },
   { id: "double_dues", title: "雙重勒索", giver: "陸千帆", origin: "黑泥街", target: "晚秋茶寮", pay: 12,
     clue: "街坊願意守街", good: "你請容晚秋作證，攤販免交第二份例錢，肯替青鋒堂報信。", bad: "你向攤販強收欠款，青鋒堂進了帳，街坊卻關門避你。" },
-  { id: "forged_deed", title: "假借據", giver: "祁觀衡", origin: "鬼骰坊", target: "青鋒堂總壇", pay: 15,
-    clue: "城東假契證據", good: "你在總壇舊帳裏找出印泥破綻，留下一份能駁倒奪鋪契紙的證據。", bad: "你將假借據撕掉，眼前的催債停了，背後落印的人仍未露面。" },
-  { id: "arena_probe", title: "踢館試探", giver: "衛沉岳與霍破陣", origin: "裂石擂", target: "黑泥街", pay: 18,
-    clue: "前線守備有序", good: "你照衛沉岳的吩咐佈好退路，將踢館者逼出街口。", bad: "你跟霍破陣追著踢館者打，贏了眼前一仗，也惹來更多刀手。" },
-  { id: "tainted_medicine", title: "換封傷藥", giver: "顧忘生", origin: "苦煙館", target: "晚秋茶寮", pay: 14,
-    clue: "傷藥來源已查", good: "你依顧忘生辨過的封口追問容晚秋，查出在茶寮歇腳的送藥人曾讓誰碰過藥包；傷者不再誤用毒藥。", bad: "你將送藥人遺下的可疑藥包帶回苦煙館銷毀，止住眼前禍患，仍不知誰曾經手。" },
-  { id: "hidden_spy", title: "陌生恩客", giver: "柳照霜", origin: "夜雨樓", target: "鬼骰坊", pay: 16,
-    clue: "城東耳目已識破", good: "你循賭坊的換錢記錄認出城東耳目，摸清對方盯著哪處據點。", bad: "你當面揭穿耳目，對方逃走，夜雨樓暫時清靜。" },
+  { id: "forged_deed", title: "查扣假帳", giver: "祁觀衡", origin: "鬼骰坊", target: "苦煙館", pay: 15,
+    clue: "假借據完成", good: "你在苦煙館核對藥材入帳，從假簽押裡拆出偽造的借據。", bad: "你扣下假帳，卻沒查清誰替城東落了押。" },
+  { id: "tainted_medicine", title: "送猛藥", giver: "顧忘生", origin: "苦煙館", target: "裂石擂", pay: 14,
+    clue: "拳手暗傷底細", good: "你把猛藥送到裂石擂，按住拳手舊傷驗藥，問出他替誰帶傷上場。", bad: "你把猛藥交到裂石擂，拳手服下便上場，暗傷來歷仍沒查清。" },
+  { id: "arena_probe", title: "買定離手", giver: "衛沉岳", origin: "裂石擂", target: "鬼骰坊", pay: 18,
+    clue: "擂台賭盤走勢", good: "你在鬼骰坊查出壓注暗帳，摸清誰在操弄裂石擂的勝負。", bad: "你拿到鬼骰坊賭盤，卻沒查出莊家背後的人。" },
+  { id: "hidden_spy", title: "城主府密報", giver: "柳照霜", origin: "夜雨樓", target: "青鋒堂總壇", pay: 16,
+    clue: "城東記恨暗殺", good: "你把城主府密報送到總壇，何不歸看出城東刺客盯上的名字。", bad: "你把密報丟上總壇桌案，刺客名單少了關鍵一頁。" },
 ] as const satisfies readonly { id: string; title: string; giver: string; origin: Landmark; target: Landmark; pay: number; clue: string; good: string; bad: string }[];
 export type MissionId = typeof MISSIONS[number]["id"];
 type Mission = typeof MISSIONS[number];
 const missionFlag = (mission: Mission, stage: "已領" | "完成") => `${mission.title}${stage}`;
+const legacyTitles: Partial<Record<MissionId, string>> = {
+  forged_deed: "假借據", arena_probe: "踢館試探", tainted_medicine: "換封傷藥", hidden_spy: "陌生恩客",
+};
+export function missionCompleted(state: GameState, mission: Mission): boolean {
+  return missionDone(state.worldFlags, mission);
+}
+
+export function missionDone(worldFlags: readonly string[], mission: Mission): boolean {
+  return worldFlags.includes(mission.clue) || worldFlags.includes(missionFlag(mission, "完成"))
+    || Boolean(legacyTitles[mission.id] && worldFlags.includes(`${legacyTitles[mission.id]}完成`));
+}
+
+export function acceptedMissionIds(worldFlags: readonly string[]): MissionId[] {
+  return MISSIONS.filter((mission) => !missionDone(worldFlags, mission)
+    && (worldFlags.includes(missionFlag(mission, "已領"))
+      || Boolean(legacyTitles[mission.id] && worldFlags.includes(`${legacyTitles[mission.id]}已領`))))
+    .map((mission) => mission.id);
+}
 
 export function missionOptions(state: GameState): string[] {
   const options: string[] = [];
   for (const mission of MISSIONS) {
     if (mission.id === "double_dues" && state.relationships["陸千帆"].estranged) continue;
-    if (state.worldFlags.includes(missionFlag(mission, "完成"))) continue;
-    const accepted = state.worldFlags.includes(missionFlag(mission, "已領"));
+    if (missionCompleted(state, mission)) continue;
+    const accepted = state.activeMissions?.includes(mission.id) || acceptedMissionIds(state.worldFlags).includes(mission.id);
     if (!accepted && state.currentLocation === mission.origin) {
-      options.push(`G. [領差] ${mission.title}：${mission.giver === "何不歸" ? "堂主" : mission.giver}託你到${mission.target}辦事；酬勞${mission.pay}文私銀。`);
+      options.push(`G. [領差] ${mission.title}`);
     } else if (accepted && state.currentLocation === mission.target) {
-      options.push(`G. [辦差] ${mission.title}：查清來龍去脈；命脈升五，取得終局支援及${mission.pay}文私銀。`);
-      options.push(`H. [速辦] ${mission.title}：先解眼前難題；命脈減三，取得${mission.pay}文私銀，留下後患。`);
+      options.push(`G. [辦差] ${mission.title}`);
+      options.push(`H. [速辦] ${mission.title}`);
     }
   }
   return options;
@@ -115,11 +131,13 @@ export function resolveMission(state: GameState, action: string): { event: strin
   const mission = MISSIONS.find((item) => action.includes(item.title));
   if (!mission) return undefined;
   if (action.startsWith("G. [領差]")) {
+    state.activeMissions.push(mission.id);
     state.worldFlags.push(missionFlag(mission, "已領"));
-    return { event: `${mission.giver}把「${mission.title}」交給你，叫你到${mission.target}查辦。事成可領${mission.pay}文私銀。`,
-      speaker: mission.id === "arena_probe" ? "衛沉岳" : mission.giver, line: "先查清楚，再回來說話。" };
+    return { event: `${mission.giver}把「${mission.title}」拍到你手上，要你親自走到${mission.target}辦妥；賞錢${mission.pay}文。`,
+      speaker: mission.giver, line: "親自走一趟。辦妥再領錢。" };
   }
   const careful = action.startsWith("G. [辦差]");
+  state.activeMissions = state.activeMissions.filter((id) => id !== mission.id);
   state.worldFlags.push(missionFlag(mission, "完成"));
   if (careful) state.worldFlags.push(mission.clue);
   state.silver += mission.pay;
@@ -136,8 +154,9 @@ export function resolveMission(state: GameState, action: string): { event: strin
   if (mission.id === "hidden_spy" && careful) state.worldFlags.push("賭坊後巷已知");
   applyMissionRelationship(state.relationships, mission.id, careful);
   const contact: Partial<Record<Landmark, string>> = { "青鋒堂總壇": "何不歸", "晚秋茶寮": "容晚秋",
-    "黑泥街": state.relationships["陸千帆"].estranged ? "張斷骨" : "陸千帆", "鬼骰坊": "祁觀衡" };
-  return { event: `${careful ? mission.good : mission.bad}${careful ? "青鋒堂命脈升五。" : "青鋒堂命脈減三。"}${mission.giver}私下預留在接頭處的錢袋有${mission.pay}文，你照約領作私銀。${mission.id === "double_dues" && !careful ? "另有十文規費記入公帳。" : ""}`,
+    "黑泥街": state.relationships["陸千帆"].estranged ? "張斷骨" : "陸千帆", "鬼骰坊": "祁觀衡",
+    "苦煙館": "顧忘生", "裂石擂": "衛沉岳", "夜雨樓": "柳照霜" };
+  return { event: `${careful ? mission.good : mission.bad}你在${mission.target}收妥${mission.pay}文私銀賞錢；${careful ? "青鋒堂命脈升五。" : "青鋒堂命脈減三。"}${mission.id === "double_dues" && !careful ? "另有十文規費記入公帳。" : ""}`,
     speaker: contact[mission.target] || mission.giver, line: careful ? "這事辦得實在。日後用得上。" : "眼前過得去，後頭的帳還得算。" };
 }
 
@@ -157,10 +176,10 @@ export function resolveEnding(state: GameState, action: string): string {
     roll_call: "守街名冊讓何不歸召齊仍肯留下的同門",
     missing_courier: "送茶腳夫指出刀手入城的窄巷",
     double_dues: "受過你照應的攤販敲鑼報信",
-    forged_deed: "假契證據使城東無法借官印收鋪",
-    arena_probe: "裂石擂的人照佈好的退路守住街口",
-    tainted_medicine: "驗過的傷藥讓傷者不再倒在後方",
-    hidden_spy: "柳照霜識破耳目，提前封住夜雨樓側門",
+    forged_deed: "扣下的假帳證明城東暗改藥材借據",
+    arena_probe: "鬼骰坊賭盤暗帳揭出裂石擂的假賽",
+    tainted_medicine: "裂石擂拳手的暗傷底細讓顧忘生備好救命藥",
+    hidden_spy: "城主府密報讓堂主提前封住刺客入總壇的路",
   };
   const aid = MISSIONS.filter((mission) => state.worldFlags.includes(mission.clue)).map((mission) => help[mission.id]).join("；");
   if (action.startsWith("B.")) {

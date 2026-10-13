@@ -1,7 +1,7 @@
 import { renameLegacyWorldNames, repeatedNpcLine } from "./npc-voices.ts";
 import { combatOptions, createCombat, normalizeCombat, resolveCombatRound, trainMove, WEAPONS,
   type CombatState, type KnownMoves, type WeaponId } from "./combat-engine.ts";
-import { ENDING_OPTIONS, MISSIONS, missionOptions, resolveEnding, resolveMission, travelChoices } from "./city-progression.ts";
+import { ENDING_OPTIONS, MISSIONS, acceptedMissionIds, missionDone, missionOptions, resolveEnding, resolveMission, travelChoices } from "./city-progression.ts";
 import { COMPANION_IDS, applyMissionRelationship, changeTrust, companionLeads, newRelationships, normalizeRelationships,
   type CompanionId, type CompanionRelationships } from "./companion-relations.ts";
 import { CREATIVE_GOALS, CUSTOM_ACTION_MAX, isMarketIntentScene, marketIntentTargets, negatesIrreversibleAction,
@@ -18,6 +18,9 @@ import { DARK_HAND_LIMIT, DARK_HAND_PRICE, STARTING_DARK_HAND, SCAVENGE_SOURCES,
   readyDarkHand, rollD20, type DarkHandItem } from "./dirty-hand.ts";
 import { LANDMARK_SCENES, normalizeSceneState, objectStatus, openEntrance, revealEntrance, type SceneState } from "./scene-state.ts";
 import { conciseOption } from "./option-text.ts";
+import { drawEncounter, encounterOptions, ENCOUNTERS, resolveEncounter, type EncounterId } from "./encounters.ts";
+import { getPseudoRandom } from "./state-random.ts";
+export { getPseudoRandom } from "./state-random.ts";
 
 export const PROLOGUE_LANDMARKS = [
   "青鋒堂總壇", "晚秋茶寮", "黑泥街", "鬼骰坊", "裂石擂", "苦煙館", "夜雨樓",
@@ -63,6 +66,9 @@ export interface GameState {
   factionFunds: number;
   sectLifeline: number;
   worldFlags: string[];
+  activeMissions: string[];
+  lastEncounterTurn: number;
+  pendingEncounter?: EncounterId;
   relationships: CompanionRelationships;
   socialMemory?: SocialMemory;
   equippedWeapon?: WeaponId;
@@ -103,6 +109,18 @@ export interface GameState {
     marketIntentHistory?: Array<{ turn: number; approach: MarketIntent["approach"] | "自訂"; target: string; object?: string; outcome: string }>;
     marketNpcHistory?: MarketNpcExchange[];
   };
+}
+
+function incidentDue(state: GameState): boolean {
+  if (state.turn < 8) return false;
+  const elapsed = state.turn - (state.flags.lastIncidentTurn || 0);
+  if (elapsed < 3) return false;
+  // Growing odds create surprise; the cap prevents a long run without story progress.
+  return elapsed >= 10 || getPseudoRandom(state) < Math.min(65, 15 + (elapsed - 3) * 8);
+}
+
+function shortcutRiskDue(state: GameState, riskPeriod: number): boolean {
+  return riskPeriod > 0 && getPseudoRandom(state) < Math.floor(100 / riskPeriod);
 }
 
 export interface TurnResult {
@@ -403,7 +421,7 @@ function legacyRelationships(worldFlags: string[]): CompanionRelationships {
   if (worldFlags.includes("茶寮傳信接應")) changeTrust(relationships, "容晚秋", 1);
   if (worldFlags.includes("苦煙館傳信接應")) changeTrust(relationships, "顧忘生", 1);
   for (const mission of MISSIONS) {
-    if (worldFlags.includes(`${mission.title}完成`))
+    if (missionDone(worldFlags, mission))
       applyMissionRelationship(relationships, mission.id, worldFlags.includes(mission.clue));
   }
   return relationships;
@@ -438,6 +456,13 @@ export function normalizeState(raw: unknown): GameState | null {
   const worldFlags = Array.isArray(value.worldFlags) ? value.worldFlags.filter((flag): flag is string => typeof flag === "string")
     .filter((flag) => !oldDeadlineFailure || flag !== "第一章城西斷供")
     .slice(0, 100).map((flag) => renameLegacyWorldNames(flag).slice(0, 30)) : [];
+  for (const [oldClue, missionId] of [
+    ["城東假契證據", "forged_deed"], ["前線守備有序", "arena_probe"],
+    ["傷藥來源已查", "tainted_medicine"], ["城東耳目已識破", "hidden_spy"],
+  ] as const) {
+    const clue = MISSIONS.find((mission) => mission.id === missionId)?.clue;
+    if (clue && worldFlags.includes(oldClue) && !worldFlags.includes(clue)) worldFlags.push(clue);
+  }
   const relationships = value.relationships && typeof value.relationships === "object"
     ? normalizeRelationships(value.relationships) : legacyRelationships(worldFlags);
   const prologueLeads = Array.isArray(flags.prologueCompanionLeads)
@@ -483,6 +508,10 @@ export function normalizeState(raw: unknown): GameState | null {
     : activeCombat?.scenario === "arena" ? "裂石擂"
       : value.questStep === "sandbox" && (flags.alleyEscape === true || flags.alleyWall === true || flags.marketAftermath === true)
         ? "黑泥街" : restoredLocation;
+  const pendingEncounter = value.questStep === "sandbox" && !pendingIncident && !activeCombat
+    && !flags.marketAftermath && !flags.alleyEscape && !flags.alleyWall && !flags.finalCrisis
+    && ENCOUNTERS.some((encounter) => encounter.id === value.pendingEncounter && encounter.location === currentLocation)
+    ? value.pendingEncounter as EncounterId : undefined;
   const alleyEscape = !activeCombat && value.questStep === "sandbox" && currentLocation === "黑泥街"
     && (flags.alleyEscape === true || flags.alleyWall === true);
   return {
@@ -509,6 +538,12 @@ export function normalizeState(raw: unknown): GameState | null {
     customActionUses: finite(value.customActionUses, CUSTOM_ACTION_START, 0, CUSTOM_ACTION_MAX),
     sectLifeline: finite(value.sectLifeline ?? (value as Partial<GameState> & { hozaiDefense?: unknown }).hozaiDefense, 60, 0, 100),
     worldFlags,
+    lastEncounterTurn: finite(value.lastEncounterTurn, 0, 0, 100000),
+    pendingEncounter,
+    activeMissions: Array.from(new Set([
+      ...(Array.isArray(value.activeMissions) ? value.activeMissions.filter((id): id is string => typeof id === "string") : []),
+      ...acceptedMissionIds(worldFlags),
+    ])).filter((id) => MISSIONS.some((mission) => mission.id === id && !missionDone(worldFlags, mission))),
     relationships,
     socialMemory: normalizeSocialMemory(value.socialMemory),
     equippedWeapon, weaponDurability, knownMoves,
@@ -658,13 +693,18 @@ function settleCustomEchoes(state: GameState): string {
   }).join("");
 }
 
+function incidentDestination(incident: Incident, index: number): Landmark | undefined {
+  if (incident === "market_raid") return "黑泥街";
+  if (incident === "missing_ledger") return (["鬼骰坊", "晚秋茶寮", "黑泥街"] as Landmark[])[index];
+  if (incident === "tainted_medicine") return ([undefined, "苦煙館", "晚秋茶寮"] as (Landmark | undefined)[])[index];
+  return undefined;
+}
+
 function resolveIncident(state: GameState, incident: Incident, choice: number): { event: string; reply: TurnResult["npcReply"]; turns: number } {
   const index = choice >= 0 ? choice : 4;
-  const origin = state.currentLocation;
-  const destination: Landmark | undefined = incident === "market_raid" ? "黑泥街"
-    : incident === "missing_ledger" ? (["鬼骰坊", "晚秋茶寮", "黑泥街"] as Landmark[])[index]
-      : incident === "tainted_medicine" ? (["晚秋茶寮", "苦煙館", "晚秋茶寮"] as Landmark[])[index] : undefined;
-  if (destination) state.currentLocation = destination;
+  const destination = incidentDestination(incident, index);
+  if (destination && destination !== state.currentLocation)
+    return { event: `須先沿街走到${destination}，才能處置這樁急事。`, reply: undefined, turns: 1 };
   const lead = `你處置${incident === "market_raid" ? "市集插旗" : incident === "missing_ledger" ? "失蹤帳頁" : "可疑傷藥"}。`;
   let event = "";
   let reply: TurnResult["npcReply"];
@@ -691,16 +731,15 @@ function resolveIncident(state: GameState, incident: Incident, choice: number): 
     reply = { speaker: "陸千帆", line: index === 4 ? "人先撤了。我記著那面旗，遲早拔回來。" : "肉檔先守住了。我去看巷口，你別再替我挨刀。" };
   } else if (incident === "missing_ledger") {
     let tipBought = false;
-    if (index === 0) { state.currentLocation = "鬼骰坊"; state.sectLifeline = Math.min(100, state.sectLifeline + 3); event = "你到鬼骰坊對帳，查出缺頁記著一筆假規費。祁觀衡鎖好原本，青鋒堂命脈升三。"; }
+    if (index === 0) { state.sectLifeline = Math.min(100, state.sectLifeline + 3); event = "你到鬼骰坊對帳，查出缺頁記著一筆假規費。祁觀衡鎖好原本，青鋒堂命脈升三。"; }
     if (index === 1) {
-      state.currentLocation = "晚秋茶寮";
       if (state.silver >= 10) {
         state.silver -= 10; tipBought = true;
         state.sectLifeline = Math.min(100, state.sectLifeline + 2);
         event = "你付十文私銀向容晚秋買消息，得知灰衣客昨夜從總壇帶走帳頁；青鋒堂命脈升二。";
       } else event = "你拿不出十文私銀，容晚秋沒有說出誰帶走帳頁；缺頁仍待追查。";
     }
-    if (index === 2) { state.currentLocation = "黑泥街"; state.playerMp = Math.max(0, state.playerMp - 4); state.sectLifeline = Math.min(100, state.sectLifeline + 4); event = "你沿泥印追到市集後巷，找回濕透的帳頁；精力減四，青鋒堂命脈升四。"; }
+    if (index === 2) { state.playerMp = Math.max(0, state.playerMp - 4); state.sectLifeline = Math.min(100, state.sectLifeline + 4); event = "你沿泥印追到市集後巷，找回濕透的帳頁；精力減四，青鋒堂命脈升四。"; }
     if (index === 3) { if (state.silver >= 10) { state.silver -= 10; state.sectLifeline = Math.min(100, state.sectLifeline + 1); event = "你自掏十文私銀補上缺口，暫且穩住人心，青鋒堂命脈升一；缺的那頁仍得追查。"; } else event = "私銀不足十文，缺帳未補，你把破綻先記在紙上。"; }
     if (index === 4) { state.sectLifeline = Math.min(100, state.sectLifeline + 1); event = `你在${state.currentLocation}寫下缺頁線索，託同門送交堂主；回信說帳櫃已封，往後要逐筆重查。青鋒堂命脈升一。`; }
     if (index <= 2 && (index !== 1 || tipBought) && state.worldFlags.includes("帳目有據")) {
@@ -715,8 +754,8 @@ function resolveIncident(state: GameState, incident: Incident, choice: number): 
         : { speaker: "何不歸", line: index === 3 ? "十文我記下了。缺的那頁，還得替我找。" : "帳先收好。你查到哪一步，我替你擋到哪一步。" };
   } else {
     if (index === 0) { state.sectLifeline = Math.min(100, state.sectLifeline + 2); event = "你封存可疑藥包，叫腳夫暫停送藥，傷者改用乾淨布條止血；青鋒堂命脈升二。"; }
-    if (index === 1) { state.currentLocation = "苦煙館"; state.sectLifeline = Math.min(100, state.sectLifeline + 3); event = "你把藥帶到苦煙館，顧忘生驗出封口混了苦麻粉；青鋒堂命脈升三。"; }
-    if (index === 2) { state.currentLocation = "晚秋茶寮"; state.sectLifeline = Math.min(100, state.sectLifeline + 2); event = "你追問送藥腳夫，查到他替灰衣客轉過手；青鋒堂命脈升二。"; }
+    if (index === 1) { state.sectLifeline = Math.min(100, state.sectLifeline + 3); event = "你把藥帶到苦煙館，顧忘生驗出封口混了苦麻粉；青鋒堂命脈升三。"; }
+    if (index === 2) { state.sectLifeline = Math.min(100, state.sectLifeline + 2); event = "你追問送藥腳夫，查到他替灰衣客轉過手；青鋒堂命脈升二。"; }
     if (index === 3) { if (state.silver >= 10) { state.silver -= 10; state.playerHp = Math.min(state.maxHp, state.playerHp + 5); event = "你花十文私銀買乾淨傷藥救人，餘藥敷在自己傷口，氣血回復五。"; } else event = "你拿不出十文私銀，便用乾淨布條替傷者止血。"; }
     if (index === 4) { state.sectLifeline = Math.min(100, state.sectLifeline + 4); event = "你派人告知城西七處據點停用這批藥，逐一收回藥包；青鋒堂命脈升四。"; }
     if (index !== 3 && state.worldFlags.includes("傷藥有據")) {
@@ -737,15 +776,13 @@ function resolveIncident(state: GameState, incident: Incident, choice: number): 
     "陸千帆": "黑泥街", "何不歸": "青鋒堂總壇", "容晚秋": "晚秋茶寮", "顧忘生": "苦煙館", "祁觀衡": "鬼骰坊",
   };
   if (reply && speakerLocation[reply.speaker] !== state.currentLocation) reply = undefined;
-  const turns = destination && destination !== origin ? travelChoices({ ...state, currentLocation: origin }, destination)[0].turns : 1;
-  if (turns > 1) state.turn += turns - 1;
-  return { event: `${destination && destination !== origin ? `你沿明路趕到${destination}。` : ""}${lead}${event}`, reply, turns };
+  return { event: `${lead}${event}`, reply, turns: 1 };
 }
 
 export function resolveOpeningKnifeRequest(rawState: GameState, playerText: string): TurnResult | null {
   const state = normalizeState(rawState);
   if (!state || !["prologue_briefing", "sandbox"].includes(state.questStep)
-    || state.currentLocation !== "青鋒堂總壇" || state.combat || state.flags.pendingIncident
+    || state.currentLocation !== "青鋒堂總壇" || state.combat || state.flags.pendingIncident || state.pendingEncounter
     || state.flags.alleyEscape || state.flags.marketAftermath || state.flags.finalCrisis || state.flags.ending) return null;
   if (!/(?:堂主|何不歸)/.test(playerText) || !/(?:牛肉刀|刀仔|短刀|小刀|佩刀|防身刀|把刀)/.test(playerText)
     || !/(?:俾|畀|給|借|討|攞|拿|發|請|要)/.test(playerText)) return null;
@@ -785,16 +822,16 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
     const event = resolveEnding(state, endingAction);
     return { state, options: chapterOneOptions(state), event, moneyNote: "" };
   }
-  if (!opening && state.flags.pendingIncident && customAction(action))
+  if (!opening && (state.flags.pendingIncident || state.pendingEncounter) && customAction(action))
     return { state, options: availableOptions(state), event: "眼前須先處置這樁急事。", moneyNote: "" };
   if (!opening && !customAction(action)) {
     const options = availableOptions(state);
     const key = /^\w\. \[[^\]]+\]/.exec(action)?.[0];
     const travelMatch = /^F\. \[前往\] (.+)$/.exec(action);
-    const legacyTravel = state.questStep === "sandbox" && !state.combat && !state.flags.pendingIncident
+    const legacyTravel = state.questStep === "sandbox" && !state.combat && !state.flags.pendingIncident && !state.pendingEncounter
       && !state.flags.alleyEscape && !state.flags.alleyWall && !state.flags.marketAftermath && travelMatch
-      && LANDMARKS.includes(travelMatch[1] as Landmark) && travelMatch[1] !== state.currentLocation;
-    const routeTravel = state.questStep === "sandbox" && !state.combat && !state.flags.pendingIncident
+      && LANDMARKS.includes(travelMatch[1] as Landmark) && travelChoices(state, travelMatch[1] as Landmark).length > 0;
+    const routeTravel = state.questStep === "sandbox" && !state.combat && !state.pendingEncounter
       && !state.flags.alleyEscape && !state.flags.alleyWall && !state.flags.marketAftermath && LANDMARKS.some((destination) =>
       travelChoices(state, destination).some((route) => route.label === action));
     const exactOnly = /\[(?:撒生石灰|施放暗手|袖藏暗手|全力陰手|硬闖街口|伏低護人|伏低保命|踢翻餿水桶|踩籮翻牆|交畀陸千帆|撞開刀手|借牆脫身|扯籮阻路|檢視傷勢|裹緊傷口|伏巷警戒|盤問張斷骨|安頓收隊|搜刮殘局|封住退路|離巷收隊)\]/.test(action);
@@ -826,6 +863,9 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
   const startingEnergy = state.playerMp;
   const startingLocation = state.currentLocation;
   const wasInCombat = Boolean(state.combat || state.questStep === "huizhi_ambush");
+  const wasInIncident = Boolean(state.flags.pendingIncident);
+  const wasInEncounter = Boolean(state.pendingEncounter);
+  const wasInAftermath = Boolean(state.flags.marketAftermath || state.flags.alleyEscape || state.flags.alleyWall);
   const selectedTravel = LANDMARKS.flatMap((destination) => travelChoices(state, destination))
     .find((route) => route.label === action);
   const travelTarget = selectedTravel?.destination || /^F\. \[前往\] (.+)$/.exec(action)?.[1] as Landmark | undefined;
@@ -853,7 +893,13 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
     event = "你被劣質丹藥幻覺誤導，當場出醜，氣血減四。";
   }
 
-  if (state.combat) {
+  if (state.pendingEncounter) {
+    const resolved = resolveEncounter(state, state.pendingEncounter, action);
+    if (resolved) {
+      event += resolved;
+      state.pendingEncounter = undefined;
+    }
+  } else if (state.combat) {
     if (freeAttempt?.effect === "seize" && freeAttempt.object === "刀手短刀") disarmAttempt = true;
     const wasMarketAmbush = state.combat.scenario === "market_ambush";
     const weaponBefore = state.equippedWeapon || "fists";
@@ -1242,7 +1288,14 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
     }
   } else {
     const pendingIncident = state.flags.pendingIncident;
-    if (pendingIncident) {
+    if (pendingIncident && selectedTravel) {
+      state.currentLocation = selectedTravel.destination;
+      event += `你走${selectedTravel.kind === "shortcut" ? "暗道" : "明路"}到${selectedTravel.destination}；急事仍待處置。`;
+      if (selectedTravel.kind === "shortcut" && shortcutRiskDue(state, selectedTravel.riskPeriod)) {
+        if (selectedTravel.riskDamage) { state.playerHp = Math.max(1, state.playerHp - selectedTravel.riskDamage); event += `暗巷遭人攔截，氣血減${selectedTravel.riskDamage}。`; }
+        if (selectedTravel.riskLifeline) { state.sectLifeline = Math.max(0, state.sectLifeline - selectedTravel.riskLifeline); event += `眼線尾隨，青鋒堂命脈減${selectedTravel.riskLifeline}。`; }
+      }
+    } else if (pendingIncident) {
       const resolved = resolveIncident(state, pendingIncident, choice);
       event += resolved.event;
       npcReply = resolved.reply;
@@ -1378,17 +1431,11 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
         state.currentLocation = destination as Landmark;
         event += `你走${selected.kind === "shortcut" ? "暗道" : "明路"}，趕到${destination}。`;
         if (selected.kind === "shortcut") {
-          if (state.turn % selected.riskPeriod === 0) {
+          if (shortcutRiskDue(state, selected.riskPeriod)) {
             if (selected.riskDamage) { state.playerHp = Math.max(1, state.playerHp - selected.riskDamage); event += `暗巷有人攔路，你脫身時氣血減${selected.riskDamage}。`; }
             if (selected.riskLifeline) { state.sectLifeline = Math.max(0, state.sectLifeline - selected.riskLifeline); event += `尾巴跟到堂口據點，青鋒堂命脈減${selected.riskLifeline}。`; }
           }
           else { remember(state, "暗道行跡已藏"); event += "你避過街口眼線，記下對方的守位。"; }
-        } else if (travelTurns >= 2 && state.turn % 4 === 0) {
-          state.silver += 5;
-          event += "途中你替商販搬過一車貨，得五文私銀。";
-        } else if (travelTurns === 3 && state.turn % 5 === 0) {
-          remember(state, "街面有備");
-          event += "你行經幾處路口，記下城東刀手換崗的次序。";
         }
       }
     } else if (destination || (movement && /城東|城南|城北|城中|外城|玄武樓總壇|官府/.test(action))) {
@@ -1569,7 +1616,7 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
       } else if (state.currentLocation === "鬼骰坊" && tag === "押小") {
         if (state.silver >= 10) {
           const readTable = state.worldFlags.includes("已看透骰局");
-          const won = readTable || state.turn % 2 === 0;
+          const won = readTable || getPseudoRandom(state) < 50;
           if (readTable) state.worldFlags = state.worldFlags.filter((flag) => flag !== "已看透骰局");
           state.silver += won ? 10 : -10;
           event += won
@@ -1648,7 +1695,7 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
       remember(state, "何不歸查出私吞");
       event += "你見何不歸查出私吞規費，防線再減八。";
     }
-    if (!state.combat && !pendingIncident && state.turn >= 8 && state.turn - (state.flags.lastIncidentTurn || 0) >= 5) {
+    if (!state.combat && !pendingIncident && incidentDue(state)) {
       const incident = INCIDENTS[(state.flags.incidentCount || 0) % INCIDENTS.length];
       state.flags.pendingIncident = incident;
       state.flags.lastIncidentTurn = state.turn;
@@ -1660,6 +1707,20 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
           ? { speaker: "容晚秋", line: "封口給人動過。快叫各處先別用藥。" }
           : incident === "market_raid" && state.currentLocation === "黑泥街"
             ? { speaker: "陸千帆", line: "刀手又來插旗。我守肉檔，你拿主意。" } : undefined;
+    }
+  }
+
+  if (state.questStep === "sandbox" && state.turn >= 8 && state.turn < 70 && state.sectLifeline > 0
+    && !opening && !wasInCombat && !wasInIncident && !wasInEncounter && !wasInAftermath
+    && !state.combat && !state.pendingEncounter && !state.flags.pendingIncident
+    && !state.flags.alleyEscape && !state.flags.alleyWall && !state.flags.marketAftermath
+    && !state.flags.finalCrisis) {
+    const encounter = drawEncounter(state);
+    if (encounter) {
+      state.pendingEncounter = encounter.id;
+      state.lastEncounterTurn = state.turn;
+      event += encounter.report;
+      npcReply = undefined;
     }
   }
 
@@ -1711,7 +1772,7 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
 export function resolveMarketDialogue(rawState: GameState, target: string, utterance: string,
   proposal: MarketNpcProposal): TurnResult & { reaction: MarketNpcReaction; reason: string } {
   const state = normalizeState(rawState);
-  if (!state || marketDialogueTarget(state, utterance) !== target || state.flags.finalCrisis || state.flags.ending)
+  if (!state || state.pendingEncounter || marketDialogueTarget(state, utterance) !== target || state.flags.finalCrisis || state.flags.ending)
     return { state: state || rawState, options: availableOptions(state || rawState),
       event: "那人此刻不在面前，這句話沒有說出口。", moneyNote: "", reaction: "talk", reason: "target_absent" };
   const cost = state.playerMp <= 10 && !state.combat && !state.flags.alleyEscape ? 2 : 1;
@@ -1809,7 +1870,7 @@ export function recordMarketNpcReply(state: GameState, target: string, reply: st
 export function resolveSocialIntent(rawState: GameState, plan: SocialIntent): TurnResult {
   const start = normalizeState(rawState);
   if (!start || !socialTargets(start).includes(plan.target)
-    || start.flags.pendingIncident
+    || start.flags.pendingIncident || start.pendingEncounter
     || start.questStep !== "chapter_one" && (start.flags.ending || start.flags.finalCrisis)
     || start.flags.chapterOne?.stage === "complete" || start.flags.chapterOne?.stage === "failed")
     return { state: start || rawState, options: availableOptions(start || rawState), event: "那人眼下不在你面前，這番話無處可說。", moneyNote: "" };
@@ -2425,18 +2486,18 @@ function rawAvailableOptions(state: GameState): string[] {
   }
   if (state.flags.alleyEscape || state.flags.alleyWall) return alleyOptions(state);
   if (state.flags.marketAftermath) return marketAftermathOptions(state);
+  if (state.pendingEncounter) return availableWithEnergy(state, encounterOptions(state.pendingEncounter));
   const base = state.questStep === "prologue_briefing" ? PROLOGUE_OPTIONS
     : state.questStep === "kuyan_medicine" ? GU_OPTIONS
     : state.questStep === "yung_tea_stall" ? TEA_OPTIONS
     : state.questStep === "market_collection" ? marketCollectionOptions(state)
-    : state.flags.pendingIncident ? INCIDENT_OPTIONS[state.flags.pendingIncident].map((option, index) => {
-      const destination: Landmark | undefined = state.flags.pendingIncident === "market_raid" ? "黑泥街"
-        : state.flags.pendingIncident === "missing_ledger" ? (["鬼骰坊", "晚秋茶寮", "黑泥街"] as Landmark[])[index]
-          : state.flags.pendingIncident === "tainted_medicine" ? (["晚秋茶寮", "苦煙館", "晚秋茶寮"] as Landmark[])[index] : undefined;
-      if (!destination || destination === state.currentLocation) return option;
-      const turns = travelChoices(state, destination)[0].turns;
-      return `${option}（須赴${destination}，共${turns}回合）`;
-    })
+    : state.flags.pendingIncident ? [
+      ...INCIDENT_OPTIONS[state.flags.pendingIncident].filter((_, index) => {
+        const destination = incidentDestination(state.flags.pendingIncident!, index);
+        return !destination || destination === state.currentLocation;
+      }),
+      ...LANDMARKS.flatMap((destination) => travelChoices(state, destination).map((route) => route.label)),
+    ]
     : state.currentLocation === "青鋒堂總壇"
       ? SANDBOX_OPTIONS["青鋒堂總壇"].map((option) => option.startsWith("E.")
         ? (state.knownMoves?.mud_step || 0) >= 3 ? "E. [習泥鰍步] 已練到第三層；再問堂主，只能重溫舊招。"
@@ -2477,7 +2538,7 @@ function rawAvailableOptions(state: GameState): string[] {
           return option;
         })
       : SANDBOX_OPTIONS[state.currentLocation];
-  if (state.questStep !== "sandbox" || state.flags.pendingIncident) return availableWithEnergy(state, base);
+  if (state.questStep !== "sandbox" || state.flags.pendingIncident || state.pendingEncounter) return availableWithEnergy(state, base);
   const training = state.currentLocation === "夜雨樓" && state.worldFlags.includes("陌生恩客完成") && (state.knownMoves?.soft_parry || 0) < 3
     ? [`I. [習卸力手] 向柳照霜習招；目前第${state.knownMoves?.soft_parry || 0}層，耗精力${[4, 6, 8][state.knownMoves?.soft_parry || 0] ?? 0}、私銀${[0, 10, 20][state.knownMoves?.soft_parry || 0] ?? 0}文。`]
     : state.currentLocation === "鬼骰坊" && state.worldFlags.includes("假借據完成") && (state.knownMoves?.point_strike || 0) < 3
@@ -2519,7 +2580,7 @@ function rawAvailableOptions(state: GameState): string[] {
       || state.inventory.includes("【開鎖鐵線】")))
     sideWork.push("T. [查賬房雜物] 趁打手換位，進賬房搬開雜物；耗一回合，可能驚動守衛。");
   if (state.currentLocation === "夜雨樓" && !state.sceneState?.openedEntrances.includes("夜雨樓")
-    && state.worldFlags.includes("陌生恩客完成"))
+    && (state.worldFlags.includes("城主府密報完成") || state.worldFlags.includes("陌生恩客完成")))
     sideWork.push("T. [查酒窖巨桶] 避開護院進酒窖，查最深處的舊桶；耗一回合。");
   if (state.currentLocation === "晚秋茶寮" && state.sceneState?.discoveredEntrances.includes("晚秋茶寮")
     && !state.sceneState.openedEntrances.includes("晚秋茶寮"))

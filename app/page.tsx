@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { aptitude, availableOptions, CUSTOM_ACTION_START, LANDMARKS, normalizeState, OPENING_CITY_NARRATION, type GameState, type Landmark } from "@/lib/game-engine";
-import { guardLayersForLifeline, MISSIONS, travelChoices } from "@/lib/city-progression";
+import { guardLayersForLifeline, missionDone, MISSIONS, travelChoices } from "@/lib/city-progression";
 import { newRelationships } from "@/lib/companion-relations";
 import { renameLegacyWorldNames } from "@/lib/npc-voices";
 import { createPrologueHandoff, type PrologueHandoff } from "@/lib/prologue-handoff";
@@ -291,6 +291,8 @@ export default function GamePage() {
       factionFunds: 10,
       sectLifeline: 60,
       worldFlags: selectedBgId === "martial_dropout" ? ["武館舊傷"] : [],
+      activeMissions: [],
+      lastEncounterTurn: 0,
       history: [],
       relationships: newRelationships(),
       equippedWeapon: "fists",
@@ -410,8 +412,8 @@ export default function GamePage() {
   const handoff = gameState?.flags.ending && savedGame?.state.flags.ending === gameState.flags.ending
     ? savedGame.handoff || createPrologueHandoff(gameState) : gameState ? createPrologueHandoff(gameState) : null;
   const supportCount = gameState ? MISSIONS.filter((mission) => gameState.worldFlags.includes(mission.clue)).length : 0;
-  const unfinishedSupport = gameState ? MISSIONS.filter((mission) => !gameState.worldFlags.includes(mission.clue)
-    && !gameState.worldFlags.includes(`${mission.title}完成`)).map((mission) => mission.title) : [];
+  const unfinishedSupport = gameState ? MISSIONS.filter((mission) => !missionDone(gameState.worldFlags, mission))
+    .map((mission) => mission.title) : [];
   const treasuryChange = gameState?.flags.treasuryChange?.turn === gameState?.turn
     ? gameState?.flags.treasuryChange : undefined;
   const chapterForecast = gameState ? chapterPressureForecast(gameState) : null;
@@ -817,7 +819,7 @@ export default function GamePage() {
                 <input
                   type="text"
                   value={customInput}
-                  disabled={loading || !gameState}
+                  disabled={loading || !gameState || Boolean(gameState.pendingEncounter)}
                   onChange={(e) => setCustomInput(e.target.value)}
                   placeholder={gameState.currentLocation === "黑泥街" ? "直接說話，或寫出你要做的事。" : "寫明眼前人物或物件，以及你要做的事。"}
                   maxLength={300}
@@ -825,7 +827,7 @@ export default function GamePage() {
                 />
                 <button
                   type="submit"
-                  disabled={loading || !customInput.trim() || !gameState}
+                  disabled={loading || !customInput.trim() || !gameState || Boolean(gameState.pendingEncounter)}
                   className="bg-[#6f4d2a] hover:bg-[#8c6747] border border-[#a47a45] text-stone-100 px-5 py-2 rounded-sm text-xs md:text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed shadow-inner"
                 >
                   出招
@@ -953,11 +955,12 @@ export default function GamePage() {
             <div className="flex items-center justify-between mb-2"><div className="font-semibold text-stone-400">城西地標與路程</div>
               <button type="button" onClick={() => setMapOpen(true)} className="text-amber-400 hover:text-amber-200">查看地圖</button></div>
             <div className="space-y-1.5 text-stone-300">
-              {LANDMARKS.filter((location) => location !== "碼頭" || gameState?.questStep === "chapter_one").map((location) => (
+              {LANDMARKS.filter((location) => gameState?.currentLocation === location
+                || Boolean(gameState && travelChoices(gameState, location).length > 0)).map((location) => (
                 <button
                   key={location}
                   type="button"
-                  disabled={loading || !gameState || Boolean(gameState.combat) || Boolean(gameState.flags.pendingIncident)
+                  disabled={loading || !gameState || Boolean(gameState.combat) || Boolean(gameState.pendingEncounter)
                     || Boolean(gameState.flags.alleyEscape) || Boolean(gameState.flags.marketAftermath)
                     || Boolean(gameState.flags.finalCrisis)
                     || (gameState.questStep === "sandbox" && Boolean(gameState.flags.ending))
@@ -968,18 +971,18 @@ export default function GamePage() {
                   {location}{gameState?.flags.chapterOne?.lostLandmarks?.includes(location) ? " · 失守" : ""}
                   <span className="text-stone-400">{gameState && gameState.currentLocation === location ? " · 目前所在"
                     : gameState && travelChoices(gameState, location).length > 0
-                      ? " · 路途費時" : " · 尚未開放"}</span>
+                      ? ` · ${travelChoices(gameState, location)[0].turns === 1 ? "一步可達" : `${travelChoices(gameState, location)[0].turns}回合路程`}` : " · 尚未開放"}</span>
                 </button>
               ))}
             </div>
             {gameState && selectedDestination && gameState.currentLocation !== selectedDestination
-              && travelChoices(gameState, selectedDestination).length > 0 && !gameState.combat
+              && travelChoices(gameState, selectedDestination).length > 0 && !gameState.combat && !gameState.pendingEncounter
               && !gameState.flags.alleyEscape && !gameState.flags.marketAftermath
               && !gameState.flags.finalCrisis && (
               <div className="space-y-1.5 border-t border-stone-700 pt-2">
                 <div className="text-amber-300">前往{selectedDestination}，揀一條路：</div>
                 {travelChoices(gameState, selectedDestination).map((route) => (
-                  <button key={route.kind} type="button" disabled={loading || Boolean(gameState.flags.pendingIncident)}
+                  <button key={route.kind} type="button" disabled={loading}
                     onClick={() => handleAction(route.label)}
                     className="block w-full text-left rounded border border-stone-700 bg-stone-800 px-2 py-1.5 hover:border-amber-700 disabled:opacity-40">
                     {route.label}

@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { aptitude, availableOptions, LANDMARKS, normalizeState, resolveTurn } from "../lib/game-engine.ts";
 import { newRelationships } from "../lib/companion-relations.ts";
 import { hasOffSceneDirectSpeech, socialTargets } from "../lib/social-influence.ts";
-import { travelChoices } from "../lib/city-progression.ts";
+import { MISSIONS, ROAD_ADJACENCY, travelChoices } from "../lib/city-progression.ts";
 import { hardboiledFallback } from "../lib/narrative-style.ts";
+import { ENCOUNTERS, encounterOptions } from "../lib/encounters.ts";
 
 // Deterministic engine-level journeys. No network narration is involved.
 const visited = new Set();
@@ -34,7 +35,7 @@ function inspect(state, route) {
   const options = availableOptions(state);
   assertValidOptionsLength(state);
   assert.equal(new Set(options).size, options.length, `Duplicate choices at ${state.questStep}/${state.currentLocation}`);
-  visited.add(`${route}|${state.questStep}|${state.currentLocation}|${state.flags.alleyEscape ? "alley" : ""}|${state.flags.alleyWall ? "wall" : ""}|${state.flags.marketAftermath ? "aftermath" : ""}|${state.flags.chapterOne?.stage || ""}`);
+  visited.add(`${route}|${state.questStep}|${state.currentLocation}|${state.pendingEncounter || ""}|${state.flags.alleyEscape ? "alley" : ""}|${state.flags.alleyWall ? "wall" : ""}|${state.flags.marketAftermath ? "aftermath" : ""}|${state.flags.chapterOne?.stage || ""}`);
   if (options.length === 0 && !terminal(state))
     fail("softlock", `${route} turn ${state.turn} ${state.questStep}/${state.flags.chapterOne?.stage || ""}`);
   if (options.length === 0 && terminal(state))
@@ -43,9 +44,11 @@ function inspect(state, route) {
 }
 
 function step(state, action, route, opening = false) {
+  if (state.pendingEncounter && !availableOptions(state).some((option) => option.includes(action)))
+    state = step(state, availableOptions(state)[0], route);
   inspect(state, route);
   const chosen = action === "opening" ? `[初入堂口] ${state.playerName}` : pick(state, action);
-  branches.add(`${state.questStep}|${state.flags.alleyEscape ? "alley" : ""}|${state.flags.alleyWall ? "wall" : ""}|${state.flags.marketAftermath ? "aftermath" : ""}|${optionKey(chosen)}`);
+  branches.add(`${state.questStep}|${state.pendingEncounter || ""}|${state.flags.alleyEscape ? "alley" : ""}|${state.flags.alleyWall ? "wall" : ""}|${state.flags.marketAftermath ? "aftermath" : ""}|${optionKey(chosen)}`);
   const result = resolveTurn(state, chosen, opening);
   assert.ok(result.state.turn > state.turn || opening || terminal(state)
     || !state.flags.ending && Boolean(result.state.flags.ending), `Action did not advance: ${chosen}`);
@@ -61,6 +64,34 @@ function step(state, action, route, opening = false) {
   }
   inspect(result.state, route);
   return result.state;
+}
+
+function walkTo(state, destination, route) {
+  for (let count = 0; count < 12 && state.currentLocation !== destination; count++) {
+    const queue = [[state.currentLocation]];
+    let path;
+    while (queue.length) {
+      const candidate = queue.shift();
+      if (candidate.at(-1) === destination) { path = candidate; break; }
+      for (const next of ROAD_ADJACENCY[candidate.at(-1)] || [])
+        if (!candidate.includes(next)) queue.push([...candidate, next]);
+    }
+    assert.ok(path, `${route}: no road to ${destination}`);
+    const next = path[1];
+    assert.ok(ROAD_ADJACENCY[state.currentLocation].includes(next));
+    state = step(state, `[明路前往] ${next}`, route);
+  }
+  assert.equal(state.currentLocation, destination);
+  return state;
+}
+
+function settlePending(state, route) {
+  if (!state.flags.pendingIncident) return state;
+  if (state.flags.pendingIncident === "market_raid" && state.currentLocation !== "黑泥街")
+    state = walkTo(state, "黑泥街", route);
+  const local = availableOptions(state).find((option) => !option.startsWith("F."));
+  assert.ok(local, `${route}: no local incident response at ${state.currentLocation}`);
+  return step(state, local.match(/\[[^\]]+\]/)?.[0], route);
 }
 
 function createCharacter({ inventory = ["【灌鉛假骰】", "【生石灰包】"], mp } = {}) {
@@ -114,8 +145,8 @@ function settle(state, route) {
 function reachChapter(state, route) {
   const runAt = (place, marker) => {
     for (let i = 0; i < 20; i++) {
-      if (state.flags.pendingIncident) state = step(state, availableOptions(state)[0].match(/\[[^\]]+\]/)?.[0], route);
-      else if (state.currentLocation !== place) state = step(state, `[明路前往] ${place}`, route);
+      if (state.flags.pendingIncident) state = settlePending(state, route);
+      else if (state.currentLocation !== place) state = walkTo(state, place, route);
       else { state = step(state, marker, route); return; }
     }
     assert.fail(`Could not perform ${marker} at ${place}`);
@@ -125,11 +156,11 @@ function reachChapter(state, route) {
   runAt("黑泥街", "[領差] 雙重勒索");
   runAt("晚秋茶寮", "[辦差] 雙重勒索");
   runAt("晚秋茶寮", "[領差] 失蹤腳夫");
-  runAt("黑泥街", "[辦差] 失蹤腳夫");
+  runAt("夜雨樓", "[辦差] 失蹤腳夫");
   assert.ok(["同門守街名冊", "街坊願意守街", "刀手進城路線"].every((flag) => state.worldFlags.includes(flag)));
   for (let i = 0; i < 90 && !state.flags.finalCrisis; i++) {
-    if (state.flags.pendingIncident) state = step(state, availableOptions(state)[0].match(/\[[^\]]+\]/)?.[0], route);
-    else if (state.currentLocation !== "青鋒堂總壇") state = step(state, "[明路前往] 青鋒堂總壇", route);
+    if (state.flags.pendingIncident) state = settlePending(state, route);
+    else if (state.currentLocation !== "青鋒堂總壇") state = walkTo(state, "青鋒堂總壇", route);
     else state = step(state, "[休整]", route);
   }
   assert.equal(state.flags.finalCrisis, true, `${route}: final crisis never opened`);
@@ -209,7 +240,7 @@ function main() {
     state = finishAmbush(state, route);
     if (state.flags.marketAftermath) state = settle(state, route);
     if (route === "embezzle") {
-      state = step(state, "[明路前往] 青鋒堂總壇", route);
+      state = walkTo(state, "青鋒堂總壇", route);
       assert.ok(state.worldFlags.includes("何不歸查出私吞"));
     } else assert.equal(state.relationships["陸千帆"].estranged, true);
   }
@@ -251,6 +282,31 @@ function main() {
   }
 
   const sandboxSeed = createCharacter();
+  for (const encounter of ENCOUNTERS) {
+    for (const choice of encounterOptions(encounter.id)) {
+      const route = `encounter-${encounter.id}`;
+      const state = normalizeState({ ...sandboxSeed, questStep: "sandbox", currentLocation: encounter.location,
+        turn: 20, lastEncounterTurn: 20, pendingEncounter: encounter.id, silver: 20,
+        flags: { ...sandboxSeed.flags, lastIncidentTurn: 20 } });
+      assert.deepEqual(availableOptions(state), encounterOptions(encounter.id));
+      const settled = step(state, choice, route);
+      assert.equal(settled.pendingEncounter, undefined, route);
+    }
+  }
+  for (const mission of MISSIONS) {
+    const route = `mission-${mission.id}`;
+    let state = normalizeState({ ...sandboxSeed, questStep: "sandbox", currentLocation: mission.origin, turn: 2 });
+    assert.ok(!availableOptions({ ...state, currentLocation: mission.target }).some((option) =>
+      option === `G. [辦差] ${mission.title}`), `${route}: unaccepted mission offered at target`);
+    state = step(state, `[領差] ${mission.title}`, route);
+    assert.ok(state.activeMissions.includes(mission.id), `${route}: acceptance not saved`);
+    state = walkTo(state, mission.target, route);
+    assert.equal(state.flags.pendingIncident, undefined, `${route}: journey unexpectedly blocked`);
+    state = step(state, `[辦差] ${mission.title}`, route);
+    assert.ok(!state.activeMissions.includes(mission.id), `${route}: completion remained active`);
+    assert.ok(state.worldFlags.includes(mission.clue), `${route}: clue missing`);
+    assert.equal(state.silver, mission.pay, `${route}: private silver reward missing`);
+  }
   for (const place of LANDMARKS.filter((landmark) => landmark !== "碼頭")) {
     inspect(normalizeState({ ...sandboxSeed, questStep: "sandbox", currentLocation: place, turn: 12 }),
       "all-landmarks");

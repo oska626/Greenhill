@@ -1,17 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { aptitude, availableOptions, PROLOGUE_LANDMARKS, normalizeState, OPENING_CITY_NARRATION, resolveOpeningKnifeRequest, resolveSocialIntent, resolveTurn } from "../lib/game-engine.ts";
+import { aptitude, availableOptions, getPseudoRandom, PROLOGUE_LANDMARKS, normalizeState, OPENING_CITY_NARRATION, resolveOpeningKnifeRequest, resolveSocialIntent, resolveTurn } from "../lib/game-engine.ts";
 import { NPC_VOICES, hasSectAddressViolation, npcVoiceGuide, renameLegacyWorldNames, repeatedNpcLine, sectMemberAddress } from "../lib/npc-voices.ts";
 import { createCombat, resolveCombatRound, trainMove } from "../lib/combat-engine.ts";
-import { ENDING_OPTIONS, MISSIONS, guardLayersForLifeline, missionOptions, travelChoices } from "../lib/city-progression.ts";
+import { ENDING_OPTIONS, MISSIONS, ROAD_ADJACENCY, guardLayersForLifeline, missionOptions, travelChoices } from "../lib/city-progression.ts";
 import { companionLeads, newRelationships } from "../lib/companion-relations.ts";
 import { PACKED_MEDICINE, USE_PACKED_MEDICINE } from "../lib/recovery.ts";
 import { actionEnergyCost, FATIGUE_THRESHOLD, MAX_ENERGY } from "../lib/energy.ts";
 import { darkHandCount } from "../lib/dirty-hand.ts";
 import { objectStatus, sceneFacts } from "../lib/scene-state.ts";
 import { containsSettlementLog, hardboiledFallback, validHardboiledNarrative } from "../lib/narrative-style.ts";
-import { appendDangerCue } from "../lib/action-sequence.ts";
+import { appendDangerCue, resolveActionSequence } from "../lib/action-sequence.ts";
 import { hasOffSceneDirectSpeech, localNpcReply, localSpeaker, socialTargets } from "../lib/social-influence.ts";
+import { drawEncounter, encounterOptions, ENCOUNTERS } from "../lib/encounters.ts";
 
 function newGame() {
   const stats = aptitude("阿七", "賭坊收帳人", "察言觀色");
@@ -32,9 +33,145 @@ function finishCombat(turn) {
   return turn;
 }
 
+function walkTo(state, destination) {
+  let current = state;
+  for (let step = 0; step < 12 && current.currentLocation !== destination; step++) {
+    const queue = [[current.currentLocation]];
+    let path;
+    while (queue.length && !path) {
+      const candidate = queue.shift();
+      if (candidate.at(-1) === destination) { path = candidate; break; }
+      for (const next of ROAD_ADJACENCY[candidate.at(-1)] || [])
+        if (!candidate.includes(next)) queue.push([...candidate, next]);
+    }
+    assert.ok(path, `No path to ${destination}`);
+    const route = travelChoices(current, path[1]).find((choice) => choice.kind === "road");
+    assert.ok(route, `No road from ${current.currentLocation} to ${path[1]}`);
+    const before = current.turn;
+    current = resolveTurn(current, route.label, false).state;
+    assert.equal(current.turn, before + 1);
+  }
+  assert.equal(current.currentLocation, destination);
+  return current;
+}
+
+function settlePending(state) {
+  if (!state.flags.pendingIncident) return state;
+  const scene = state.flags.pendingIncident === "market_raid" && state.currentLocation !== "黑泥街"
+    ? walkTo(state, "黑泥街") : state;
+  const option = availableOptions(scene).find((choice) => !choice.startsWith("F."));
+  assert.ok(option, "incident must have a local resolution");
+  return resolveTurn(scene, option, false).state;
+}
+
+test("state hash is bounded, replayable, and sensitive to resources and location", () => {
+  const state = normalizeState({ ...newGame(), questStep: "sandbox", turn: 12 });
+  const roll = getPseudoRandom(state);
+  assert.ok(Number.isInteger(roll) && roll >= 0 && roll < 100);
+  assert.equal(getPseudoRandom(normalizeState(JSON.parse(JSON.stringify(state)))), roll);
+  assert.notEqual(getPseudoRandom({ ...state, silver: state.silver + 1 }), roll);
+  assert.notEqual(getPseudoRandom({ ...state, currentLocation: "晚秋茶寮" }), roll);
+});
+
+test("incident timing changes with saved state, respects cooldown, and has a cap", () => {
+  const base = normalizeState({ ...newGame(), questStep: "sandbox", turn: 7 });
+  const outcomes = new Set();
+  for (let silver = 0; silver < 100; silver++) {
+    const replay = { ...base, silver };
+    const first = resolveTurn(replay, "C. [盤點] 清點堂口帳目。", false);
+    const again = resolveTurn(replay, "C. [盤點] 清點堂口帳目。", false);
+    assert.equal(first.state.flags.pendingIncident, again.state.flags.pendingIncident);
+    outcomes.add(Boolean(first.state.flags.pendingIncident));
+  }
+  assert.deepEqual([...outcomes].sort(), [false, true]);
+  const cooling = resolveTurn({ ...base, turn: 8, flags: { ...base.flags, lastIncidentTurn: 7 } },
+    "C. [盤點] 清點堂口帳目。", false);
+  assert.equal(cooling.state.flags.pendingIncident, undefined);
+  const overdue = resolveTurn({ ...base, turn: 17, flags: { ...base.flags, lastIncidentTurn: 8 } },
+    "C. [盤點] 清點堂口帳目。", false);
+  assert.equal(overdue.state.flags.pendingIncident, "market_raid");
+});
+
+test("seven local encounters use bounded choices and obey the state-hash cooldown", () => {
+  assert.equal(ENCOUNTERS.length, 7);
+  assert.deepEqual(new Set(ENCOUNTERS.map((encounter) => encounter.location)), new Set(PROLOGUE_LANDMARKS));
+  for (const encounter of ENCOUNTERS) {
+    for (const option of encounterOptions(encounter.id)) {
+      const body = option.replace(/^[A-Z]\. \[[^\]]+\]\s*/, "");
+      assert.ok(Array.from(body).filter((letter) => /[\u3400-\u9fff]/u.test(letter)).length <= 12, option);
+    }
+    const candidate = Array.from({ length: 100 }, (_, silver) => normalizeState({ ...newGame(),
+      questStep: "sandbox", currentLocation: encounter.location, turn: 20, lastEncounterTurn: 17, silver }))
+      .find((state) => getPseudoRandom(state) < 20);
+    assert.ok(candidate, `${encounter.id}: no state-hash trigger found`);
+    assert.equal(drawEncounter(candidate)?.id, encounter.id);
+    assert.equal(drawEncounter({ ...candidate, lastEncounterTurn: 18 }), undefined);
+  }
+});
+
+test("encounter decisions settle resources and never leave an empty choice list", () => {
+  const cases = [
+    ["hall_dispute", "A.", 20, 18, 64],
+    ["tea_tail", "B.", 25, 18, 60],
+    ["market_pickpocket", "A.", 26, 19, 60],
+    ["dice_debt", "A.", 10, 20, 60],
+    ["arena_blockade", "A.", 20, 19, 60],
+    ["clinic_patron", "B.", 10, 20, 62],
+    ["tower_drunk", "B.", 20, 20, 59],
+  ];
+  for (const [id, prefix, silver, energy, lifeline] of cases) {
+    const encounter = ENCOUNTERS.find((item) => item.id === id);
+    const state = normalizeState({ ...newGame(), questStep: "sandbox", currentLocation: encounter.location,
+      turn: 20, lastEncounterTurn: 20, pendingEncounter: id, silver: 20, playerMp: 20,
+      flags: { ...newGame().flags, lastIncidentTurn: 20 } });
+    assert.deepEqual(availableOptions(state), encounterOptions(id));
+    const chosen = availableOptions(state).find((option) => option.startsWith(prefix));
+    const result = resolveTurn(state, chosen, false);
+    assert.equal(result.state.pendingEncounter, undefined, id);
+    assert.equal(result.state.turn, 21, id);
+    assert.equal(result.state.silver, silver, id);
+    assert.equal(result.state.playerMp, energy, id);
+    assert.equal(result.state.sectLifeline, lifeline, id);
+    assert.ok(result.options.length > 0, id);
+  }
+  const poor = normalizeState({ ...newGame(), questStep: "sandbox", currentLocation: "鬼骰坊",
+    turn: 20, lastEncounterTurn: 20, pendingEncounter: "dice_debt", silver: 0 });
+  const refusal = resolveTurn(poor, encounterOptions("dice_debt")[0], false);
+  assert.equal(refusal.state.silver, 0);
+  assert.match(refusal.event, /私銀不足十文/);
+  const exhausted = normalizeState({ ...newGame(), questStep: "sandbox", currentLocation: "裂石擂",
+    turn: 20, lastEncounterTurn: 20, pendingEncounter: "arena_blockade", playerMp: 0 });
+  assert.equal(availableOptions(exhausted).length, 2);
+  assert.ok(resolveTurn(exhausted, availableOptions(exhausted)[0], false).state.turn > exhausted.turn);
+});
+
+test("a hash-triggered encounter blocks travel until resolved", async () => {
+  const base = normalizeState({ ...newGame(), questStep: "sandbox", turn: 19,
+    flags: { ...newGame().flags, lastIncidentTurn: 19 } });
+  const seed = Array.from({ length: 100 }, (_, silver) => ({ ...base, silver }))
+    .find((state) => Boolean(resolveTurn(state, "C. [盤點] 清點堂口帳目。", false).state.pendingEncounter));
+  assert.ok(seed);
+  const first = resolveTurn(seed, "C. [盤點] 清點堂口帳目。", false);
+  const replay = resolveTurn(seed, "C. [盤點] 清點堂口帳目。", false);
+  assert.equal(first.state.pendingEncounter, replay.state.pendingEncounter);
+  assert.equal(first.state.lastEncounterTurn, first.state.turn);
+  assert.equal(normalizeState(JSON.parse(JSON.stringify(first.state))).pendingEncounter, first.state.pendingEncounter);
+  assert.deepEqual(first.options, encounterOptions(first.state.pendingEncounter));
+  const sequence = await resolveActionSequence(seed, ["C. [盤點] 清點堂口帳目。", "B. [捐銀固防] 捐銀加固堂口"],
+    async (state, step) => resolveTurn(state, step, false));
+  assert.equal(sequence.sceneChanged, true);
+  assert.deepEqual(sequence.pending, ["B. [捐銀固防] 捐銀加固堂口"]);
+  const rejected = resolveTurn(first.state, "F. [明路前往] 前往晚秋茶寮", false);
+  assert.equal(rejected.state.turn, first.state.turn);
+  const settled = resolveTurn(first.state, first.options[1], false);
+  assert.equal(settled.state.pendingEncounter, undefined);
+  assert.ok(settled.options.length > 0);
+});
+
 test("history defaults for old saves and records each resolved action with its event", () => {
   const oldSave = normalizeState(newGame());
   assert.deepEqual(oldSave.history, []);
+  assert.deepEqual(oldSave.activeMissions, []);
   const openingAction = "[初入堂口] 阿七";
   const opening = resolveTurn(oldSave, openingAction, true);
   assert.deepEqual(opening.state.history, [{ turn: opening.state.turn, action: openingAction, narrative: opening.event,
@@ -270,12 +407,12 @@ test("fatigue raises investigation cost, while exhaustion leaves basic action, t
   const spoken = resolveTurn(empty, talk, false);
   assert.equal(spoken.state.playerHp, 48);
   assert.equal(spoken.state.playerMp, 0);
-  const route = travelChoices(empty, "夜雨樓")[0];
-  assert.equal(route.turns, 3);
+  const route = travelChoices(empty, "裂石擂")[0];
+  assert.equal(route.turns, 1);
   const travelled = resolveTurn(empty, route.label, false);
-  assert.equal(travelled.state.currentLocation, "夜雨樓");
-  assert.equal(travelled.state.turn, 5);
-  assert.equal(travelled.state.playerHp, 44);
+  assert.equal(travelled.state.currentLocation, "裂石擂");
+  assert.equal(travelled.state.turn, 3);
+  assert.equal(travelled.state.playerHp, 48);
   const hall = { ...empty, currentLocation: "青鋒堂總壇" };
   const rested = resolveTurn(hall, availableOptions(hall)[0], false);
   assert.equal(rested.state.playerMp, 10);
@@ -544,7 +681,8 @@ test("sandbox clues improve later incidents and reading the dice matters", () =>
     ["tainted_medicine", "傷藥有據", "A. [封存藥包] 封住來歷不明的傷藥。", 2],
     ["tainted_medicine", "辨清傷藥封口", "A. [封存藥包] 封住來歷不明的傷藥。", 2],
   ]) {
-    const state = { ...newGame(), questStep: "sandbox", flags: { ...newGame().flags, pendingIncident: incident } };
+    const state = { ...newGame(), questStep: "sandbox", currentLocation: incident === "market_raid" ? "黑泥街" : incident === "missing_ledger" ? "鬼骰坊" : "青鋒堂總壇",
+      flags: { ...newGame().flags, pendingIncident: incident } };
     const plain = resolveTurn(state, option, false);
     const prepared = resolveTurn({ ...state, worldFlags: [clue] }, option, false);
     const plainValue = incident === "missing_ledger" ? plain.state.factionFunds : plain.state.sectLifeline;
@@ -589,39 +727,43 @@ test("betrayal and maiming alter later options and encounters", () => {
   if (turn.state.flags.marketAftermath)
     turn = resolveTurn(turn.state, turn.options.find((option) => option.includes("[安頓收隊]")), false);
   turn = resolveTurn(turn.state, travelChoices(turn.state, "晚秋茶寮")[0].label, false);
-  turn = resolveTurn(turn.state, turn.options[0], false);
+  turn = { state: walkTo(turn.state, "黑泥街") };
+  turn = resolveTurn(turn.state, availableOptions(turn.state)[0], false);
   assert.ok(turn.state.worldFlags.includes("屠戶避讓"));
   assert.ok(turn.options.some((option) => option.includes("找陸千帆")));
 });
 
 test("sandbox travel stays inside seven landmarks and resources have a ledger", () => {
-  let turn = resolveTurn({ ...newGame(), questStep: "sandbox" }, "F. [前往] 裂石擂", false);
+  const start = { ...newGame(), questStep: "sandbox" };
+  assert.equal(resolveTurn(start, "F. [前往] 裂石擂", false).state.turn, start.turn);
+  let turn = { state: walkTo(start, "裂石擂") };
   assert.equal(turn.state.currentLocation, "裂石擂");
   const travelEarnings = turn.state.silver;
-  turn = resolveTurn(turn.state, turn.options[0], false);
+  turn = resolveTurn(turn.state, availableOptions(turn.state)[0], false);
   assert.equal(turn.state.combat.scenario, "arena");
   turn = finishCombat(turn);
   assert.equal(turn.state.silver, travelEarnings + 20);
   assert.ok(turn.moneyNote.includes("私銀增加20文"));
-  turn = resolveTurn(turn.state, "F. [前往] 晚秋茶寮", false);
-  if (turn.state.flags.pendingIncident) turn = resolveTurn(turn.state, turn.options[0], false);
-  if (turn.state.currentLocation !== "晚秋茶寮") turn = resolveTurn(turn.state, "F. [前往] 晚秋茶寮", false);
+  turn = { state: walkTo(turn.state, "晚秋茶寮") };
+  turn = { state: settlePending(turn.state) };
+  if (turn.state.currentLocation !== "晚秋茶寮") turn = { state: walkTo(turn.state, "晚秋茶寮") };
   const beforeMessage = turn.state.silver;
   turn = resolveTurn(turn.state, availableOptions(turn.state).find((option) => option.startsWith("A. [買消息]")), false);
   assert.equal(turn.state.silver, beforeMessage - 10);
   assert.ok(turn.moneyNote.includes("私銀減少10文"));
   for (const place of PROLOGUE_LANDMARKS) {
-    if (turn.state.flags.pendingIncident) turn = resolveTurn(turn.state, turn.options[0], false);
-    turn = resolveTurn(turn.state, `F. [前往] ${place}`, false);
+    turn = { state: walkTo(turn.state, place) };
+    turn = { state: settlePending(turn.state) };
+    if (turn.state.currentLocation !== place) turn = { state: walkTo(turn.state, place) };
     assert.equal(turn.state.currentLocation, place);
   }
-  if (turn.state.flags.pendingIncident) turn = resolveTurn(turn.state, turn.options[0], false);
+  turn = { state: settlePending(turn.state) };
   const rejected = resolveTurn(turn.state, "F. [自訂手段] 前往城東玄武樓總壇", false);
   assert.equal(rejected.state.currentLocation, turn.state.currentLocation);
   const question = resolveTurn(turn.state, "F. [自訂手段] 問何不歸官府近況", false);
   assert.ok(!question.event.includes("城西邊界"));
   const naturalTravel = resolveTurn(turn.state, "F. [自訂手段] 走到晚秋茶寮", false);
-  assert.equal(naturalTravel.state.currentLocation, "晚秋茶寮");
+  assert.equal(naturalTravel.state.currentLocation, turn.state.currentLocation);
 });
 
 test("absurd custom actions lose health and malformed numeric state is normalized", () => {
@@ -645,23 +787,26 @@ test("sandbox incident follows the finished market ambush", () => {
   assert.ok(turn.state.turn >= 8);
   assert.equal(turn.state.flags.pendingIncident, "market_raid");
   assert.match(turn.event, /插旗/);
-  assert.match(turn.options[0], /護住攤販/);
-  const settled = resolveTurn(normalizeState(turn.state), turn.options[0], false);
+  if (turn.state.currentLocation !== "黑泥街") turn = { state: walkTo(turn.state, "黑泥街") };
+  assert.match(availableOptions(turn.state)[0], /護住攤販/);
+  const settled = resolveTurn(normalizeState(turn.state), availableOptions(turn.state)[0], false);
   assert.equal(settled.state.flags.pendingIncident, undefined);
   assert.ok(settled.state.worldFlags.includes("市集守住"));
   assert.match(settled.event, /街坊守住肉檔/);
   assert.match(settled.options[0], /巡街收規/);
 });
 
-test("every market raid choice previews and arrives at the meat stall", () => {
+test("a market raid stays pending until each road edge reaches the meat stall", () => {
   const base = { ...newGame(), questStep: "sandbox", currentLocation: "青鋒堂總壇", silver: 20,
     flags: { ...newGame().flags, pendingIncident: "market_raid" } };
-  const options = availableOptions(base);
-  for (const option of options) {
-    assert.ok(option.replace(/^[A-Z]\. \[[^\]]+\]\s*/, "").length <= 12);
-    const turn = resolveTurn(base, option, false);
+  assert.ok(availableOptions(base).every((option) => option.startsWith("F.")));
+  const atMarket = walkTo(base, "黑泥街");
+  assert.equal(atMarket.turn, base.turn + 2);
+  assert.equal(atMarket.flags.pendingIncident, "market_raid");
+  for (const option of availableOptions(atMarket).filter((choice) => !choice.startsWith("F."))) {
+    const turn = resolveTurn(atMarket, option, false);
     assert.equal(turn.state.currentLocation, "黑泥街");
-    assert.match(turn.event, /^你沿明路趕到黑泥街/);
+    assert.equal(turn.state.flags.pendingIncident, undefined);
   }
 });
 
@@ -704,7 +849,6 @@ test("crisis options and turn resolution reject travel and daily work", () => {
     { ...base, flags: { ...base.flags, alleyEscape: true } },
     { ...base, flags: { ...base.flags, alleyWall: true } },
     { ...base, flags: { ...base.flags, marketAftermath: true } },
-    { ...base, flags: { ...base.flags, pendingIncident: "market_raid" } },
     { ...base, flags: { ...base.flags, finalCrisis: true } },
   ];
   for (const raw of states) {
@@ -713,8 +857,9 @@ test("crisis options and turn resolution reject travel and daily work", () => {
     assert.ok(options.length > 0);
     assert.ok(options.every((option) => !/\[(?:搬貨|買消息|前往|明路前往|暗道前往)\]/.test(option)));
     const before = current.turn;
-    for (const action of ["F. [前往] 苦煙館", travelChoices(current, "苦煙館")[0].label,
+    for (const action of ["F. [前往] 苦煙館", travelChoices(current, "裂石擂")[0]?.label,
       "B. [搬貨] 替商販搬貨照料騾車；每隔三回合可賺六文私銀。"] ) {
+      if (!action) continue;
       const rejected = resolveTurn(current, action, false);
       assert.equal(rejected.state.turn, before);
       assert.equal(rejected.state.currentLocation, current.currentLocation);
@@ -722,6 +867,8 @@ test("crisis options and turn resolution reject travel and daily work", () => {
   }
   const incident = normalizeState({ ...base, currentLocation: "青鋒堂總壇",
     flags: { ...base.flags, pendingIncident: "missing_ledger" } });
+  assert.ok(availableOptions(incident).some((option) => option.includes("[明路前往]")));
+  assert.equal(walkTo(incident, "鬼骰坊").flags.pendingIncident, "missing_ledger");
   assert.equal(resolveOpeningKnifeRequest(incident, "向何不歸討一把牛肉刀"), null);
   assert.equal(resolveTurn(incident, "F. [自訂手段] 問何不歸借刀", false).state.turn, incident.turn);
   const social = { target: "何不歸", goal: "help", subject: "協助玩家", tactic: "reason",
@@ -752,19 +899,19 @@ test("old checkpoint state keeps crisis flags and reanchors its physical scene",
 
 test("later incidents change options and preserve resource consequences", () => {
   let state = { ...newGame(), turn: 12, questStep: "sandbox", silver: 20, factionFunds: 30 };
-  state.flags = { ...state.flags, incidentCount: 1, lastIncidentTurn: 8 };
+  state.flags = { ...state.flags, incidentCount: 1, lastIncidentTurn: 2 };
   let turn = resolveTurn(state, "C. [盤點] 清點堂口帳目。", false);
   assert.equal(turn.state.flags.pendingIncident, "missing_ledger");
-  assert.match(turn.options[0], /查賭檔/);
-  turn = resolveTurn(turn.state, turn.options[3], false);
+  assert.ok(turn.options.every((option) => !option.includes("[查賭檔]")));
+  turn = resolveTurn(turn.state, turn.options.find((option) => option.includes("[補帳]")), false);
   assert.equal(turn.state.factionFunds, 30);
   assert.equal(turn.state.silver, 10);
   assert.ok(turn.moneyNote.includes("私銀減少10文"));
-  state = { ...turn.state, turn: 17 };
-  turn = resolveTurn(state, "F. [前往] 晚秋茶寮", false);
+  state = { ...turn.state, turn: turn.state.flags.lastIncidentTurn + 9 };
+  turn = resolveTurn(state, travelChoices(state, "晚秋茶寮")[0].label, false);
   assert.equal(turn.state.flags.pendingIncident, "tainted_medicine");
   assert.match(turn.options[0], /封存藥包/);
-  turn = resolveTurn(turn.state, turn.options[3], false);
+  turn = resolveTurn(turn.state, turn.options.find((option) => option.includes("[救治傷者]")), false);
   assert.equal(turn.state.silver, 0);
   assert.ok(turn.state.worldFlags.includes("可疑傷藥已處置"));
 });
@@ -786,7 +933,8 @@ test("an older sandbox save past turn eight receives the first incident on its n
   const restored = normalizeState(oldSave);
   const turn = resolveTurn(restored, "C. [盤點] 清點堂口帳目。", false);
   assert.equal(turn.state.flags.pendingIncident, "market_raid");
-  assert.match(turn.options[0], /護住攤販/);
+  assert.ok(turn.options.every((option) => !option.includes("[護住攤販]")));
+  assert.ok(turn.options.some((option) => option.includes("[明路前往]")));
 });
 
 test("older saves keep their location and consequences after the world rename", () => {
@@ -933,8 +1081,10 @@ test("sect members call He Bugui 堂主 while outsiders may use his name", () =>
 
 test("incident replies use the speaker involved in each branch", () => {
   const state = { ...newGame(), questStep: "sandbox", turn: 13, flags: { ...newGame().flags, pendingIncident: "missing_ledger" } };
-  assert.equal(resolveTurn(state, "A. [查賭檔] 到鬼骰坊核對缺失的規費帳。", false).npcReply.speaker, "祁觀衡");
-  assert.equal(resolveTurn(state, availableOptions(state)[1], false).npcReply.speaker, "容晚秋");
+  const atDice = walkTo(state, "鬼骰坊");
+  assert.equal(resolveTurn(atDice, availableOptions(atDice).find((option) => option.includes("[查賭檔]")), false).npcReply.speaker, "祁觀衡");
+  const atTea = walkTo(state, "晚秋茶寮");
+  assert.equal(resolveTurn(atTea, availableOptions(atTea).find((option) => option.includes("[買帳頁線索]")), false).npcReply.speaker, "容晚秋");
   assert.equal(resolveTurn(state, "E. [告知堂主] 把帳目破綻交給堂主處置。", false).npcReply.speaker, "何不歸");
 });
 
@@ -955,34 +1105,98 @@ test("legacy defense becomes sect lifeline and a member cannot spend public fund
 
 test("roads cost time and discovered shortcuts carry risk", () => {
   const state = { ...newGame(), questStep: "sandbox", turn: 2 };
-  assert.equal(travelChoices(state, "黑泥街")[0].turns, 2);
-  assert.equal(travelChoices(state, "黑泥街").length, 1);
+  assert.equal(travelChoices(state, "黑泥街").length, 0);
+  assert.deepEqual(ROAD_ADJACENCY["青鋒堂總壇"], ["晚秋茶寮", "鬼骰坊"]);
   const discovered = { ...state, worldFlags: ["熟記市集暗巷"] };
-  const shortcut = travelChoices(discovered, "黑泥街")[1];
+  const shortcut = travelChoices(discovered, "黑泥街")[0];
   assert.equal(shortcut.turns, 1);
   const trip = resolveTurn(discovered, shortcut.label, false);
   assert.equal(trip.state.currentLocation, "黑泥街");
   assert.equal(trip.state.turn, 3);
-  assert.equal(trip.state.playerHp, state.playerHp - 6);
-  const roadTrip = resolveTurn(state, travelChoices(state, "黑泥街")[0].label, false);
-  assert.equal(roadTrip.state.turn, 4);
-  assert.equal(roadTrip.state.sectLifeline, 58);
+  const outcomes = new Set();
+  for (let silver = 0; silver < 100; silver++) {
+    const start = { ...discovered, silver };
+    const first = resolveTurn(start, shortcut.label, false);
+    const replay = resolveTurn(start, shortcut.label, false);
+    assert.equal(first.state.playerHp, replay.state.playerHp);
+    outcomes.add(first.state.playerHp);
+  }
+  assert.deepEqual([...outcomes].sort((a, b) => a - b), [state.playerHp - 6, state.playerHp]);
+  const roadTrip = walkTo(state, "黑泥街");
+  assert.equal(roadTrip.turn, 4);
+  assert.equal(roadTrip.sectLifeline, 58);
+});
+
+test("ordinary road choices exactly match the seven-landmark graph", () => {
+  const expected = {
+    "青鋒堂總壇": ["晚秋茶寮", "鬼骰坊"],
+    "晚秋茶寮": ["青鋒堂總壇", "苦煙館", "黑泥街"],
+    "鬼骰坊": ["青鋒堂總壇", "苦煙館", "夜雨樓"],
+    "苦煙館": ["晚秋茶寮", "鬼骰坊", "裂石擂", "夜雨樓"],
+    "黑泥街": ["晚秋茶寮", "裂石擂"],
+    "裂石擂": ["黑泥街", "苦煙館"],
+    "夜雨樓": ["鬼骰坊", "苦煙館"],
+  };
+  assert.deepEqual(ROAD_ADJACENCY, expected);
+  for (const [from, neighbors] of Object.entries(expected)) {
+    const state = { ...newGame(), questStep: "sandbox", currentLocation: from, turn: 2 };
+    for (const destination of Object.keys(expected)) {
+      const road = travelChoices(state, destination).find((choice) => choice.kind === "road");
+      assert.equal(Boolean(road), neighbors.includes(destination), `${from} → ${destination}`);
+      if (!road) continue;
+      const moved = resolveTurn(state, road.label, false);
+      assert.equal(moved.state.currentLocation, destination);
+      assert.equal(moved.state.turn, state.turn + 1);
+      assert.equal(moved.state.playerMp, state.playerMp - 1);
+    }
+  }
 });
 
 test("every landmark mission pays once and careful work helps the finale", () => {
   assert.equal(MISSIONS.length, PROLOGUE_LANDMARKS.length);
+  assert.deepEqual(MISSIONS.map(({ origin, target, title, clue }) => [origin, target, title, clue]), [
+    ["青鋒堂總壇", "黑泥街", "守街名冊", "同門守街名冊"],
+    ["晚秋茶寮", "夜雨樓", "失蹤腳夫", "刀手進城路線"],
+    ["黑泥街", "晚秋茶寮", "雙重勒索", "街坊願意守街"],
+    ["鬼骰坊", "苦煙館", "查扣假帳", "假借據完成"],
+    ["苦煙館", "裂石擂", "送猛藥", "拳手暗傷底細"],
+    ["裂石擂", "鬼骰坊", "買定離手", "擂台賭盤走勢"],
+    ["夜雨樓", "青鋒堂總壇", "城主府密報", "城東記恨暗殺"],
+  ]);
   for (const mission of MISSIONS) {
     const origin = { ...newGame(), questStep: "sandbox", currentLocation: mission.origin };
     const offer = missionOptions(origin).find((option) => option.includes(mission.title));
     assert.ok(offer, mission.title);
+    assert.equal(offer, `G. [領差] ${mission.title}`);
+    assert.ok(Array.from(offer.replace(/^G\. \[[^\]]+\] /, "")).filter((letter) => /[\u3400-\u9fff]/u.test(letter)).length <= 12);
+    assert.ok(!missionOptions({ ...origin, currentLocation: mission.target }).some((option) => option.includes(mission.title)));
     const accepted = resolveTurn(origin, offer, false);
-    const target = { ...accepted.state, currentLocation: mission.target };
+    assert.deepEqual(accepted.state.activeMissions, [mission.id]);
+    assert.ok(!missionOptions(accepted.state).some((option) => option.includes(mission.title)));
+    const target = walkTo(accepted.state, mission.target);
     const careful = missionOptions(target).find((option) => option.startsWith("G. [辦差]") && option.includes(mission.title));
+    assert.equal(careful, `G. [辦差] ${mission.title}`);
     const done = resolveTurn(target, careful, false);
     assert.equal(done.state.silver, mission.pay);
     assert.ok(done.state.worldFlags.includes(mission.clue));
+    assert.deepEqual(done.state.activeMissions, []);
     assert.ok(!missionOptions(done.state).some((option) => option.includes(mission.title)));
   }
+});
+
+test("old mission acceptance and completion flags migrate without duplicate offers", () => {
+  const accepted = normalizeState({ ...newGame(), questStep: "sandbox", currentLocation: "苦煙館",
+    worldFlags: ["換封傷藥已領"] });
+  assert.deepEqual(accepted.activeMissions, ["tainted_medicine"]);
+  assert.ok(missionOptions({ ...accepted, currentLocation: "裂石擂" }).some((option) => option === "G. [辦差] 送猛藥"));
+  const complete = normalizeState({ ...newGame(), questStep: "sandbox", currentLocation: "夜雨樓",
+    activeMissions: ["hidden_spy"], worldFlags: ["陌生恩客完成"] });
+  assert.deepEqual(complete.activeMissions, []);
+  assert.ok(!missionOptions(complete).some((option) => option.includes("城主府密報")));
+  const oldClue = normalizeState({ ...newGame(), questStep: "sandbox", currentLocation: "鬼骰坊",
+    worldFlags: ["城東假契證據", "假借據完成"] });
+  assert.ok(oldClue.worldFlags.includes("假借據完成"));
+  assert.ok(!missionOptions(oldClue).some((option) => option.includes("查扣假帳")));
 });
 
 test("new martial arts alter existing combat actions", () => {
@@ -1040,12 +1254,12 @@ test("high lifeline grants one guard layer per ten points from sixty", () => {
   assert.equal(cede.state.flags.finalGuardLayers, undefined);
 });
 
-test("a multi-turn journey may pass turn seventy before the crisis opens", () => {
+test("successive road edges can pass turn seventy before the crisis opens", () => {
   const state = { ...newGame(), questStep: "sandbox", turn: 68, sectLifeline: 80 };
-  const choice = travelChoices(state, "夜雨樓")[0];
-  assert.equal(choice.turns, 3);
-  const arrival = resolveTurn(state, choice.label, false);
-  assert.equal(arrival.state.turn, 71);
+  const first = resolveTurn(state, travelChoices(state, "鬼骰坊")[0].label, false);
+  assert.equal(first.state.turn, 69);
+  const arrival = resolveTurn(first.state, travelChoices(first.state, "夜雨樓")[0].label, false);
+  assert.equal(arrival.state.turn, 70);
   assert.equal(arrival.state.flags.finalCrisis, true);
 });
 
