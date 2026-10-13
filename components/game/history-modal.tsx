@@ -24,6 +24,7 @@ export function HistoryModal({ open, onOpenChange, history }: HistoryModalProps)
               <article key={`${entry.turn}-${history.length - index}`} className="border-b border-[#4a3828] pb-4 last:border-0">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <span className="font-mono text-xs text-[#a3907c]">Turn {entry.turn}</span>
+                  <span className="font-mono text-[10px] text-[#8e7862]">{entry.narrativeSource} · {entry.preLocation} → {entry.postLocation} · {entry.questStep}</span>
                   <span className="rounded-sm border border-amber-900/50 px-2 py-1 text-sm text-amber-500 bg-amber-950/30">{entry.action}</span>
                 </div>
                 <p className="whitespace-pre-wrap break-words leading-relaxed text-[#d5c7b3]">{entry.narrative}</p>

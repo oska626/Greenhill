@@ -11,7 +11,7 @@ import { normalizeSceneState, sceneFacts } from "@/lib/scene-state";
 import { hasOffSceneDirectSpeech, inferSocialIntent, localNpcReply, localSpeaker, MARKET_NPC_REACTIONS, marketDialogueTarget, socialTargets,
   type MarketNpcProposal, type MarketNpcReaction } from "@/lib/social-influence";
 
-const SYSTEM_PROMPT = `你是青山城城西的文字冒險主持人。只用自然的繁體中文書面語，以第二人稱「你」寫動作、眼前局勢與必要對白。鏡頭始終留在「地點與狀態」所列的當前地點；別處的事只能寫成玩家的回憶、身上物件或傳來的消息，不能直接描寫別處人物此刻的動作或對白。場景只依據提供的三項資料；不得把推測或後續打算寫成已發生的事，也不可增添人物、物件或道路。對峙中須寫清身位與仍在場的對手；暫退時只寫撤離與待處理局勢；平靜時才可寫日常。可用「身位受制、局勢緊張、氣力耗損」等中性武俠措辭。對白簡短，青鋒堂門生提及何不歸時稱「堂主」。不寫數值結算。只回 JSON：{"narrative":"..."}；敘事須為完整句，長度三十至九十字。`;
+const SYSTEM_PROMPT = `你是青山城城西的文字冒險主持人。只用自然的繁體中文書面語，以第二人稱「你」寫動作、眼前局勢與必要對白。鏡頭始終留在「地點與狀態」所列的當前地點；別處的事只能寫成玩家的回憶、身上物件或傳來的消息，不能直接描寫別處人物此刻的動作或對白。場景只依據提供的三項資料；不得把推測或後續打算寫成已發生的事，也不可增添人物、物件或道路。對峙中須寫清身位與仍在場的對手；暫退時只寫撤離與待處理局勢；無危險時仍須以實際物件與行動交代後果。可用「身位受制、局勢緊張、氣力耗損」等中性武俠措辭。對白簡短，青鋒堂門生提及何不歸時稱「堂主」。必須保留已結算的購買、失敗原因和戰鬥結果。【嚴禁濫情與俗套環境描寫】：絕對禁止描寫「微風」、「落葉」、「靜謐」、「平靜」等天氣與情緒廢話。敘事必須釘死在硬派感官上：動作、血腥味、金屬碰撞、銅錢聲、呼吸喘息。若無事發生，只需簡述 NPC 的小動作或場景中的實物狀態。只回 JSON：{"narrative":"..."}；敘事須為完整句，長度三十至九十字。`;
 
 const SPEAKER: Record<Landmark, string> = {
   "青鋒堂總壇": "何不歸", "晚秋茶寮": "容晚秋", "黑泥街": "陸千帆",
@@ -102,7 +102,7 @@ function validNarrative(value: unknown): value is string {
   if (typeof value !== "string" || !value.trim()) return false;
   const length = Array.from(value.trim()).length;
   return length >= 30 && length <= 90
-    && !/系統錯誤|服務錯誤|伺服器錯誤|請稍後再試|無法生成|生成失敗|internal server error|service unavailable|error code/i.test(value);
+    && !/系統錯誤|服務錯誤|伺服器錯誤|請稍後再試|無法生成|生成失敗|internal server error|service unavailable|error code|微風|落葉|靜謐|平靜/i.test(value);
 }
 
 function cleanNarrativeContext(value: string): string {
@@ -275,8 +275,11 @@ async function narrate(state: GameState, _action: string, event: string, moneyCh
     return fallbackResult("authored_market_arrival");
   if (combatTurn && !freeScene) return fallbackResult("calculated_combat");
   if ((state.flags.alleyEscape || state.flags.marketAftermath) && !freeScene) return fallbackResult("scene_state_gate");
+  if (/私銀不足|精力不足|你已知道|沒有收錢|沒有再收私銀/.test(event))
+    return fallbackResult("causal_outcome");
   // The deterministic account already contains the exact transaction.
   if (moneyChanged && !freeScene) return fallbackResult("money_change");
+  if (state.questStep === "sandbox" && !freeScene) return fallbackResult("authored_sandbox_action");
   const key = process.env.AZURE_OPENAI_API_KEY || process.env.AZURE_API_KEY;
   const endpoint = (process.env.AZURE_OPENAI_ENDPOINT || process.env.AZURE_ENDPOINT || "").trim();
   if (!key || !endpoint) return fallbackResult("missing_azure_config");
@@ -288,7 +291,7 @@ async function narrate(state: GameState, _action: string, event: string, moneyCh
   const social = state.socialMemory?.[speaker];
   const stance = social?.stance || (speaker === "張斷骨" ? "戒備" : speaker === "刀手" ? "對峙" : "未定");
   const sceneStatus = state.combat || state.flags.alleyEscape ? "對峙中"
-    : state.flags.marketAftermath ? "局勢暫緩" : "街面平靜";
+    : state.flags.marketAftermath ? "局勢暫緩" : "暫無即時交鋒";
   const locationStatus = cleanNarrativeContext(`${state.currentLocation}，${sceneStatus}`);
   const settledEvent = cleanNarrativeContext(event);
   const defaultLine = "先看清眼前局勢。";

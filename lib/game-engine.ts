@@ -30,9 +30,19 @@ export type Incident = "market_raid" | "missing_ledger" | "tainted_medicine";
 type CustomEcho = CreativeAction & { location: Landmark; dueTurn: number };
 export const CUSTOM_ACTION_START = CUSTOM_ACTION_MAX;
 
+export interface HistoryEntry {
+  turn: number;
+  action: string;
+  narrative: string;
+  narrativeSource: "API" | "Fallback" | "未記錄";
+  preLocation: Landmark | "未記錄";
+  postLocation: Landmark | "未記錄";
+  questStep: QuestStep | "未記錄";
+}
+
 export interface GameState {
   turn: number;
-  history?: { turn: number; action: string; narrative: string }[];
+  history?: HistoryEntry[];
   playerName: string;
   background: string;
   trait: string;
@@ -89,7 +99,7 @@ export interface GameState {
     alleyWall?: boolean;
     alleyAllyPresent?: boolean;
     marketAftermath?: boolean;
-    marketAftermathKind?: "victory" | "escape";
+    marketAftermathKind?: "victory" | "escape" | "defeat";
     marketIntentHistory?: Array<{ turn: number; approach: MarketIntent["approach"] | "自訂"; target: string; object?: string; outcome: string }>;
     marketNpcHistory?: MarketNpcExchange[];
   };
@@ -159,6 +169,11 @@ function alleyOptions(state: GameState): string[] {
 }
 
 function marketAftermathOptions(state: GameState): string[] {
+  if (state.flags.marketAftermathKind === "defeat") return availableWithEnergy(state, [
+    state.flags.alleyAllyPresent ? "C. [檢視傷勢] 扶陸千帆退到肉檔後" : "C. [裹緊傷口] 按住刀口退往後巷",
+    "D. [伏身避刀] 借肉案遮身避開追兵",
+    "G. [撤離街口] 沿後巷退出失守街口",
+  ]);
   if (state.flags.marketAftermathKind === "escape") return availableWithEnergy(state, [
     state.flags.alleyAllyPresent
       ? "C. [檢視傷勢] 退到後巷替陸千帆壓住傷口；別讓追兵循血找來。"
@@ -474,7 +489,12 @@ export function normalizeState(raw: unknown): GameState | null {
     turn: finite(value.turn, 1, 1, 100000),
     history: Array.isArray(value.history) ? value.history.filter((entry) => entry && typeof entry === "object"
       && Number.isFinite(entry.turn) && typeof entry.action === "string" && typeof entry.narrative === "string")
-      .map((entry) => ({ turn: entry.turn, action: entry.action, narrative: entry.narrative })) : [],
+      .map((entry) => ({ turn: entry.turn, action: entry.action, narrative: entry.narrative,
+        narrativeSource: entry.narrativeSource === "API" || entry.narrativeSource === "Fallback"
+          ? entry.narrativeSource : "未記錄" as const,
+        preLocation: LANDMARKS.includes(entry.preLocation as Landmark) ? entry.preLocation : "未記錄" as const,
+        postLocation: LANDMARKS.includes(entry.postLocation as Landmark) ? entry.postLocation : "未記錄" as const,
+        questStep: steps.includes(entry.questStep as QuestStep) ? entry.questStep : "未記錄" as const })) : [],
     playerName: value.playerName.slice(0, 30), background: background.slice(0, 60), trait: value.trait.slice(0, 60),
     gender: typeof value.gender === "string" ? value.gender.replace(/[\r\n「」]/g, "").trim().slice(0, 8) : undefined,
     skill: typeof value.skill === "string" ? value.skill.replace(/[\r\n「」]/g, "").trim().slice(0, 12) : undefined,
@@ -523,7 +543,8 @@ export function normalizeState(raw: unknown): GameState | null {
         && value.questStep === "sandbox" && currentLocation === "黑泥街" && !activeCombat
         && !flags.alleyEscape && !pendingIncident && !flags.lastSandboxTag
         && finite(value.turn, 1, 1, 100000) <= 10 && worldFlags.includes("擊退伏擊刀手"))),
-      marketAftermathKind: flags.marketAftermathKind === "escape" ? "escape" : "victory",
+      marketAftermathKind: flags.marketAftermathKind === "escape" || flags.marketAftermathKind === "defeat"
+        ? flags.marketAftermathKind : "victory",
       marketIntentHistory: Array.isArray(flags.marketIntentHistory) ? flags.marketIntentHistory
         .filter((entry): entry is { turn: number; approach: MarketIntent["approach"] | "自訂"; target: string; object?: string; outcome: string } =>
           Boolean(entry && typeof entry === "object" && typeof entry.turn === "number" && Number.isFinite(entry.turn)
@@ -915,6 +936,11 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
           remember(state, "擊退伏擊刀手");
           event += "刀手退入暗巷，街口的打鬥停了。肉檔還在，血水仍淌到攤販腳邊。";
         } else {
+          if (result.outcome === "lost") {
+            state.flags.marketAftermath = true;
+            state.flags.marketAftermathKind = "defeat";
+            event += "刀手仍佔著肉檔街口，你被逼退到肉案後；先處置傷口或沿後巷撤離。";
+          }
           state.sectLifeline = Math.max(0, state.sectLifeline - (result.outcome === "fled" ? 6 : 10));
           remember(state, result.outcome === "fled" ? "市集伏擊撤守" : "市集伏擊戰敗");
           event += result.outcome === "fled" ? "你保住性命，卻讓出肉檔前的街口；青鋒堂命脈減六。"
@@ -935,7 +961,8 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
           event += "你被同門拖出刀口，氣血只剩一線。";
         }
         npcReply = result.combat.allyPresent
-          ? { speaker: "陸千帆", line: result.outcome === "won" ? "街口守住了。眼線還沒散，先收拾手尾。" : "他媽的，先翻出去。誰堵的路，回頭剁誰。" }
+          ? { speaker: "陸千帆", line: result.outcome === "won" ? "街口守住了。眼線還沒散，先收拾手尾。"
+            : result.outcome === "lost" ? "街口丟了。先退到肉案後，按住傷口再走。" : "他媽的，先翻出去。誰堵的路，回頭剁誰。" }
           : result.outcome === "won" ? { speaker: "張斷骨", line: "人先活著。肉檔的帳，回頭再算。" } : undefined;
       } else {
         if (result.outcome === "won") {
@@ -1136,7 +1163,26 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
     }
     state.sectLifeline = Math.max(0, state.sectLifeline - 1);
   } else if (state.flags.marketAftermath) {
-    if (state.flags.marketAftermathKind === "escape") {
+    if (state.flags.marketAftermathKind === "defeat") {
+      if (action.includes("[檢視傷勢]")) {
+        remember(state, "陸千帆傷勢已包紮");
+        event = "你扶陸千帆退到肉案後，撕布按住他的傷口；刀手佔著街口，你們沿後巷撤走。";
+      } else if (action.includes("[裹緊傷口]")) {
+        state.playerHp = Math.min(state.maxHp, state.playerHp + 1);
+        event = "你按住自己刀口，扯布裹緊，趁刀手守著肉檔沿後巷撤走。";
+      } else if (action.includes("[伏身避刀]")) {
+        event = "你伏在肉案後躲開追來的刀，聽見刀手接管街口，才貼著後巷牆根退走。";
+      } else if (action.includes("[撤離街口]")) {
+        event = "你沿後巷退出黑泥街肉檔，刀手仍守著失去的街口；這筆敗帳得另找機會討回。";
+      }
+      if (event) {
+        state.flags.marketAftermath = false;
+        remember(state, "市集戰敗撤離");
+        remember(state, "市集殘局已定");
+        state.currentLocation = "青鋒堂總壇";
+        event += "你回到青鋒堂總壇，街口失守的消息已先一步傳到堂內。";
+      }
+    } else if (state.flags.marketAftermathKind === "escape") {
       if (action.includes("[檢視傷勢]")) {
         remember(state, "陸千帆傷勢已包紮");
         event = "你在後巷替陸千帆按住刀口，血暫時止了。牆那邊的腳步遠去，你們沿暗巷撤開。";
@@ -1395,7 +1441,7 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
       } else if (state.currentLocation === "晚秋茶寮" && tag === "移開灶底石板") {
         openEntrance(state.sceneState!, "晚秋茶寮");
         state.sectLifeline = Math.max(0, state.sectLifeline - 1);
-        event += "你趁容晚秋起身招呼茶客，掀開土灶底的空心石板。有人看見你鑽下去，街口眼線開始尋路。";
+        event += "你趁容晚秋招呼茶客，掀開土灶底的空心石板，露出向下的暗道。茶客看見入口，街口眼線開始尋路；你仍站在灶旁。";
         npcReply = { speaker: "容晚秋", line: "洞開了就快走。再磨蹭，人就跟下來。" };
       } else if (state.currentLocation === "苦煙館" && tag === "辨無名藥粉") {
         if (state.relationships["顧忘生"].trust >= 1 || state.background === "黑市醫道學徒") {
@@ -1469,29 +1515,29 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
         }
       } else if (state.currentLocation === "晚秋茶寮" && tag === "買消息") {
         if (state.worldFlags.includes("茶寮街訊已購")) {
-          event += "你再問一遍，容晚秋手上暫無新消息，沒有收你的錢。";
+          event += "你已知道這條街訊；容晚秋手上暫無新消息，沒有收你的錢，也沒有再扣私銀。";
           npcReply = { speaker: "容晚秋", line: "消息沒變，這回不收錢。等有人走過街口再來。" };
         } else if (state.silver >= 10) {
           state.silver -= 10;
           remember(state, "茶寮街訊已購");
           remember(state, "街面有備");
-          event += `你付十文私銀買消息。${reaction?.event || ""}`;
+          event += `你付十文私銀，容晚秋把城西街口的消息告訴你。${reaction?.event || ""}`;
         } else {
-          event += "你拿不出十文私銀，容晚秋沒有說出街口新消息。";
+          event += "私銀不足十文，容晚秋沒有收錢，也沒有說出街口新消息。";
           npcReply = { speaker: "容晚秋", line: "我靠這些消息過活。十文錢帶來，再談街口的事。" };
         }
       } else if (state.currentLocation === "晚秋茶寮" && tag === "買暗道") {
         if (state.worldFlags.includes("茶寮暗道已知")) {
-          event += "你重問通往夜雨樓的暗道，路線沒有改，容晚秋沒有再收錢。";
+          event += "你已知道通往夜雨樓的暗道路線；容晚秋沒有再收私銀，也沒有新的入口可說。";
           npcReply = { speaker: "容晚秋", line: "路還是那條路。記得看身後有沒有人跟著。" };
         } else if (state.silver >= 15) {
           state.silver -= 15;
           remember(state, "茶寮暗道已知");
           revealEntrance(state.sceneState!, "晚秋茶寮");
           revealEntrance(state.sceneState!, "夜雨樓");
-          event += `你付十五文私銀買暗道消息。${reaction?.event || ""}`;
+          event += `你付十五文私銀，得知茶寮土灶底石板通往夜雨樓酒窖的暗道。${reaction?.event || ""}`;
         } else {
-          event += "你拿不出十五文私銀，容晚秋沒有說出暗道入口。";
+          event += "私銀不足十五文，容晚秋沒有收錢，也沒有說出暗道入口。";
           npcReply = { speaker: "容晚秋", line: "那條路值十五文。錢帶來，我才說入口在哪裏。" };
         }
       } else if (state.currentLocation === "青鋒堂總壇" && tag === "捐銀固防") {
@@ -1650,7 +1696,9 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
   terrainObject?: "厚砧板" | "懸肉鐵鉤" | "剁骨刀", disarmAttempt = false, freeAttempt?: SceneAttempt): TurnResult {
   const result = resolveTurnCore(rawState, action, opening, creative, spendCustomUse, terrainObject, disarmAttempt, freeAttempt);
   const history = result.state.history || [];
-  const entry = { turn: result.state.turn, action, narrative: result.event };
+  const entry: HistoryEntry = { turn: result.state.turn, action, narrative: result.event,
+    narrativeSource: "Fallback", preLocation: rawState.currentLocation,
+    postLocation: result.state.currentLocation, questStep: result.state.questStep };
   if (history.length > (rawState.history?.length || 0) && history[history.length - 1]?.turn === result.state.turn) {
     history[history.length - 1] = entry;
   } else {
@@ -2170,6 +2218,9 @@ export function resolveMarketIntent(rawState: GameState, plan: MarketIntent): Tu
           : plan.object === "餿水桶" ? "踢翻餿水桶"
             : plan.approach === "救護" || plan.approach === "防守" ? state.flags.alleyAllyPresent ? "伏低護人" : "伏低保命"
               : plan.approach === "進擊" || plan.approach === "施壓" ? "硬闖街口" : "踩籮翻牆"
+        : state.flags.marketAftermathKind === "defeat"
+          ? plan.approach === "救護" ? state.flags.alleyAllyPresent ? "檢視傷勢" : "裹緊傷口"
+            : plan.approach === "查探" || plan.approach === "防守" ? "伏身避刀" : "撤離街口"
         : plan.approach === "救護" ? state.flags.alleyAllyPresent ? "檢視傷勢" : "裹緊傷口"
           : plan.approach === "查探" || plan.approach === "防守" ? state.flags.marketAftermathKind === "escape" ? "封住退路" : "伏巷警戒"
             : plan.approach === "借物" ? state.flags.marketAftermathKind === "escape" ? "封住退路" : "搜刮殘局"

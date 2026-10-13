@@ -181,6 +181,36 @@ test("market victory requires one aftermath action before ordinary work resumes"
   assert.equal(cleanup.state.turn, won.state.turn + 1);
 });
 
+test("market defeat requires a retreat aftermath before ordinary work resumes", () => {
+  const combat = { ...createCombat("market_ambush", true), round: 4, enemyHp: 20 };
+  const fight = game({ turn: 9, questStep: "huizhi_ambush", combat, playerHp: 4 });
+  const lost = resolveTurn(fight, availableOptions(fight).find((option) => option.startsWith("A.")), false);
+  assert.equal(lost.state.combat, undefined);
+  assert.equal(lost.state.flags.marketAftermath, true);
+  assert.equal(lost.state.flags.marketAftermathKind, "defeat");
+  assert.match(lost.npcReply?.line || "", /退到肉案後/);
+  assert.equal(lost.options.some((option) => /領差|搬貨|巡街收規/.test(option)), false);
+  assert.match(hardboiledFallback(lost.event, lost.state), /刀手仍守著街口/);
+  const blocked = resolveTurn(lost.state, "B. [搬貨] 替商販搬貨", false);
+  assert.equal(blocked.state.turn, lost.state.turn);
+  const withdrew = resolveTurn(lost.state, lost.options.find((option) => option.includes("[撤離街口]")), false);
+  assert.equal(withdrew.state.flags.marketAftermath, false);
+  assert.equal(withdrew.state.worldFlags.includes("市集戰敗撤離"), true);
+  assert.equal(withdrew.state.currentLocation, "青鋒堂總壇");
+  assert.equal(withdrew.options.some((option) => option.includes("[休整]")), true);
+});
+
+test("fallback keeps purchase cost, refusal, and combat outcome without filler", () => {
+  const scene = game({ currentLocation: "晚秋茶寮" });
+  const paid = hardboiledFallback("你付十五文私銀，得知土灶底石板通往酒窖。", scene);
+  assert.match(paid, /十五文私銀.*土灶底石板/);
+  const refused = hardboiledFallback("私銀不足十五文，容晚秋沒有收錢，也沒有說出暗道入口。", scene);
+  assert.match(refused, /私銀不足十五文.*沒有收錢/);
+  assert.doesNotMatch(paid + refused, /你看清.*眼前的動靜/);
+  const combat = hardboiledFallback("你撞開刀手守勢。刀手乘隙封住街口。", game());
+  assert.match(combat, /刀手乘隙封住街口/);
+});
+
 test("recent older saves after a market win enter aftermath only once", () => {
   const saved = game({ turn: 8, worldFlags: ["擊退伏擊刀手"], flags: { ...game().flags, alleyAllyPresent: true } });
   const restored = normalizeState(saved);
@@ -320,7 +350,7 @@ test("retreat prose stays short and contains no settlement log", () => {
   assert.equal(validHardboiledNarrative(ordinary), true, ordinary);
 });
 
-test("twenty consecutive turns keep fallback narration within the hardboiled limit", () => {
+test("twenty consecutive turns keep factual fallback narration valid", () => {
   let state = game();
   for (let turn = 0; turn < 20; turn++) {
     const option = availableOptions(state)[0];

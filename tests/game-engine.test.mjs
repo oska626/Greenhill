@@ -37,15 +37,20 @@ test("history defaults for old saves and records each resolved action with its e
   assert.deepEqual(oldSave.history, []);
   const openingAction = "[初入堂口] 阿七";
   const opening = resolveTurn(oldSave, openingAction, true);
-  assert.deepEqual(opening.state.history, [{ turn: opening.state.turn, action: openingAction, narrative: opening.event }]);
+  assert.deepEqual(opening.state.history, [{ turn: opening.state.turn, action: openingAction, narrative: opening.event,
+    narrativeSource: "Fallback", preLocation: "青鋒堂總壇", postLocation: "青鋒堂總壇", questStep: "prologue_briefing" }]);
   assert.deepEqual(oldSave.history, [], "resolving a turn must leave the prior save untouched");
 
   const action = opening.options[0];
   const next = resolveTurn(opening.state, action, false);
   assert.equal(next.state.history.length, 2);
-  assert.deepEqual(next.state.history[1], { turn: next.state.turn, action, narrative: next.event });
+  assert.deepEqual(next.state.history[1], { turn: next.state.turn, action, narrative: next.event,
+    narrativeSource: "Fallback", preLocation: "青鋒堂總壇", postLocation: "苦煙館", questStep: "kuyan_medicine" });
   assert.equal(opening.state.history.length, 1);
   assert.deepEqual(normalizeState(next.state).history, next.state.history);
+  const legacy = normalizeState({ ...newGame(), history: [{ turn: 1, action: "舊行動", narrative: "舊敘事。" }] });
+  assert.equal(legacy.history[0].narrativeSource, "未記錄");
+  assert.equal(legacy.history[0].preLocation, "未記錄");
 });
 
 test("opening choices state one short action and settle costs after selection", () => {
@@ -827,6 +832,7 @@ test("Rong Wanqiu only sells paid street intelligence and a Night Rain Tower sho
   const route = options[1];
   const refused = resolveTurn(state, message, false);
   assert.equal(refused.state.silver, 0);
+  assert.match(hardboiledFallback(refused.event, refused.state), /私銀不足十文.*沒有收錢/);
   assert.equal(refused.state.worldFlags.includes("街面有備"), false);
   const paid = resolveTurn({ ...refused.state, silver: 10 }, message, false);
   assert.equal(paid.state.silver, 0);
@@ -841,8 +847,13 @@ test("Rong Wanqiu only sells paid street intelligence and a Night Rain Tower sho
   assert.equal(routePaid.state.worldFlags.includes("茶寮暗道已知"), true);
   assert.equal(travelChoices(routePaid.state, "夜雨樓").some((choice) => choice.kind === "shortcut"), false);
   assert.equal(availableOptions(routePaid.state).some((option) => option.includes("[移開灶底石板]")), true);
+  const opened = resolveTurn(routePaid.state,
+    availableOptions(routePaid.state).find((option) => option.includes("[移開灶底石板]")), false);
+  assert.equal(opened.state.currentLocation, "晚秋茶寮");
+  assert.match(hardboiledFallback(opened.event, opened.state), /露出向下的暗道.*仍站在灶旁/);
   const routeRepeated = resolveTurn(routePaid.state, availableOptions(routePaid.state).find((option) => option.startsWith("B. [買暗道]")), false);
   assert.equal(routeRepeated.state.silver, 0);
+  assert.match(hardboiledFallback(routeRepeated.event, routeRepeated.state), /你已知道.*沒有再收私銀/);
 });
 
 test("daily recovery costs one turn and follows each maximum", () => {

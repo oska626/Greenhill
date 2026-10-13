@@ -36,9 +36,12 @@ interface SavedGameData {
 
 const SAVE_KEY = "qingshan_game_save_v1";
 const READ_KEY = "qingshan_read_narratives_v1";
-function recordDisplayedHistory(state: GameState, previous: GameState, action: string, narrative: string): GameState {
+function recordDisplayedHistory(state: GameState, previous: GameState, action: string, narrative: string,
+  source?: string): GameState {
   const history = [...(state.history || [])];
-  const entry = { turn: state.turn, action, narrative };
+  const entry = { turn: state.turn, action, narrative,
+    narrativeSource: source === "azure" || source === "market_npc" ? "API" as const : "Fallback" as const,
+    preLocation: previous.currentLocation, postLocation: state.currentLocation, questStep: state.questStep };
   if (history.length > (previous.history?.length || 0) && history[history.length - 1]?.turn === state.turn) {
     history[history.length - 1] = entry;
   } else {
@@ -326,7 +329,7 @@ export default function GamePage() {
         throw new Error(data.error || `開局生成失敗 (HTTP ${res.status})`);
       }
 
-      const openedState = recordDisplayedHistory(data.state, initialCharacterState, lastActionRef.current, data.narrative);
+      const openedState = recordDisplayedHistory(data.state, initialCharacterState, lastActionRef.current, data.narrative, data.narrativeSource);
       setGameState(openedState);
       setNarrative(data.narrative);
       setOptions(data.options || []);
@@ -375,7 +378,7 @@ export default function GamePage() {
         return;
       }
 
-      const nextState = recordDisplayedHistory(data.state, gameState, actionText, nextNarrative);
+      const nextState = recordDisplayedHistory(data.state, gameState, actionText, nextNarrative, data.narrativeSource);
       setGameState(nextState);
       setSilverDelta(nextState.silver - gameState.silver);
       setNarrative(nextNarrative);

@@ -149,6 +149,7 @@ export function resolveCombatRound(input: CombatInput): CombatResolution {
   let weapon = input.weapon;
   let durability = input.weaponDurability;
   const notes: string[] = [];
+  const combatEvent = () => notes.join("").replaceAll("對手", combat.scenario === "arena" ? "對手" : "刀手");
 
   if (input.dirtyHand) {
     mp = Math.max(0, mp - (input.dirtyHand.guaranteed ? 2 : 1));
@@ -263,7 +264,7 @@ export function resolveCombatRound(input: CombatInput): CombatResolution {
       ? combat.allyPresent ? "你扶陸千帆退入巷口，刀手奪了肉檔前的路。" : "你獨自退入巷口，刀手奪了肉檔前的路。"
       : "你避開最後一拳，從擂台圍欄旁退走。");
     notes.push(`撤離時氣血減${graze}。`);
-    return { combat, outcome: "fled", event: notes.join(""), playerHp: hp, playerMp: mp, weapon, weaponDurability: durability };
+    return { combat, outcome: "fled", event: combatEvent(), playerHp: hp, playerMp: mp, weapon, weaponDurability: durability };
   }
 
   let damage = 0;
@@ -331,7 +332,7 @@ export function resolveCombatRound(input: CombatInput): CombatResolution {
   notes.push(`對手氣血減${dealt}。`);
   if (combat.enemyHp <= 0) {
     notes.push(combat.scenario === "arena" ? "對手倒退撞上圍欄，衛沉岳抬手止鬥。" : "刀手踉蹌倒地，肉檔前終於空出一條路。");
-    return { combat, outcome: "won", event: notes.join(""), playerHp: hp, playerMp: mp, weapon, weaponDurability: durability };
+    return { combat, outcome: "won", event: combatEvent(), playerHp: hp, playerMp: mp, weapon, weaponDurability: durability };
   }
 
   if (combat.enemyIntent === "flank" && combat.allyPresent) {
@@ -348,12 +349,12 @@ export function resolveCombatRound(input: CombatInput): CombatResolution {
   notes.push(`你氣血減${taken}。`);
   if (hp === 0 || combat.round >= 4) {
     notes.push(combat.scenario === "arena" ? "你已無力再戰，衛沉岳喝止對手。" : "刀手乘隙封住街口，這一仗已守不下去。");
-    return { combat, outcome: "lost", event: notes.join(""), playerHp: hp, playerMp: mp, weapon, weaponDurability: durability };
+    return { combat, outcome: "lost", event: combatEvent(), playerHp: hp, playerMp: mp, weapon, weaponDurability: durability };
   }
   combat.round += 1;
   combat.enemyIntent = intentAt(combat.scenario, combat.round, combat.allyPresent);
   notes.push(`${INTENT_WORDS[combat.enemyIntent]}。`);
-  return { combat, outcome: "ongoing", event: notes.join(""), playerHp: hp, playerMp: mp, weapon, weaponDurability: durability };
+  return { combat, outcome: "ongoing", event: combatEvent(), playerHp: hp, playerMp: mp, weapon, weaponDurability: durability };
 }
 
 export function trainMove(rank: number, mp: number, silver: number) {
