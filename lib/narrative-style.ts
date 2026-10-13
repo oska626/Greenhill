@@ -18,6 +18,11 @@ export function completeSentences(text: string, fallback: string): string[] {
   return sentences.length ? sentences : [fallback];
 }
 
+export function appendRelationshipFeedback(narrative: string, event: string): string {
+  const feedback = event.match(/（[^（）]*對你的[^（）]*）$/u)?.[0];
+  return feedback && !narrative.includes(feedback) ? `${narrative}${feedback}` : narrative;
+}
+
 export function validHardboiledNarrative(value: unknown): value is string {
   return typeof value === "string"
     && chineseLength(value) > 0 && narrativeSentenceCount(value) >= 1
@@ -25,7 +30,7 @@ export function validHardboiledNarrative(value: unknown): value is string {
     && !/[嘅咗喺啲唔冇嚟咁佢畀睇]/.test(value);
 }
 
-export function hardboiledFallback(event: string, state: GameState, reply?: { speaker: string; line: string }): string {
+function hardboiledFallbackCore(event: string, state: GameState, reply?: { speaker: string; line: string }): string {
   reply = localNpcReply(state, reply);
   if (state.questStep === "market_collection" && state.currentLocation === "黑泥街"
     && state.flags.visitedGu && event.startsWith("你趕到黑泥街市集肉檔")) {
@@ -80,4 +85,8 @@ export function hardboiledFallback(event: string, state: GameState, reply?: { sp
   const dialogue = reply?.speaker && reply.line && !account.includes(`${reply.speaker}：「`)
     ? `\n${reply.speaker}：「${reply.line}」` : "";
   return `${account}${dialogue}`;
+}
+
+export function hardboiledFallback(event: string, state: GameState, reply?: { speaker: string; line: string }): string {
+  return appendRelationshipFeedback(hardboiledFallbackCore(event, state, reply), event);
 }

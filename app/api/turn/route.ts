@@ -6,7 +6,7 @@ import { CREATIVE_GOALS, hasOffSceneActionReference, interpretGroundedObjectHand
 import { appendDangerCue, explicitActionSteps, resolveActionSequence, validatedActionSteps } from "@/lib/action-sequence";
 import { hasSectAddressViolation, npcVoiceGuide, sectMemberAddress } from "@/lib/npc-voices";
 import { resolveChapterPetition } from "@/lib/chapter-one";
-import { completeSentences, containsSettlementLog, hardboiledFallback } from "@/lib/narrative-style";
+import { appendRelationshipFeedback, completeSentences, containsSettlementLog, hardboiledFallback } from "@/lib/narrative-style";
 import { normalizeSceneState, sceneFacts } from "@/lib/scene-state";
 import { hasOffSceneDirectSpeech, inferSocialIntent, localNpcReply, localSpeaker, MARKET_NPC_REACTIONS, marketDialogueTarget, socialTargets,
   type MarketNpcProposal, type MarketNpcReaction } from "@/lib/social-influence";
@@ -309,7 +309,7 @@ async function narrate(state: GameState, _action: string, event: string, moneyCh
     const data = await response.json();
     const parsed = JSON.parse(data.choices?.[0]?.message?.content || "{}");
     return validNarrative(parsed.narrative) && !hasOffSceneDirectSpeech(state, parsed.narrative)
-      ? { text: parsed.narrative, source: "azure" as const }
+      ? { text: appendRelationshipFeedback(parsed.narrative, event), source: "azure" as const }
       : fallbackResult("invalid_narrative");
   } catch {
     return fallbackResult("azure_request_or_parse_error");

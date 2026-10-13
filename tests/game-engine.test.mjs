@@ -9,10 +9,11 @@ import { PACKED_MEDICINE, USE_PACKED_MEDICINE } from "../lib/recovery.ts";
 import { actionEnergyCost, FATIGUE_THRESHOLD, MAX_ENERGY } from "../lib/energy.ts";
 import { darkHandCount } from "../lib/dirty-hand.ts";
 import { objectStatus, sceneFacts } from "../lib/scene-state.ts";
-import { containsSettlementLog, hardboiledFallback, validHardboiledNarrative } from "../lib/narrative-style.ts";
+import { appendRelationshipFeedback, containsSettlementLog, hardboiledFallback, validHardboiledNarrative } from "../lib/narrative-style.ts";
 import { appendDangerCue, resolveActionSequence } from "../lib/action-sequence.ts";
 import { hasOffSceneDirectSpeech, localNpcReply, localSpeaker, socialTargets } from "../lib/social-influence.ts";
 import { drawEncounter, encounterOptions, ENCOUNTERS } from "../lib/encounters.ts";
+import { NPC_TRAITS } from "../lib/npc-traits.ts";
 
 function newGame() {
   const stats = aptitude("阿七", "賭坊收帳人", "察言觀色");
@@ -143,6 +144,50 @@ test("encounter decisions settle resources and never leave an empty choice list"
     turn: 20, lastEncounterTurn: 20, pendingEncounter: "arena_blockade", playerMp: 0 });
   assert.equal(availableOptions(exhausted).length, 2);
   assert.ok(resolveTurn(exhausted, availableOptions(exhausted)[0], false).state.turn > exhausted.turn);
+});
+
+test("all named NPC scores initialize, clamp and survive save normalization", () => {
+  const initial = normalizeState(newGame());
+  assert.equal(Object.keys(NPC_TRAITS).length, 13);
+  assert.deepEqual(Object.keys(NPC_TRAITS).sort(), Object.keys(NPC_VOICES).sort());
+  for (const [name, trait] of Object.entries(NPC_TRAITS))
+    assert.equal(initial.relationshipScores[name], trait.initial, name);
+  assert.equal(initial.relationships["陸千帆"].trust, 0, "legacy companion state remains separate");
+  const restored = normalizeState({ ...initial, relationshipScores: {
+    ...initial.relationshipScores, "何不歸": 99, "霍破陣": -99 } });
+  assert.equal(restored.relationshipScores["何不歸"], 50);
+  assert.equal(restored.relationshipScores["霍破陣"], -50);
+  assert.deepEqual(normalizeState(JSON.parse(JSON.stringify(restored))).relationshipScores, restored.relationshipScores);
+});
+
+test("encounter action tags score local personalities with deterministic feedback", () => {
+  const hall = normalizeState({ ...newGame(), questStep: "sandbox", turn: 20,
+    pendingEncounter: "hall_dispute", lastEncounterTurn: 20 });
+  const assertRoute = (option) => resolveTurn(hall, encounterOptions("hall_dispute")[option], false);
+  const force = assertRoute(0);
+  assert.equal(force.state.relationshipScores["何不歸"], 23);
+  assert.equal(force.state.relationshipScores["霍破陣"], 22);
+  assert.match(force.event, /霍破陣對你的狠辣表示讚賞/);
+  assert.match(force.event, /何不歸對你的惹是生非感到頭痛/);
+  assert.match(hardboiledFallback(force.event, force.state), /霍破陣對你的狠辣表示讚賞/);
+  assert.equal(appendRelationshipFeedback("你拍裂桌面。", force.event).match(/霍破陣對你的狠辣表示讚賞/g)?.length, 1);
+  assert.deepEqual(assertRoute(0).state.relationshipScores, force.state.relationshipScores);
+  const ignore = assertRoute(1);
+  assert.equal(ignore.state.relationshipScores["何不歸"], 27);
+  assert.equal(ignore.state.relationshipScores["霍破陣"], 16);
+
+  const dice = normalizeState({ ...newGame(), questStep: "sandbox", currentLocation: "鬼骰坊",
+    turn: 20, pendingEncounter: "dice_debt", lastEncounterTurn: 20, silver: 10 });
+  const paid = resolveTurn(dice, encounterOptions("dice_debt")[0], false);
+  assert.equal(paid.state.relationshipScores["祁觀衡"], -4);
+  const refused = resolveTurn({ ...dice, silver: 0 }, encounterOptions("dice_debt")[0], false);
+  assert.equal(refused.state.relationshipScores["祁觀衡"], 0);
+  assert.doesNotMatch(refused.event, /祁觀衡對你/);
+
+  const capped = resolveTurn({ ...hall, relationshipScores: {
+    ...hall.relationshipScores, "何不歸": -50, "霍破陣": 50 } }, encounterOptions("hall_dispute")[0], false);
+  assert.equal(capped.state.relationshipScores["何不歸"], -50);
+  assert.equal(capped.state.relationshipScores["霍破陣"], 50);
 });
 
 test("a hash-triggered encounter blocks travel until resolved", async () => {

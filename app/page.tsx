@@ -14,6 +14,7 @@ import { chapterPressureForecast } from "@/lib/chapter-one";
 import { actionEnergyCost, FATIGUE_THRESHOLD, MAX_ENERGY } from "@/lib/energy";
 import { STARTING_DARK_HAND, readyDarkHand } from "@/lib/dirty-hand";
 import { startingInventory, startingItemOptions, type BackgroundId } from "@/lib/character-creation";
+import { initialRelationshipScores } from "@/lib/npc-traits";
 import { hardboiledFallback } from "@/lib/narrative-style";
 import { blackmudAnchors } from "@/lib/blackmud-hud";
 
@@ -295,6 +296,7 @@ export default function GamePage() {
       lastEncounterTurn: 0,
       history: [],
       relationships: newRelationships(),
+      relationshipScores: initialRelationshipScores(),
       equippedWeapon: "fists",
       weaponDurability: 0,
       knownMoves: {},

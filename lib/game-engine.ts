@@ -18,7 +18,8 @@ import { DARK_HAND_LIMIT, DARK_HAND_PRICE, STARTING_DARK_HAND, SCAVENGE_SOURCES,
   readyDarkHand, rollD20, type DarkHandItem } from "./dirty-hand.ts";
 import { LANDMARK_SCENES, normalizeSceneState, objectStatus, openEntrance, revealEntrance, type SceneState } from "./scene-state.ts";
 import { conciseOption } from "./option-text.ts";
-import { drawEncounter, encounterOptions, ENCOUNTERS, resolveEncounter, type EncounterId } from "./encounters.ts";
+import { drawEncounter, encounterChoice, encounterOptions, ENCOUNTERS, resolveEncounter, type EncounterId } from "./encounters.ts";
+import { applyActionTags, normalizeRelationshipScores, type RelationshipScores } from "./npc-traits.ts";
 import { getPseudoRandom } from "./state-random.ts";
 export { getPseudoRandom } from "./state-random.ts";
 
@@ -70,6 +71,8 @@ export interface GameState {
   lastEncounterTurn: number;
   pendingEncounter?: EncounterId;
   relationships: CompanionRelationships;
+  /** Numeric action-tag affinity. Legacy companion trust, wounds and estrangement stay in relationships. */
+  relationshipScores: RelationshipScores;
   socialMemory?: SocialMemory;
   equippedWeapon?: WeaponId;
   weaponDurability?: number;
@@ -545,6 +548,7 @@ export function normalizeState(raw: unknown): GameState | null {
       ...acceptedMissionIds(worldFlags),
     ])).filter((id) => MISSIONS.some((mission) => mission.id === id && !missionDone(worldFlags, mission))),
     relationships,
+    relationshipScores: normalizeRelationshipScores(value.relationshipScores),
     socialMemory: normalizeSocialMemory(value.socialMemory),
     equippedWeapon, weaponDurability, knownMoves,
     combat: activeCombat || (value.questStep === "huizhi_ambush"
@@ -1783,6 +1787,12 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
 export function resolveTurn(rawState: GameState, action: string, opening: boolean, creative?: CreativeAction, spendCustomUse = false,
   terrainObject?: "厚砧板" | "懸肉鐵鉤" | "剁骨刀", disarmAttempt = false, freeAttempt?: SceneAttempt): TurnResult {
   const result = resolveTurnCore(rawState, action, opening, creative, spendCustomUse, terrainObject, disarmAttempt, freeAttempt);
+  if (rawState.pendingEncounter && result.state.turn > rawState.turn) {
+    const choice = encounterChoice(rawState.pendingEncounter, action);
+    if (choice?.actionTags?.length && (!choice.price || rawState.silver >= choice.price)) {
+      result.event += applyActionTags(result.state.relationshipScores, rawState.currentLocation, choice.actionTags);
+    }
+  }
   if (rawState.flags.chapterOne?.stage === "shortage"
     && result.state.questStep === "chapter_one" && result.state.flags.chapterOne?.stage === "shortage"
     && result.state.turn > rawState.turn && !rawState.flags.pendingIncident && !rawState.pendingEncounter
