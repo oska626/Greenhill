@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { availableOptions, normalizeState, recordMarketNpcReply, resolveMarketDialogue,
   resolveMarketIntent, resolveOpeningKnifeRequest, resolveSceneAttempt, resolveSocialIntent, resolveTurn, type GameState, type Landmark } from "@/lib/game-engine";
 import { relationshipLabel } from "@/lib/companion-relations";
-import { CREATIVE_GOALS, carriedSelfCareOption, hasOffSceneActionReference, interpretGroundedObjectHandling, interpretMarketText, isMarketIntentScene, marketIntentTargets, SCENE_EFFECTS, sceneAttemptObjects, sceneAnchors, validateCustomDecision, type CustomDecision } from "@/lib/custom-action";
+import { CREATIVE_GOALS, carriedSelfCareOption, claimsUnacquiredObject, hasOffSceneActionReference, interpretGroundedObjectHandling, interpretMarketText, isMarketIntentScene, marketIntentTargets, SCENE_EFFECTS, sceneAttemptObjects, sceneAnchors, unavailableCarriedItem, unneededSelfCare, validateCustomDecision, type CustomDecision } from "@/lib/custom-action";
 import { appendDangerCue, explicitActionSteps, resolveActionSequence, validatedActionSteps } from "@/lib/action-sequence";
 import { hasSectAddressViolation, npcVoiceGuide, sectMemberAddress } from "@/lib/npc-voices";
 import { npcPromptContext } from "@/lib/npc-prompt-context";
 import { playerStatusContext } from "@/lib/player-status-context";
 import { lastTurnContext } from "@/lib/last-turn-context";
+import { containsGraphicWording, screenCustomAction } from "@/lib/content-filter";
 import { resolveChapterPetition } from "@/lib/chapter-one";
 import { appendRelationshipFeedback, completeSentences, containsSettlementLog, hardboiledFallback, withoutSettlementLog } from "@/lib/narrative-style";
 import { normalizeSceneState, sceneFacts } from "@/lib/scene-state";
@@ -18,7 +19,6 @@ const SYSTEM_PROMPT = `你是青山城城西的文字冒險主持人。只用自
 
 const withNpcContext = (system: string, state: GameState, lastTurn = "", playerState = state) =>
   `${system}${lastTurn ? `\n\n${lastTurn}` : ""}\n\n${playerStatusContext(playerState)}${playerState !== state ? "\n此為玩家採取本回合行動前的持物與體力；本回合消耗及結果以已結算事實為準。" : ""}\n\n${npcPromptContext(state)}`;
-const graphicWording = /[殺死砍血斷]/u;
 
 const SPEAKER: Record<Landmark, string> = {
   "青鋒堂總壇": "何不歸", "晚秋茶寮": "容晚秋", "黑泥街": "陸千帆",
@@ -109,7 +109,7 @@ function validNarrative(value: unknown): value is string {
   if (typeof value !== "string" || !value.trim()) return false;
   const length = Array.from(value.trim()).length;
   return length >= 30 && length <= 90
-    && !graphicWording.test(value) && !containsSettlementLog(value)
+    && !containsGraphicWording(value) && !containsSettlementLog(value)
     && !/系統錯誤|服務錯誤|伺服器錯誤|請稍後再試|無法生成|生成失敗|internal server error|service unavailable|error code|微風|落葉|靜謐|平靜/i.test(value);
 }
 
@@ -131,7 +131,10 @@ function azureUrl(endpoint: string, deployment: string) {
 }
 
 async function interpretCustomAction(state: GameState, playerText: string, lastTurn = ""): Promise<CustomDecision> {
-  if (hasOffSceneActionReference(state, playerText)) return { kind: "reject", reason: "impossible" };
+  if (hasOffSceneActionReference(state, playerText) || unavailableCarriedItem(state, playerText)
+    || claimsUnacquiredObject(state, playerText))
+    return { kind: "reject", reason: "impossible" };
+  if (unneededSelfCare(state, playerText)) return { kind: "reject", reason: "uninjured" };
   const selfCare = carriedSelfCareOption(state, playerText, availableOptions(state));
   if (selfCare) return { kind: "option", option: selfCare };
   const key = process.env.AZURE_OPENAI_API_KEY || process.env.AZURE_API_KEY;
@@ -206,7 +209,8 @@ async function marketNpcJson(system: string, prompt: string, temperature: number
 
 async function planActionSteps(state: GameState, playerText: string): Promise<string[]> {
   const fallback = explicitActionSteps(playerText);
-  if (fallback.length === 1 && interpretGroundedObjectHandling(state, playerText)) return fallback;
+  if (fallback.length === 1 && (interpretGroundedObjectHandling(state, playerText)
+    || carriedSelfCareOption(state, playerText, availableOptions(state)))) return fallback;
   const proposed = await marketNpcJson(
     "你只分析整句玩家行動的先後，不裁定成敗。只回 JSON。不得把同一招中的配合動作拆開，也不得省略玩家肯定要做的事。",
     `階段：${state.questStep}；地點：${state.currentLocation}；現場：${sceneFacts(state.currentLocation, normalizeSceneState(state.sceneState, state.worldFlags))}\n玩家原句：${playerText}\n回傳 {"steps":["原句中第一項完整嘗試","原句中第二項完整嘗試"]}，最多三項。每項必須是原句連續出現的字串；動作與伴隨喊話可屬同一項。先做甲再做乙要分開；左手擋刀、右手出拳等同時招式維持一項。不能改寫、補造或宣稱成功。`, 0);
@@ -258,12 +262,12 @@ async function playMarketNpcDialogue(state: GameState, target: string, playerTex
   const falseCommitment = turn.reaction !== "defect" && turn.reaction !== "cooperate" && turn.reaction !== "adopt_belief"
     && /我(?:已經|這就|今後)(?:投靠|倒戈|信了|跟你走|幫你打)/.test(rawReply);
   const validReply = rawReply.length > 0 && rawReply.length <= 300 && !falseCommitment
-    && !hasSectAddressViolation(rawReply) && !containsSettlementLog(rawReply) && !graphicWording.test(rawReply)
+    && !hasSectAddressViolation(rawReply) && !containsSettlementLog(rawReply) && !containsGraphicWording(rawReply)
     && !hasOffSceneDirectSpeech(turn.state, rawReply)
     && !/手機|電腦|槍械|核彈|修仙|法術/.test(rawReply);
   const reply = validReply ? rawReply : fallbackMarketReply(target, turn.reaction);
   const beat = typeof rendered?.beat === "string" && rendered.beat.length <= 60
-    && !containsSettlementLog(rendered.beat) && !graphicWording.test(rendered.beat)
+    && !containsSettlementLog(rendered.beat) && !containsGraphicWording(rendered.beat)
     && !hasOffSceneDirectSpeech(turn.state, rendered.beat)
     && !/手機|電腦|槍械|核彈|修仙|法術/.test(rendered.beat)
     ? rendered.beat.trim() : hardboiledFallback(turn.event, turn.state).split("。")[0];
@@ -348,6 +352,9 @@ export async function POST(req: NextRequest) {
     const maxCustomLength = 300;
     if (Array.from(playerText).length > maxCustomLength)
       return NextResponse.json({ narrative: `這段行動須在${maxCustomLength === 300 ? "三百" : "一百"}字內；請刪短再試。`, options: availableOptions(state), state, narrativeSource: "custom_rejected" });
+    const screened = screenCustomAction(playerText);
+    if (screened)
+      return NextResponse.json({ narrative: screened, options: availableOptions(state), state, narrativeSource: "custom_rejected" });
     if (explicitActionSteps(playerText).length === 1) {
       const request = resolveOpeningKnifeRequest(state, playerText);
       if (request) return NextResponse.json({ narrative: `${request.event}\n何不歸：「${request.npcReply!.line}」`,
@@ -407,9 +414,11 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ narrative: appendDangerCue(narration.text, turn.state), options: turn.options, state: turn.state, narrativeSource: narration.source });
       }
       if (decision.kind !== "option")
-        return NextResponse.json({ narrative: decision.kind === "reject" && decision.reason === "unavailable"
-          ? "眼下無法判明這個自訂手段，請稍後再試或先選眼前可行的做法。"
-          : "請說清眼前要採取的可行手段。", options: availableOptions(state), state, narrativeSource: "custom_rejected" });
+        return NextResponse.json({ narrative: decision.kind === "reject" && decision.reason === "uninjured"
+          ? "你並未受傷，藥先留在行囊。"
+          : decision.kind === "reject" && decision.reason === "unavailable"
+            ? "眼下無法判明這個自訂手段，請稍後再試或先選眼前可行的做法。"
+            : "請說清眼前要採取的可行手段。", options: availableOptions(state), state, narrativeSource: "custom_rejected" });
       const turn = resolveTurn(state, decision.option, false, undefined, false);
       return NextResponse.json({ narrative: appendDangerCue(hardboiledFallback(turn.event, turn.state), turn.state), options: turn.options, state: turn.state, narrativeSource: "chapter_one" });
     }
@@ -419,7 +428,8 @@ export async function POST(req: NextRequest) {
     if (npcTarget) return NextResponse.json(await playMarketNpcDialogue(state, npcTarget, playerText, lastTurn));
     const decision = await interpretCustomAction(state, playerText, lastTurn);
     if (decision.kind === "reject") {
-      const narrative = decision.reason === "unavailable" ? "眼下無法判明這個自訂手段，請稍後再試或先選眼前可行的做法。"
+      const narrative = decision.reason === "uninjured" ? "你並未受傷，藥先留在行囊。"
+        : decision.reason === "unavailable" ? "眼下無法判明這個自訂手段，請稍後再試或先選眼前可行的做法。"
         : decision.reason === "impossible" ? "眼前的人手、物件或局勢做不到這件事；你可以換一個合乎當下情況的做法。"
           : "這句話尚未說清你真正要做的事；請換個講法，尤其要說明否定之後打算採取的行動。";
       return NextResponse.json({ narrative, options: availableOptions(state), state, narrativeSource: "custom_rejected" });
@@ -429,6 +439,8 @@ export async function POST(req: NextRequest) {
       : decision.kind === "social_intent" ? resolveSocialIntent(state, decision.plan)
       : decision.kind === "creative" ? resolveTurn(state, payload.action, false, decision.plan, false)
         : resolveTurn(state, decision.kind === "option" ? decision.option : decision.action, false, undefined, false);
+    if (turn.state.turn === state.turn) return NextResponse.json({ narrative: turn.event,
+      options: turn.options, state: turn.state, narrativeSource: "custom_rejected" });
     if (turn.state.flags.ending) return NextResponse.json({ narrative: hardboiledFallback(turn.event, turn.state), options: turn.options, state: turn.state, narrativeSource: "ending" });
     const narration = await narrate(turn.state, payload.action, turn.event, Boolean(turn.moneyNote), Boolean(state.combat || turn.state.combat), turn.npcReply, lastTurn, marketMode || decision.kind === "social_intent", state);
     return NextResponse.json({ narrative: marketMode ? appendDangerCue(narration.text, turn.state) : narration.text, options: turn.options, state: turn.state,

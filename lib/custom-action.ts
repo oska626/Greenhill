@@ -1,6 +1,7 @@
 import type { GameState, Landmark } from "./game-engine.ts";
 import { LANDMARK_SCENES, normalizeSceneState, objectStatus } from "./scene-state.ts";
 import { inferSocialIntent, SOCIAL_GOALS, SOCIAL_TACTICS, socialTargets, type SocialIntent } from "./social-influence.ts";
+import { DARK_HAND_ITEMS } from "./dirty-hand.ts";
 
 export const CUSTOM_ACTION_MAX = 2;
 
@@ -21,6 +22,28 @@ const KNOWN_PROPS = Array.from(new Set([
   ...Object.values(SCENE_ANCHORS).flat().filter((anchor) => !NAMED_NPCS.includes(anchor)),
   "木棍",
 ]));
+
+const CARRIED_CONSUMABLES = [...DARK_HAND_ITEMS, "【止血膏藥】", "【金創散】", "【止血散】", "【療傷藥】"];
+
+export function unavailableCarriedItem(state: GameState, playerText: string): boolean {
+  const active = playerText.split(/(?:反而|改為|改用|但係|但是|不過)/).at(-1)?.trim() || "";
+  if (/(?:如果|假如|假設|會點|可唔可以|能否)/.test(active)) return false;
+  return CARRIED_CONSUMABLES.some((item) => {
+    const name = item.slice(1, -1);
+    return !state.inventory.includes(item) && active.includes(name)
+      && new RegExp(`(?:拿出|取出|掏出|使用|用|敷|塗|擦|服|吞|撒|擲|投|扔|拋)[^，。！？]{0,8}${name}`).test(active)
+      && !/(?:唔|不|別|不要|沒有|未曾)[^，。！？]{0,8}(?:拿出|取出|掏出|使用|用|敷|塗|擦|服|吞|撒|擲|投|扔|拋)/.test(active);
+  });
+}
+
+/** A player's statement about an earlier pickup cannot establish possession by itself. */
+export function claimsUnacquiredObject(state: GameState, playerText: string): boolean {
+  const active = playerText.split(/(?:反而|改為|改用|但係|但是|不過)/).at(-1)?.trim() || "";
+  const claimsHook = /(?:剛才|方才|先前|已經|手持|手握|手上|拿到|拿著|握著)[^，。！？]{0,14}(?:鐵鉤|肉鉤)/.test(active);
+  return claimsHook && !state.worldFlags.includes("肉檔鐵鉤已移位")
+    && !state.sceneState?.movedObjects["懸肉鐵鉤"]
+    && !state.inventory.some((item) => /鐵鉤|肉鉤/.test(item));
+}
 
 export function hasOffSceneActionReference(state: GameState, playerText: string): boolean {
   const active = playerText.split(/(?:反而|改為|改用|但係|但是|不過)/).at(-1)?.trim() || "";
@@ -111,19 +134,31 @@ export type CustomDecision =
   | { kind: "scene_attempt"; plan: SceneAttempt }
   | { kind: "social_intent"; plan: SocialIntent }
   | { kind: "special"; action: string }
-  | { kind: "reject"; reason: "unclear" | "impossible" | "unavailable" };
+  | { kind: "reject"; reason: "unclear" | "impossible" | "unavailable" | "uninjured" };
 
 /** Route explicit self-treatment through an offered rule action, even without AI service. */
-export function carriedSelfCareOption(state: GameState, text: string, options: string[]): string | undefined {
+function selfCareItem(state: GameState, text: string): string | undefined {
   if (!/(?:敷|塗|擦|服|吞|用|拿出|取出|處理)/.test(text)
     || /(?:陸千帆|千帆|別人|他人)/.test(text)
     || /(?:如果|假如|假設|會點|可唔可以|能否)/.test(text)
     || /(?:唔|不|別|不要|沒有|未曾)[^，。！？]{0,8}(?:敷|塗|擦|服|吞|用|拿出|取出|處理)/.test(text)) return undefined;
+  return ["止血膏藥", "金創散", "止血散", "療傷藥"]
+    .find((name) => text.includes(name) && state.inventory.includes(`【${name}】`));
+}
+
+export function unneededSelfCare(state: GameState, text: string): boolean {
+  const item = selfCareItem(state, text);
+  return Boolean(item && state.playerHp >= state.maxHp
+    && (item !== "療傷藥" || state.playerMp >= state.maxMp));
+}
+
+export function carriedSelfCareOption(state: GameState, text: string, options: string[]): string | undefined {
+  const item = selfCareItem(state, text);
+  if (!item || unneededSelfCare(state, text)) return undefined;
   const names: Record<string, string> = {
     "止血膏藥": "自敷止血膏藥", "金創散": "自敷金創散", "止血散": "敷止血散", "療傷藥": "服用療傷藥",
   };
-  const item = Object.keys(names).find((name) => text.includes(name) && state.inventory.includes(`【${name}】`));
-  return item ? options.find((option) => option.includes(`[${names[item]}]`)) : undefined;
+  return options.find((option) => option.includes(`[${names[item]}]`));
 }
 
 export function sceneAnchors(state: GameState): string[] {
@@ -145,6 +180,8 @@ export function negatesIrreversibleAction(text: string): boolean {
 
 export function validateCustomDecision(raw: unknown, state: GameState, options: string[], playerText: string): CustomDecision {
   if (!raw || typeof raw !== "object") return { kind: "reject", reason: "unclear" };
+  if (unavailableCarriedItem(state, playerText) || claimsUnacquiredObject(state, playerText))
+    return { kind: "reject", reason: "impossible" };
   if (hasOffSceneActionReference(state, playerText)) return { kind: "reject", reason: "impossible" };
   if (/槍械|手槍|步槍|機關槍|超人|神仙|飛天|激光|雷射|核彈|手機|電腦|修仙|法術/.test(playerText))
     return { kind: "reject", reason: "impossible" };

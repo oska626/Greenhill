@@ -4,7 +4,7 @@ import { combatOptions, createCombat, normalizeCombat, resolveCombatRound, train
 import { ENDING_OPTIONS, MISSIONS, acceptedMissionIds, missionDone, missionOptions, resolveEnding, resolveMission, travelChoices } from "./city-progression.ts";
 import { COMPANION_IDS, applyMissionRelationship, changeTrust, companionLeads, newRelationships, normalizeRelationships,
   type CompanionId, type CompanionRelationships } from "./companion-relations.ts";
-import { CREATIVE_GOALS, CUSTOM_ACTION_MAX, isMarketIntentScene, marketIntentTargets, negatesIrreversibleAction,
+import { CREATIVE_GOALS, CUSTOM_ACTION_MAX, claimsUnacquiredObject, isMarketIntentScene, marketIntentTargets, negatesIrreversibleAction,
   sceneAttemptObjects, type CreativeAction, type MarketIntent, type SceneAttempt } from "./custom-action.ts";
 import { RAID_TARGETS, advanceChapterSocialTurn, chapterOneOptions, finishChapterTurn, resolveChapterOne, type Business, type ChapterOneState } from "./chapter-one.ts";
 import { localNpcReply, MARKET_NPC_REACTIONS, marketDialogueTarget, normalizeMarketNpcHistory, normalizeSocialMemory, socialTargets, socialTopic,
@@ -2098,6 +2098,11 @@ export function resolveSceneAttempt(rawState: GameState, plan: SceneAttempt): Tu
   const state = normalizeState(rawState);
   if (!state || !isMarketIntentScene(state)) throw new Error("黑泥街現場狀態無效");
   const denied = (event: string): TurnResult => ({ state, options: availableOptions(state), event, moneyNote: "" });
+  if (claimsUnacquiredObject(state, plan.method))
+    return denied("你剛才沒有拿到鐵鉤；它仍在肉架上，眼下不能當作手持兵器。");
+  if (state.playerMp === 0 && (plan.effect === "harm" || plan.effect === "seize"))
+    return denied(plan.object === "懸肉鐵鉤" ? "你精力不足，扯不下肉架鐵鉤；鐵鉤仍掛在肉架上。"
+      : "你精力不足，眼下無法出手奪物或進擊。");
   if (!marketIntentTargets(state).includes(plan.target) || plan.object && !sceneAttemptObjects(state).includes(plan.object))
     return denied("眼前沒有這個人或物；先看清身位再出手。");
   if (state.flags.marketAftermath && plan.effect === "seize" && plan.object === "碎骨片")
@@ -2289,6 +2294,13 @@ export function resolveMarketIntent(rawState: GameState, plan: MarketIntent): Tu
   const state = normalizeState(rawState);
   if (!state || !isMarketIntentScene(state)) throw new Error("黑泥街現場狀態無效");
   const rejected = (event: string): TurnResult => ({ state, options: availableOptions(state), event, moneyNote: "" });
+  if (claimsUnacquiredObject(state, plan.method))
+    return rejected("你剛才沒有拿到鐵鉤；它仍在肉架上，眼下不能當作手持兵器。");
+  if (state.questStep === "market_collection" && ["借物", "進擊", "奪械"].includes(plan.approach)
+    && state.playerMp < (plan.approach === "借物" ? 2 : 1))
+    return rejected(plan.object === "懸肉鐵鉤"
+      ? "你精力不足，扯不下肉架鐵鉤；鐵鉤仍掛在肉架上。"
+      : "你精力不足，眼下無法出手奪物或進擊。");
   const record = (next: GameState, event: string) => {
     next.flags.marketIntentHistory = [...(next.flags.marketIntentHistory || []), {
       turn: next.turn, approach: plan.approach, target: plan.target, ...(plan.object ? { object: plan.object } : {}),

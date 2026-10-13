@@ -3,7 +3,9 @@ import test from "node:test";
 import { availableOptions, normalizeState, recordMarketNpcReply, resolveMarketDialogue,
   resolveMarketIntent, resolveSceneAttempt, resolveSocialIntent, resolveTurn } from "../lib/game-engine.ts";
 import { newRelationships } from "../lib/companion-relations.ts";
-import { hasOffSceneActionReference, interpretGroundedObjectHandling, interpretMarketText, isMarketIntentScene, sceneAnchors, validateCustomDecision } from "../lib/custom-action.ts";
+import { claimsUnacquiredObject, hasOffSceneActionReference, interpretGroundedObjectHandling, interpretMarketText, isMarketIntentScene, sceneAnchors, unavailableCarriedItem, validateCustomDecision } from "../lib/custom-action.ts";
+import { playerStatusContext } from "../lib/player-status-context.ts";
+import { lastTurnContext } from "../lib/last-turn-context.ts";
 import { createCombat } from "../lib/combat-engine.ts";
 import { inferSocialIntent, marketDialogueTarget } from "../lib/social-influence.ts";
 import { objectStatus, sceneFacts } from "../lib/scene-state.ts";
@@ -84,6 +86,45 @@ test("taking down the meat hook to prepare after treating Lu is one grounded act
   const board = interpretGroundedObjectHandling(aid.state, "抄起厚砧板備戰");
   assert.equal(board.kind, "market_intent");
   assert.equal(board.plan.object, "厚砧板");
+});
+
+test("Edge Case: 動作判定失敗後的短期記憶繼承", () => {
+  const scene = normalizeState({ ...state(), playerMp: 0 });
+  const firstText = "扯下肉架鐵鉤";
+  const firstDecision = interpretGroundedObjectHandling(scene, firstText);
+  assert.equal(firstDecision.kind, "market_intent");
+  const first = resolveMarketIntent(scene, firstDecision.plan);
+  assert.equal(first.state.turn, scene.turn);
+  assert.equal(first.state.playerMp, 0);
+  assert.equal(first.state.playerHp, scene.playerHp);
+  assert.match(first.event, /精力不足.*鐵鉤仍掛在肉架/);
+  assert.equal(first.state.sceneState.movedObjects["懸肉鐵鉤"], undefined);
+  assert.equal(first.state.worldFlags.includes("肉檔鐵鉤已移位"), false);
+
+  const afterFailure = { ...first.state, history: [{ turn: first.state.turn,
+    action: `F. [自訂手段] ${firstText}`, narrative: first.event,
+    narrativeSource: "Fallback", preLocation: "黑泥街", postLocation: "黑泥街", questStep: "market_collection" }] };
+  const memory = lastTurnContext(afterFailure);
+  assert.match(memory, /玩家動作: .*扯下肉架鐵鉤/);
+  assert.match(memory, /發生事件: .*精力不足.*鐵鉤仍掛在肉架/);
+  assert.match(memory, /玩家動作只代表嘗試，不能當作成功事實/);
+
+  const secondText = "用剛才拿到的鐵鉤攻擊刀手";
+  assert.equal(claimsUnacquiredObject(afterFailure, secondText), true);
+  const secondDecision = validateCustomDecision({ kind: "scene_attempt", effect: "harm", target: "刀手",
+    object: "懸肉鐵鉤", method: secondText }, afterFailure, availableOptions(afterFailure), secondText);
+  assert.deepEqual(secondDecision, { kind: "reject", reason: "impossible" });
+  const second = resolveSceneAttempt(afterFailure, { effect: "harm", target: "刀手",
+    object: "懸肉鐵鉤", method: secondText });
+  assert.equal(second.state.turn, afterFailure.turn);
+  assert.equal(second.state.sceneState.movedObjects["懸肉鐵鉤"], undefined);
+  assert.equal(second.state.combat, undefined);
+  assert.match(second.event, /沒有拿到鐵鉤/);
+
+  const prepared = normalizeState({ ...state(), playerMp: 2 });
+  const taken = resolveMarketIntent(prepared, interpretGroundedObjectHandling(prepared, firstText).plan);
+  assert.equal(taken.state.worldFlags.includes("肉檔鐵鉤已移位"), true);
+  assert.equal(claimsUnacquiredObject(taken.state, secondText), false);
 });
 
 test("a combat exchange interrupts later instructions even when the fight continues", async () => {
@@ -196,6 +237,29 @@ test("free combat intent still consumes the actual dirty-hand item", () => {
   assert.equal(turn.state.inventory.includes("【生石灰包】"), false);
   assert.equal(turn.state.customActionUses, 0);
   assert.equal(turn.state.turn, scene.turn + 1);
+});
+
+test("Edge Case: 連續消耗同一物品直至無中生有", () => {
+  const scene = normalizeState({ ...state(), inventory: ["【生石灰包】"],
+    flags: { ...state().flags, darkHandInitialized: true } });
+  const text = "對刀手撒出生石灰包";
+  const firstAction = interpretMarketText(scene, text);
+  assert.equal(firstAction.kind, "market_intent");
+  const first = resolveMarketIntent(scene, firstAction.plan);
+  assert.deepEqual(first.state.inventory, []);
+  assert.match(playerStatusContext(first.state), /行囊物品: 無/);
+  assert.equal(first.state.turn, scene.turn + 1);
+  assert.equal(unavailableCarriedItem(first.state, text), true);
+  const secondAction = validateCustomDecision({ kind: "market_intent", approach: "借物",
+    target: "刀手", object: "生石灰包", method: text }, first.state, availableOptions(first.state), text);
+  assert.deepEqual(secondAction, { kind: "reject", reason: "impossible" });
+  const second = resolveMarketIntent(first.state, firstAction.plan);
+  assert.equal(second.state.turn, first.state.turn);
+  assert.deepEqual(second.state.inventory, []);
+  assert.equal(second.state.playerHp, first.state.playerHp);
+  assert.equal(second.state.playerMp, first.state.playerMp);
+  assert.equal(second.state.sectLifeline, first.state.sectLifeline);
+  assert.equal(availableOptions(second.state).some((option) => option.includes("[撒生石灰]")), false);
 });
 
 test("using a carried dark hand before the ambush spends it and exposes the knife men", () => {

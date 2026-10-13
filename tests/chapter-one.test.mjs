@@ -5,7 +5,7 @@ import { newRelationships } from "../lib/companion-relations.ts";
 import { CHAPTER_OPENING, GRATITUDE_DUES, MAX_LOST_LANDMARKS, RAID_UNREST_THRESHOLD, chapterPressureForecast, resolveChapterPetition } from "../lib/chapter-one.ts";
 import { PACKED_MEDICINE, USE_PACKED_MEDICINE } from "../lib/recovery.ts";
 import { shouldCapturePrologueCheckpoint } from "../lib/prologue-checkpoint.ts";
-import { ROAD_ADJACENCY, travelChoices } from "../lib/city-progression.ts";
+import { ENDING_OPTIONS, MISSIONS, ROAD_ADJACENCY, travelChoices } from "../lib/city-progression.ts";
 import { inferSocialIntent } from "../lib/social-influence.ts";
 
 function finished(ending = "守住城西") {
@@ -95,6 +95,38 @@ test("only the successful prologue ending unlocks the authored chapter opening",
   assert.equal(start.state.customActionUses, 2);
   assert.equal(availableOptions(start.state).length, 5);
   assert.equal(resolveTurn(start.state, "A. [踏入第一章]", false).state.factionFunds, start.state.factionFunds);
+});
+
+test("Edge Case: 瀕死狀態通關序章的狀態繼承", () => {
+  const inventory = ["【行醫薄刃】", "【止血膏藥】"];
+  const finalCrisis = normalizeState({ ...finished(), playerHp: 1, playerMp: 0,
+    inventory, equippedWeapon: "medical_blade", weaponDurability: 2,
+    sectLifeline: 50, worldFlags: MISSIONS.slice(0, 4).map((mission) => mission.clue),
+    flags: { ...finished().flags, ending: undefined, finalCrisis: true, darkHandInitialized: true } });
+  assert.equal(finalCrisis.turn, 70);
+  assert.equal(finalCrisis.playerHp, 1);
+
+  const ending = resolveTurn(finalCrisis, ENDING_OPTIONS[0], false);
+  assert.equal(ending.state.flags.ending, "守住城西");
+  assert.equal(ending.state.sectLifeline + ending.state.flags.finalSupport * 10, 65);
+  assert.equal(ending.state.playerHp, 1);
+
+  const startOption = availableOptions(ending.state).find((option) => option.includes("[踏入第一章]"));
+  assert.ok(startOption);
+  const chapter = resolveTurn(ending.state, startOption, false).state;
+  assert.equal(chapter.questStep, "chapter_one");
+  assert.equal(chapter.flags.chapterOne.stage, "rest");
+  assert.equal(chapter.playerHp, 1);
+  assert.equal(chapter.playerMp, 0);
+  assert.deepEqual(chapter.inventory, inventory);
+  assert.equal(chapter.equippedWeapon, "medical_blade");
+  assert.equal(chapter.weaponDurability, 2);
+
+  const reloaded = normalizeState(JSON.parse(JSON.stringify(chapter)));
+  assert.equal(reloaded.playerHp, 1);
+  assert.deepEqual(reloaded.inventory, inventory);
+  assert.equal(reloaded.equippedWeapon, "medical_blade");
+  assert.equal(reloaded.weaponDurability, 2);
 });
 
 test("chapter shortage draw replays from the same state", () => {

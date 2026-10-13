@@ -386,6 +386,11 @@ export default function GamePage() {
       const nextOptions = data.options || [];
 
       if (data.narrativeSource === "custom_rejected") {
+        // A rejected attempt changes no game resource, but its failure must be
+        // available to <LastTurn> before the player tries another action.
+        const rejectedState = recordDisplayedHistory(data.state, gameState, actionText, nextNarrative, data.narrativeSource);
+        setGameState(rejectedState);
+        saveToLocalStorage(rejectedState, narrative, options);
         setErrorMsg(nextNarrative);
         return;
       }

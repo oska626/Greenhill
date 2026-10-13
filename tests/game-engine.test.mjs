@@ -16,8 +16,9 @@ import { drawEncounter, encounterOptions, ENCOUNTERS } from "../lib/encounters.t
 import { NPC_TRAITS } from "../lib/npc-traits.ts";
 import { npcPromptContext } from "../lib/npc-prompt-context.ts";
 import { playerStatusContext } from "../lib/player-status-context.ts";
-import { carriedSelfCareOption, hasOffSceneActionReference } from "../lib/custom-action.ts";
+import { carriedSelfCareOption, hasOffSceneActionReference, unneededSelfCare } from "../lib/custom-action.ts";
 import { lastTurnContext } from "../lib/last-turn-context.ts";
+import { containsGraphicWording, GRAPHIC_ACTION_FALLBACK, screenCustomAction } from "../lib/content-filter.ts";
 
 function newGame() {
   const stats = aptitude("阿七", "賭坊收帳人", "察言觀色");
@@ -211,6 +212,42 @@ test("free self-treatment uses carried medicine and rejects an absent item", () 
   assert.match(turn.event, /止血膏藥.*敷在傷口/);
   assert.equal(carriedSelfCareOption(turn.state, "我拿出止血膏藥處理傷口", availableOptions(turn.state)), undefined);
   assert.equal(carriedSelfCareOption(state, "我不拿出止血膏藥處理傷口", availableOptions(state)), undefined);
+});
+
+test("Edge Case: 白名單豁免與惡意字眼攔截並行", () => {
+  const legitimate = "我查看氣血，並敷上止血膏藥";
+  const graphic = "我一刀砍斷他的手，血肉模糊，鮮血狂噴";
+  assert.equal(containsGraphicWording(legitimate), false);
+  assert.equal(screenCustomAction(legitimate), undefined);
+  assert.equal(containsGraphicWording("你取出止血膏藥，敷妥傷處後呼吸漸穩。"), false);
+
+  const state = normalizeState({ ...newGame(), questStep: "sandbox", currentLocation: "晚秋茶寮",
+    playerHp: 10, inventory: ["【止血膏藥】"] });
+  const action = carriedSelfCareOption(state, legitimate, availableOptions(state));
+  assert.match(action, /\[自敷止血膏藥\]/);
+  const turn = resolveTurn(state, action, false);
+  assert.equal(turn.state.playerHp, 14);
+  assert.equal(turn.state.inventory.includes("【止血膏藥】"), false);
+  assert.match(turn.event, /敷在傷口/);
+
+  assert.equal(containsGraphicWording(graphic), true);
+  assert.equal(containsGraphicWording("我敷上止血膏藥，卻見鮮血狂噴"), true);
+  assert.equal(screenCustomAction(graphic), GRAPHIC_ACTION_FALLBACK);
+  assert.doesNotMatch(GRAPHIC_ACTION_FALLBACK, /[殺死砍血斷]/u);
+});
+
+test("Edge Case: 滿血狀態下使用止血膏藥", () => {
+  const state = normalizeState({ ...newGame(), questStep: "sandbox", currentLocation: "晚秋茶寮",
+    maxHp: 20, playerHp: 20, hpScaleVersion: 2, inventory: ["【止血膏藥】"],
+    flags: { ...newGame().flags, darkHandInitialized: true } });
+  const text = "拿出止血膏藥敷藥";
+  assert.equal(unneededSelfCare(state, text), true);
+  assert.equal(carriedSelfCareOption(state, text, availableOptions(state)), undefined);
+  assert.equal(availableOptions(state).some((option) => option.includes("[自敷止血膏藥]")), false);
+  const attempted = resolveTurn(state, "W. [自敷止血膏藥] 用一回合將隨身膏藥敷在自己的傷口。", false);
+  assert.equal(attempted.state.turn, state.turn);
+  assert.equal(attempted.state.playerHp, state.maxHp);
+  assert.deepEqual(attempted.state.inventory, state.inventory);
 });
 
 test("encounter action tags score local personalities with deterministic feedback", () => {
