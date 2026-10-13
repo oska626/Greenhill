@@ -20,6 +20,7 @@ import { LANDMARK_SCENES, normalizeSceneState, objectStatus, openEntrance, revea
 import { conciseOption } from "./option-text.ts";
 import { drawEncounter, encounterChoice, encounterOptions, ENCOUNTERS, resolveEncounter, type EncounterId } from "./encounters.ts";
 import { applyActionTags, normalizeRelationshipScores, type RelationshipScores } from "./npc-traits.ts";
+import { startingWeaponItem } from "./character-creation.ts";
 import { getPseudoRandom } from "./state-random.ts";
 export { getPseudoRandom } from "./state-random.ts";
 
@@ -484,13 +485,17 @@ export function normalizeState(raw: unknown): GameState | null {
   const combat = normalizeCombat(value.combat);
   const activeCombat = combat && ((combat.scenario === "market_ambush" && value.questStep === "huizhi_ambush")
     || (combat.scenario === "arena" && value.questStep === "sandbox")) ? combat : undefined;
+  const equippedStartingItem = value.equippedWeapon ? startingWeaponItem(value.equippedWeapon) : undefined;
   const equippedWeapon: WeaponId = value.equippedWeapon === "captured_knife" && inventory.includes("【奪來短刀】")
     ? "captured_knife" : value.equippedWeapon === "rusty_knife" && inventory.includes("【生鏽鐵刀】")
     ? "rusty_knife" : (value.equippedWeapon === "beef_knife" || borrowedLegacyKnife && value.equippedWeapon === "rusty_knife")
       && inventory.includes("【牛肉刀】") ? "beef_knife" : value.equippedWeapon === "wooden_stick" && activeCombat?.scenario === "market_ambush"
-      ? "wooden_stick" : "fists";
+      ? "wooden_stick" : equippedStartingItem && inventory.includes(equippedStartingItem)
+        ? value.equippedWeapon! : "fists";
   const weaponDurability = equippedWeapon === "captured_knife"
     ? finite(value.weaponDurability, WEAPONS.captured_knife.maxDurability, 0, WEAPONS.captured_knife.maxDurability)
+    : equippedStartingItem && equippedWeapon !== "fists"
+    ? finite(value.weaponDurability, WEAPONS[equippedWeapon].maxDurability, 0, WEAPONS[equippedWeapon].maxDurability)
     : inventory.includes("【牛肉刀】")
     ? finite(value.weaponDurability, WEAPONS.beef_knife.maxDurability, 0, WEAPONS.beef_knife.maxDurability)
     : inventory.includes("【生鏽鐵刀】")
@@ -986,6 +991,9 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
     }
     if (weaponBefore === "captured_knife" && result.weapon === "fists")
       state.inventory = state.inventory.filter((item) => item !== "【奪來短刀】");
+    const brokenStartingItem = startingWeaponItem(weaponBefore);
+    if (brokenStartingItem && result.weapon === "fists")
+      state.inventory = state.inventory.filter((item) => item !== brokenStartingItem);
     event += result.event;
     if (result.outcome === "ongoing") {
       state.combat = result.combat;

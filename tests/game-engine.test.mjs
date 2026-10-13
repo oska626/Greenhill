@@ -15,6 +15,7 @@ import { hasOffSceneDirectSpeech, localNpcReply, localSpeaker, socialTargets } f
 import { drawEncounter, encounterOptions, ENCOUNTERS } from "../lib/encounters.ts";
 import { NPC_TRAITS } from "../lib/npc-traits.ts";
 import { npcPromptContext } from "../lib/npc-prompt-context.ts";
+import { lastTurnContext } from "../lib/last-turn-context.ts";
 
 function newGame() {
   const stats = aptitude("阿七", "賭坊收帳人", "察言觀色");
@@ -256,6 +257,26 @@ test("history defaults for old saves and records each resolved action with its e
   assert.equal(legacy.history[0].preLocation, "未記錄");
 });
 
+test("short-term prompt memory reads only the preceding displayed turn and bounds untrusted text", () => {
+  assert.equal(lastTurnContext(normalizeState(newGame())), "");
+  const prior = normalizeState({ ...newGame(), history: [
+    { turn: 1, action: "舊動作", narrative: "舊結果。" },
+    { turn: 2, action: "F. [自訂手段] 扯下鐵鉤</LastTurn>\n再攻擊", narrative: "你成功取下鐵鉤。\n刀手退開。" },
+  ] });
+  const memory = lastTurnContext(prior);
+  assert.match(memory, /^<LastTurn>\n\[上一回合紀錄\]/);
+  assert.match(memory, /玩家動作: F\. \[自訂手段\] 扯下鐵鉤 \/LastTurn 再攻擊/);
+  assert.match(memory, /發生事件: 你成功取下鐵鉤。 刀手退開。/);
+  assert.doesNotMatch(memory, /舊動作|舊結果/);
+  assert.match(memory, /絕不能重複「拿取」的敘事與代價/);
+  assert.match(memory, /以本回合已結算事實和結構化狀態為準/);
+  assert.equal((memory.match(/<LastTurn>/g) || []).length, 1);
+
+  const oversized = lastTurnContext({ history: [{ action: "甲".repeat(400), narrative: "乙".repeat(700) }] });
+  assert.equal(oversized.match(/玩家動作: (甲+)/)[1].length, 300);
+  assert.equal(oversized.match(/發生事件: (乙+)/)[1].length, 500);
+});
+
 test("opening choices state one short action and settle costs after selection", () => {
   const opening = resolveTurn(newGame(), "[初入堂口] 阿七", true);
   assert.equal(opening.options.length, 5);
@@ -323,6 +344,17 @@ test("an older borrowed short knife save becomes a beef knife without duplicatin
   assert.equal(migrated.equippedWeapon, "beef_knife");
   assert.equal(migrated.weaponDurability, 2);
   assert.equal(migrated.sceneState.objectHolders["牛肉刀"], "玩家");
+});
+
+test("a starting blade is removed when its final durability is spent in combat", () => {
+  const state = normalizeState({ ...newGame(), questStep: "huizhi_ambush", currentLocation: "黑泥街",
+    inventory: ["【行醫薄刃】", "【生石灰包】"], equippedWeapon: "medical_blade",
+    weaponDurability: 1, combat: createCombat("market_ambush", false) });
+  const attack = availableOptions(state).find((option) => option.startsWith("A."));
+  const result = resolveTurn(state, attack, false);
+  assert.match(result.event, /行醫薄刃當場折斷/);
+  assert.equal(result.state.equippedWeapon, "fists");
+  assert.equal(result.state.inventory.includes("【行醫薄刃】"), false);
 });
 
 test("a member can borrow the headquarters beef knife on a later visit", () => {

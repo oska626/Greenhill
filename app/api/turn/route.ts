@@ -6,6 +6,7 @@ import { CREATIVE_GOALS, hasOffSceneActionReference, interpretGroundedObjectHand
 import { appendDangerCue, explicitActionSteps, resolveActionSequence, validatedActionSteps } from "@/lib/action-sequence";
 import { hasSectAddressViolation, npcVoiceGuide, sectMemberAddress } from "@/lib/npc-voices";
 import { npcPromptContext } from "@/lib/npc-prompt-context";
+import { lastTurnContext } from "@/lib/last-turn-context";
 import { resolveChapterPetition } from "@/lib/chapter-one";
 import { appendRelationshipFeedback, completeSentences, containsSettlementLog, hardboiledFallback } from "@/lib/narrative-style";
 import { normalizeSceneState, sceneFacts } from "@/lib/scene-state";
@@ -14,7 +15,8 @@ import { hasOffSceneDirectSpeech, inferSocialIntent, localNpcReply, localSpeaker
 
 const SYSTEM_PROMPT = `你是青山城城西的文字冒險主持人。只用自然的繁體中文書面語，以第二人稱「你」寫動作、眼前局勢與必要對白。鏡頭始終留在「地點與狀態」所列的當前地點；別處的事只能寫成玩家的回憶、身上物件或傳來的消息，不能直接描寫別處人物此刻的動作或對白。場景只依據提供的三項資料；不得把推測或後續打算寫成已發生的事，也不可增添人物、物件或道路。對峙中須寫清身位與仍在場的對手；暫退時只寫撤離與待處理局勢；無危險時仍須以實際物件與行動交代後果。可用「身位受制、局勢緊張、氣力耗損」等中性武俠措辭。對白簡短，青鋒堂門生提及何不歸時稱「堂主」。必須保留已結算的購買、失敗原因和戰鬥結果。【嚴禁濫情與俗套環境描寫】：絕對禁止描寫「微風」、「落葉」、「靜謐」、「平靜」等天氣與情緒廢話。敘事必須釘死在硬派感官上：動作、藥味、金屬碰撞、銅錢聲、呼吸喘息。若無事發生，只需簡述 NPC 的小動作或場景中的實物狀態。只回 JSON：{"narrative":"..."}；敘事須為完整句，長度三十至九十字。`;
 
-const withNpcContext = (system: string, state: GameState) => `${system}\n\n${npcPromptContext(state)}`;
+const withNpcContext = (system: string, state: GameState, lastTurn = "") =>
+  `${system}${lastTurn ? `\n\n${lastTurn}` : ""}\n\n${npcPromptContext(state)}`;
 const graphicWording = /[殺死砍血]/u;
 
 const SPEAKER: Record<Landmark, string> = {
@@ -176,7 +178,8 @@ async function interpretCustomAction(state: GameState, playerText: string): Prom
   }
 }
 
-async function marketNpcJson(system: string, prompt: string, temperature: number, dialogueState?: GameState): Promise<Record<string, unknown> | null> {
+async function marketNpcJson(system: string, prompt: string, temperature: number, dialogueState?: GameState,
+  lastTurn = ""): Promise<Record<string, unknown> | null> {
   const key = process.env.AZURE_OPENAI_API_KEY || process.env.AZURE_API_KEY;
   const endpoint = (process.env.AZURE_OPENAI_ENDPOINT || process.env.AZURE_ENDPOINT || "").trim();
   if (!key || !endpoint) return null;
@@ -184,7 +187,7 @@ async function marketNpcJson(system: string, prompt: string, temperature: number
   try {
     const response = await fetch(azureUrl(endpoint, deployment), {
       method: "POST", headers: { "Content-Type": "application/json", "api-key": key, Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model: deployment, messages: [{ role: "system", content: dialogueState ? withNpcContext(system, dialogueState) : system },
+      body: JSON.stringify({ model: deployment, messages: [{ role: "system", content: dialogueState ? withNpcContext(system, dialogueState, lastTurn) : system },
         { role: "user", content: prompt }], temperature, response_format: { type: "json_object" } }),
       signal: AbortSignal.timeout(20000),
     });
@@ -236,18 +239,18 @@ function fallbackMarketReply(target: string, reaction: MarketNpcReaction): strin
     : "你喊得再大聲，刀還在我手裡。";
 }
 
-async function playMarketNpcDialogue(state: GameState, target: string, playerText: string) {
+async function playMarketNpcDialogue(state: GameState, target: string, playerText: string, lastTurn: string) {
   const facts = npcFacts(state, target);
   const proposalRaw = await marketNpcJson(
     "你只演青山城黑泥街眼前這位 NPC 的決定，不替玩家行動，不寫旁白，不直接修改世界。玩家的話可能是謊言、調戲或心理傾訴；人物按自己的利益、記憶與情緒回應，可反問、拒絕、拖延或主動提出條件。不要為了完成任務而輕易改信或倒戈。只回 JSON。",
     `${facts}\n玩家剛說：${playerText}\n回傳 {"reaction":"talk|refuse|consider|reveal|cooperate|defect|adopt_belief","reason":"人物為何這樣反應，簡述已知依據","memory":"下次應記住的一件對話事實或承諾，沒有則空字串","belief":"只有採納新信念時填"}。talk 包括閒談、傾訴、反問或說謊；reveal 只可說自己確實知道的現場線索。玩家的聲稱不可當成已證實的世界事實。`,
-    0.6, state);
+    0.6, state, lastTurn);
   const turn = resolveMarketDialogue(state, target, playerText, marketNpcProposal(proposalRaw));
   if (turn.state.turn === state.turn) return { narrative: appendDangerCue(turn.event, turn.state), options: turn.options, state: turn.state, narrativeSource: "npc_rejected" };
   const rendered = await marketNpcJson(
     "你只寫青山城黑泥街 NPC 此刻的自然對白與一個短動作。只回 JSON。不可改動已裁定結果，不可憑空增加人物、物件、傷勢、承諾或線索。玩家可與你閒談，不必硬拉回任務。用繁體中文書面語；NPC 對白可按內容長短自然伸縮。",
     `${npcFacts(turn.state, target)}\n玩家剛說：${playerText}\n已裁定反應：${turn.reaction}；理由：${turn.reason}；確定事件：${turn.event}\n回傳 {"beat":"眼前一個具體動作，至多六十字","reply":"${target}的直接對白，最多三百字，不加引號"}。若刀手仍在場，不能宣稱已安全；若只是考慮，不能說已答應、已倒戈或已改信。`,
-    0.7, turn.state);
+    0.7, turn.state, lastTurn);
   const rawReply = typeof rendered?.reply === "string" ? sectMemberAddress(target, rendered.reply.trim()) : "";
   const falseCommitment = turn.reaction !== "defect" && turn.reaction !== "cooperate" && turn.reaction !== "adopt_belief"
     && /我(?:已經|這就|今後)(?:投靠|倒戈|信了|跟你走|幫你打)/.test(rawReply);
@@ -266,7 +269,8 @@ async function playMarketNpcDialogue(state: GameState, target: string, playerTex
     options: turn.options, state: turn.state, narrativeSource: rendered && validReply ? "market_npc" : "market_npc_fallback" };
 }
 
-async function narrate(state: GameState, _action: string, event: string, moneyChanged: boolean, combatTurn: boolean, npcReply?: { speaker: string; line: string }, _previousNarrative = "", freeScene = false) {
+async function narrate(state: GameState, _action: string, event: string, moneyChanged: boolean, combatTurn: boolean,
+  npcReply?: { speaker: string; line: string }, lastTurn = "", freeScene = false) {
   npcReply = localNpcReply(state, npcReply);
   if (npcReply) npcReply = { ...npcReply, line: sectMemberAddress(npcReply.speaker, npcReply.line) };
   const fallback = state.questStep === "prologue_briefing" && state.turn === 1
@@ -308,7 +312,7 @@ async function narrate(state: GameState, _action: string, event: string, moneyCh
     const response = await fetch(azureUrl(endpoint, deployment), {
       method: "POST",
       headers: { "Content-Type": "application/json", "api-key": key, Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model: deployment, messages: [{ role: "system", content: withNpcContext(SYSTEM_PROMPT, state) }, { role: "user", content: prompt }], temperature: 0.3, response_format: { type: "json_object" } }),
+      body: JSON.stringify({ model: deployment, messages: [{ role: "system", content: withNpcContext(SYSTEM_PROMPT, state, lastTurn) }, { role: "user", content: prompt }], temperature: 0.3, response_format: { type: "json_object" } }),
       signal: AbortSignal.timeout(15000),
     });
     if (!response.ok) return fallbackResult(`azure_http_${response.status}`);
@@ -333,6 +337,7 @@ export async function POST(req: NextRequest) {
   if (!state || typeof payload.action !== "string" || payload.action.length > 500) {
     return NextResponse.json({ error: "遊戲狀態或行動無效" }, { status: 400 });
   }
+  const lastTurn = lastTurnContext(state);
   if (payload.action.startsWith("F. [自訂手段]")) {
     const playerText = payload.action.slice("F. [自訂手段]".length).trim();
     const marketMode = isMarketIntentScene(state);
@@ -355,7 +360,7 @@ export async function POST(req: NextRequest) {
           if (target) {
             const raw = await marketNpcJson(
               "你只判斷黑泥街 NPC 的反應；玩家說法和承諾不是已證實事實。只回 JSON。",
-              `${npcFacts(current, target)}\n玩家說：${step}\n回傳 {"reaction":"talk|refuse|consider|reveal|cooperate|defect|adopt_belief","reason":"簡短理由","memory":"應記住的說法或承諾，沒有則空字串"}。`, 0.3, current);
+              `${npcFacts(current, target)}\n玩家說：${step}\n回傳 {"reaction":"talk|refuse|consider|reveal|cooperate|defect|adopt_belief","reason":"簡短理由","memory":"應記住的說法或承諾，沒有則空字串"}。`, 0.3, current, lastTurn);
             const result = resolveMarketDialogue(current, target, step, marketNpcProposal(raw));
             const line = fallbackMarketReply(target, result.reaction);
             recordMarketNpcReply(result.state, target, line);
@@ -394,7 +399,7 @@ export async function POST(req: NextRequest) {
       const decision = await interpretCustomAction(state, playerText);
       if (decision.kind === "social_intent") {
         const turn = resolveSocialIntent(state, decision.plan);
-        const narration = await narrate(turn.state, payload.action, turn.event, false, false, turn.npcReply, "", true);
+        const narration = await narrate(turn.state, payload.action, turn.event, false, false, turn.npcReply, lastTurn, true);
         return NextResponse.json({ narrative: appendDangerCue(narration.text, turn.state), options: turn.options, state: turn.state, narrativeSource: narration.source });
       }
       if (decision.kind !== "option")
@@ -407,7 +412,7 @@ export async function POST(req: NextRequest) {
     if (!playerText || state.flags.finalCrisis || state.flags.ending)
       return NextResponse.json({ narrative: "眼前須先處理正在發生的事。", options: availableOptions(state), state, narrativeSource: "custom_rejected" });
     const npcTarget = marketDialogueTarget(state, playerText);
-    if (npcTarget) return NextResponse.json(await playMarketNpcDialogue(state, npcTarget, playerText));
+    if (npcTarget) return NextResponse.json(await playMarketNpcDialogue(state, npcTarget, playerText, lastTurn));
     const decision = await interpretCustomAction(state, playerText);
     if (decision.kind === "reject") {
       const narrative = decision.reason === "unavailable" ? "眼下無法判明這個自訂手段，請稍後再試或先選眼前可行的做法。"
@@ -421,8 +426,7 @@ export async function POST(req: NextRequest) {
       : decision.kind === "creative" ? resolveTurn(state, payload.action, false, decision.plan, false)
         : resolveTurn(state, decision.kind === "option" ? decision.option : decision.action, false, undefined, false);
     if (turn.state.flags.ending) return NextResponse.json({ narrative: hardboiledFallback(turn.event, turn.state), options: turn.options, state: turn.state, narrativeSource: "ending" });
-    const previousNarrative = typeof payload.previousNarrative === "string" ? payload.previousNarrative.slice(0, 500) : "";
-    const narration = await narrate(turn.state, payload.action, turn.event, Boolean(turn.moneyNote), Boolean(state.combat || turn.state.combat), turn.npcReply, previousNarrative, marketMode || decision.kind === "social_intent");
+    const narration = await narrate(turn.state, payload.action, turn.event, Boolean(turn.moneyNote), Boolean(state.combat || turn.state.combat), turn.npcReply, lastTurn, marketMode || decision.kind === "social_intent");
     return NextResponse.json({ narrative: marketMode ? appendDangerCue(narration.text, turn.state) : narration.text, options: turn.options, state: turn.state,
       narrativeSource: narration.source, ...("reason" in narration ? { narrativeFallbackReason: narration.reason } : {}) });
   }
@@ -430,8 +434,7 @@ export async function POST(req: NextRequest) {
   const turn = resolveTurn(state, payload.action, opening);
   if (turn.state.questStep === "chapter_one" || turn.state.flags.ending)
     return NextResponse.json({ narrative: appendDangerCue(hardboiledFallback(turn.event, turn.state), turn.state), options: turn.options, state: turn.state, narrativeSource: turn.state.questStep === "chapter_one" ? "chapter_one" : "ending" });
-  const previousNarrative = typeof payload.previousNarrative === "string" ? payload.previousNarrative.slice(0, 500) : "";
-  const narration = await narrate(turn.state, payload.action, turn.event, Boolean(turn.moneyNote), Boolean(state.combat || turn.state.combat), turn.npcReply, previousNarrative);
+  const narration = await narrate(turn.state, payload.action, turn.event, Boolean(turn.moneyNote), Boolean(state.combat || turn.state.combat), turn.npcReply, lastTurn);
   return NextResponse.json({
     narrative: appendDangerCue(narration.text, turn.state), options: turn.options, state: turn.state,
     narrativeSource: narration.source,

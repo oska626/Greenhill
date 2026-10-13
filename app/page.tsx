@@ -13,7 +13,8 @@ import { shouldCapturePrologueCheckpoint } from "@/lib/prologue-checkpoint";
 import { chapterPressureForecast } from "@/lib/chapter-one";
 import { actionEnergyCost, FATIGUE_THRESHOLD, MAX_ENERGY } from "@/lib/energy";
 import { STARTING_DARK_HAND, readyDarkHand } from "@/lib/dirty-hand";
-import { startingInventory, startingItemOptions, type BackgroundId } from "@/lib/character-creation";
+import { startingInventory, startingItemOptions, startingWeaponForInventory, type BackgroundId } from "@/lib/character-creation";
+import { WEAPONS } from "@/lib/combat-engine";
 import { initialRelationshipScores } from "@/lib/npc-traits";
 import { hardboiledFallback } from "@/lib/narrative-style";
 import { blackmudAnchors } from "@/lib/blackmud-hud";
@@ -270,6 +271,7 @@ export default function GamePage() {
     const initialTrait = selectedBgId === "custom" ? customSkill.trim() : bg.trait;
     const stats = aptitude(trimmedName, bg.name, initialTrait);
     const inventory = startingInventory(bg.id, selectedStartingItem);
+    const startingWeapon = startingWeaponForInventory(inventory);
 
     const initialCharacterState: GameState = {
       turn: 1,
@@ -297,8 +299,8 @@ export default function GamePage() {
       history: [],
       relationships: newRelationships(),
       relationshipScores: initialRelationshipScores(),
-      equippedWeapon: "fists",
-      weaponDurability: 0,
+      equippedWeapon: startingWeapon,
+      weaponDurability: WEAPONS[startingWeapon].maxDurability,
       knownMoves: {},
       questStep: "prologue_briefing",
       flags: {
@@ -847,7 +849,7 @@ export default function GamePage() {
               <span className="text-xs font-semibold text-stone-400">身體狀況</span>
               <span className="text-[10px] text-amber-300/80">{gameState?.skill || gameState?.trait}</span>
             </div>
-            <div className="text-xs text-stone-400">兵器：<span className="text-stone-200">{gameState?.equippedWeapon === "beef_knife" ? "牛肉刀" : gameState?.equippedWeapon === "rusty_knife" ? "生鏽鐵刀" : gameState?.equippedWeapon === "captured_knife" ? "奪來短刀" : gameState?.equippedWeapon === "wooden_stick" ? "案邊木棍" : "徒手"}</span>
+            <div className="text-xs text-stone-400">兵器：<span className="text-stone-200">{WEAPONS[gameState?.equippedWeapon || "fists"].name}</span>
               {gameState?.equippedWeapon && gameState.equippedWeapon !== "fists" && <span className="ml-2 text-stone-300">耐用 {gameState.weaponDurability}</span>}
               {gameState?.equippedWeapon === "fists" && (gameState.inventory.includes("【牛肉刀】") || gameState.inventory.includes("【生鏽鐵刀】")) && <span className="ml-2 text-stone-300">藏刀耐用 {gameState.weaponDurability}</span>}
             </div>

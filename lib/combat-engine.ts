@@ -4,6 +4,9 @@ import type { SceneAttempt } from "./custom-action.ts";
 export const WEAPONS = {
   fists: { name: "徒手", power: 0, maxDurability: 0 },
   wooden_stick: { name: "案邊木棍", power: 2, maxDurability: 2 },
+  debt_baton: { name: "催債短棍", power: 2, maxDurability: 3 },
+  medical_blade: { name: "行醫薄刃", power: 2, maxDurability: 3 },
+  pickpocket_knife: { name: "割包小薄刀", power: 2, maxDurability: 3 },
   beef_knife: { name: "牛肉刀", power: 4, maxDurability: 4 },
   rusty_knife: { name: "生鏽鐵刀", power: 4, maxDurability: 4 },
   captured_knife: { name: "奪來短刀", power: 3, maxDurability: 3 },
@@ -110,9 +113,12 @@ export function combatOptions(combat: CombatState, weapon: WeaponId, knownMoves:
       : "借肉案撞亂刀手守位"
     : "扯擂台圍繩撞對手";
   const approach = weapon === "beef_knife" || weapon === "rusty_knife" || weapon === "captured_knife"
+    || weapon === "medical_blade" || weapon === "pickpocket_knife"
     ? "提刀貼身搶攻"
     : weapon === "wooden_stick"
       ? "掄木棍直砸對手"
+      : weapon === "debt_baton"
+        ? "掄短棍直砸對手"
       : "搶步揮拳攻對手";
   return [
     shortPunch ? "A. [裂石短拳] 短拳直搗對手肋下" : `A. [正面進擊] ${approach}`,
