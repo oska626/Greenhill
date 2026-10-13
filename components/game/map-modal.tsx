@@ -40,7 +40,7 @@ export function MapModal({ open, onOpenChange, state }: MapModalProps) {
           <DialogTitle className="text-lg font-semibold tracking-widest text-amber-200">
             【 青山城 · {state?.questStep === 'chapter_one' ? '城西據點與碼頭' : '城西據點'} 】
           </DialogTitle>
-          <DialogDescription className="text-sm text-[#a98d69]">
+          <DialogDescription className="text-sm text-stone-300">
             江湖路險，步步為營
           </DialogDescription>
         </DialogHeader>
@@ -85,7 +85,7 @@ export function MapModal({ open, onOpenChange, state }: MapModalProps) {
                   <div className="relative">
                     <div className={`h-3 w-3 rounded-full ring-2 ${lostLandmarks.has(area.name as GameState['currentLocation'])
                       ? 'bg-rose-600 ring-rose-900/70' : 'bg-amber-600/80 ring-amber-900/40 shadow-[0_0_8px_rgba(217,119,6,0.4)]'}`} />
-                    <span className="absolute -top-4 left-1/2 -translate-x-1/2 text-[10px] font-mono text-zinc-500">
+                    <span className="absolute -top-4 left-1/2 -translate-x-1/2 text-[10px] font-mono text-stone-400">
                       {i + 1}
                     </span>
                   </div>
@@ -109,10 +109,10 @@ export function MapModal({ open, onOpenChange, state }: MapModalProps) {
                   {i + 1}
                 </span>
                 <div className="min-w-0">
-                  <div className={`text-xs font-medium ${lostLandmarks.has(area.name as GameState['currentLocation']) ? 'text-[#a83232]' : 'text-[#e4d8bf]'}`}>
+                  <div className={`text-xs font-medium ${lostLandmarks.has(area.name as GameState['currentLocation']) ? 'text-rose-400' : 'text-stone-200'}`}>
                     {area.name}{lostLandmarks.has(area.name as GameState['currentLocation']) ? ' · 失守' : ''}
                   </div>
-                  <div className="text-[11px] text-[#a98d69] leading-snug">{area.desc}</div>
+                  <div className="text-[11px] text-stone-300 leading-snug">{area.desc}</div>
                 </div>
               </div>
             ))}

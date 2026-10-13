@@ -59,6 +59,12 @@ const showActionWithoutTurnCount = (option: string) => option
   .replace(/休整一回合/g, "稍作休整")
   .replace(/(?:共)?[一二三四五六七八九十\d]+回合/g, "一段時間");
 
+function highlightedOption(option: string) {
+  const display = showActionWithoutTurnCount(option);
+  const parts = /^([A-Z]\. )(\[[^\]]+\])(.*)$/s.exec(display);
+  return parts ? <>{parts[1]}<span className="font-semibold text-amber-500">{parts[2]}</span>{parts[3]}</> : display;
+}
+
 const BACKGROUNDS = [
   {
     id: "debt_collector",
@@ -464,7 +470,7 @@ export default function GamePage() {
               value={playerName}
               onChange={(e) => setPlayerName(e.target.value)}
               placeholder="輸入名號（例：阿七、生番、啞仔）"
-                  className="w-full bg-[#17130f] border border-[#59432e] rounded-sm px-3 py-2 text-sm text-[#e6d7bd] focus:outline-none focus:border-[#a68150]"
+                  className="w-full bg-[#17130f] border border-[#59432e] rounded-sm px-3 py-2 text-sm text-stone-200 placeholder:text-stone-500 focus:outline-none focus:border-[#a68150]"
             />
           </div>
 
@@ -488,9 +494,9 @@ export default function GamePage() {
                 >
                   <div className="font-semibold text-sm flex justify-between items-center">
                     <span className={selectedBgId === bg.id ? "text-amber-400" : ""}>{bg.name}</span>
-                    <span className="text-[10px] text-stone-500">氣血：{aptitude(playerName.trim(), bg.name, bg.trait).hp} · 精力：{MAX_ENERGY}</span>
+                    <span className="text-[10px] text-stone-300">氣血：{aptitude(playerName.trim(), bg.name, bg.trait).hp} · 精力：{MAX_ENERGY}</span>
                   </div>
-                  <div className="text-xs text-stone-400 mt-1 line-clamp-2 leading-relaxed">{bg.desc}</div>
+                  <div className="text-xs text-stone-300 mt-1 line-clamp-2 leading-relaxed">{bg.desc}</div>
                 </button>
               ))}
             </div>
@@ -502,52 +508,52 @@ export default function GamePage() {
               <div className="space-y-1.5">
                 <label htmlFor="custom-gender" className="text-xs font-semibold text-stone-400 tracking-wider">性別（8 字內）</label>
                 <input id="custom-gender" type="text" maxLength={8} value={customGender} onChange={(e) => setCustomGender(e.target.value)}
-                  placeholder="例：女子、男子、非二元" className="w-full bg-stone-950 border border-stone-700 rounded px-3 py-2 text-sm text-stone-100 focus:outline-none focus:border-amber-600" />
+                  placeholder="例：女子、男子、非二元" className="w-full bg-stone-950 border border-stone-700 rounded px-3 py-2 text-sm text-stone-200 placeholder:text-stone-500 focus:outline-none focus:border-amber-600" />
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="custom-skill" className="text-xs font-semibold text-stone-400 tracking-wider">技能（12 字內）</label>
                 <input id="custom-skill" type="text" maxLength={12} value={customSkill} onChange={(e) => setCustomSkill(e.target.value)}
-                  placeholder="例：辨藥、摸鎖、使短刀" className="w-full bg-stone-950 border border-stone-700 rounded px-3 py-2 text-sm text-stone-100 focus:outline-none focus:border-amber-600" />
+                  placeholder="例：辨藥、摸鎖、使短刀" className="w-full bg-stone-950 border border-stone-700 rounded px-3 py-2 text-sm text-stone-200 placeholder:text-stone-500 focus:outline-none focus:border-amber-600" />
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="custom-personality" className="text-xs font-semibold text-stone-400 tracking-wider">性格（12 字內）</label>
                 <input id="custom-personality" type="text" maxLength={12} value={customPersonality} onChange={(e) => setCustomPersonality(e.target.value)}
-                  placeholder="例：嘴硬心軟、遇事多疑" className="w-full bg-stone-950 border border-stone-700 rounded px-3 py-2 text-sm text-stone-100 focus:outline-none focus:border-amber-600" />
+                  placeholder="例：嘴硬心軟、遇事多疑" className="w-full bg-stone-950 border border-stone-700 rounded px-3 py-2 text-sm text-stone-200 placeholder:text-stone-500 focus:outline-none focus:border-amber-600" />
               </div>
             </div>
           )}
 
           <div className="space-y-1.5 border-t border-[#4a3727] pt-3">
-            <p className="text-xs text-[#bca887]">江湖防身：系統自備<span className="text-amber-300">{STARTING_DARK_HAND}</span></p>
+            <p className="text-xs text-stone-300">江湖防身：系統自備<span className="font-semibold text-amber-500">{STARTING_DARK_HAND}</span></p>
             <label htmlFor="starting-item" className="block text-xs font-semibold tracking-wider text-[#c6ab82]">另選一件隨身物（4選1）</label>
             <select id="starting-item" value={startingItems[1]} onChange={(e) => setSelectedStartingItem(e.target.value)}
-              className="w-full rounded-sm border border-[#59432e] bg-[#17130f] px-3 py-2 text-sm text-[#e6d7bd] focus:outline-none focus:border-[#a68150]">
+              className="w-full rounded-sm border border-[#59432e] bg-[#17130f] px-3 py-2 text-sm text-amber-400 focus:outline-none focus:border-[#a68150]">
               {startingChoices.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </div>
 
-          <div className="bg-stone-950/80 border border-stone-800/80 rounded p-3 space-y-2 text-xs">
+          <div className="bg-stone-950/80 border border-stone-700/80 rounded p-3 space-y-2 text-xs text-stone-300">
             <div className="font-semibold text-stone-300">初始命盤預覽</div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-stone-400">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-stone-300">
               <div>氣血上限: <span className="font-mono text-rose-400">{curStats.hp}</span></div>
               <div>精力上限: <span className="font-mono text-sky-400">{curStats.mp}</span></div>
               <div>行囊容量: <span className="font-mono text-stone-200">4 格</span></div>
               <div>初期銀兩: <span className="font-mono text-amber-400">0 文</span></div>
             </div>
-            <div className="text-stone-400 pt-1">
+            <div className="text-stone-300 pt-1">
               {selectedBgId === "custom" ? "擅長技能" : "天賦特質"}: <span className="text-amber-300 font-medium">{selectedBgId === "custom" ? customSkill || "待填" : curBg.trait}</span>
             </div>
-            {selectedBgId === "custom" && <div className="text-stone-400">性別：{customGender || "待填"} · 性格：{customPersonality || "待填"}</div>}
+            {selectedBgId === "custom" && <div className="text-stone-300">性別：{customGender || "待填"} · 性格：{customPersonality || "待填"}</div>}
             {selectedBgId === "martial_dropout" && <div className="text-rose-300">肩傷未癒：開局氣血 26 / 28</div>}
-            <div className="text-stone-400">
-              隨身物資：<span className="text-stone-300">{startingItems.join("、")} ({startingItems.length}/4 格)</span>
+            <div className="text-stone-300">
+              隨身物資：{startingItems.map((item, index) => <span key={item} className="font-medium text-amber-500">{index > 0 ? "、" : ""}{item}</span>)} <span className="text-stone-200">({startingItems.length}/4 格)</span>
             </div>
           </div>
 
           <button
             type="button"
             onClick={handleStartGame}
-            className="w-full bg-[#6f4d2a] hover:bg-[#8c6747] text-[#f0e2c5] font-medium py-2.5 rounded-sm border border-[#a47a45] transition duration-150 shadow-inner text-sm tracking-wider mt-2"
+            className="w-full bg-[#6f4d2a] hover:bg-[#8c6747] text-stone-100 font-medium py-2.5 rounded-sm border border-[#a47a45] transition duration-150 shadow-inner text-sm tracking-wider mt-2"
           >
             推門入局
           </button>
@@ -579,11 +585,11 @@ export default function GamePage() {
               青山風雲
             </button>
             <button type="button" onClick={() => setHistoryOpen(true)}
-              className="rounded-sm border border-[#3d2e20] bg-[#201811] px-2.5 py-1 text-[11px] text-[#a3907c] shadow-inner hover:border-[#765739] hover:text-amber-300">
+              className="rounded-sm border border-[#3d2e20] bg-[#201811] px-2.5 py-1 text-[11px] text-stone-300 shadow-inner hover:border-[#765739] hover:text-amber-300">
               殘卷紀錄
             </button>
             <div>
-              <span className="text-stone-500 mr-1">私銀:</span>
+              <span className="text-stone-400 mr-1">私銀:</span>
               <span className="text-amber-400 font-mono font-medium">{gameState?.silver ?? 0}</span> 文
               {silverDelta !== 0 && (
                 <span className={`ml-1 text-xs font-semibold ${silverDelta < 0 ? "text-rose-400" : "text-emerald-400"}`}>
@@ -592,11 +598,11 @@ export default function GamePage() {
               )}
             </div>
             <div>
-              <span className="text-stone-500 mr-1">青鋒堂命脈:</span>
+              <span className="text-stone-400 mr-1">青鋒堂命脈:</span>
               <span
                 className={`font-mono font-bold ${
                   (gameState?.sectLifeline ?? 60) <= 20
-                    ? "text-rose-500 animate-pulse"
+                    ? "text-rose-400 animate-pulse"
                     : (gameState?.sectLifeline ?? 60) <= 40
                     ? "text-amber-500"
                     : "text-emerald-400"
@@ -611,22 +617,22 @@ export default function GamePage() {
               )}
             </div>
             <div title={treasuryChange?.reason || "青鋒堂公帳結餘"}>
-              <span className="text-stone-500 mr-1">青鋒堂公款:</span>
-              <span className="text-emerald-400 font-mono font-medium">{gameState?.factionFunds ?? 0}</span> 文
+              <span className="text-stone-400 mr-1">青鋒堂公款:</span>
+              <span className="text-amber-400 font-mono font-medium">{gameState?.factionFunds ?? 0}</span> 文
               {treasuryChange && treasuryChange.delta !== 0 && (
                 <span className={`ml-1 text-xs font-semibold ${treasuryChange.delta < 0 ? "text-rose-400" : "text-emerald-400"}`}>
                   {treasuryChange.delta < 0 ? "↓" : "↑"}{Math.abs(treasuryChange.delta)}
                 </span>
               )}
               {treasuryChange && (
-                <span className="block text-[10px] text-stone-500">{treasuryChange.reason}</span>
+                <span className="block text-[10px] text-stone-400">{treasuryChange.reason}</span>
               )}
             </div>
 
             <button
               type="button"
               onClick={handleRestartGame}
-              className="ml-2 px-2.5 py-1 rounded bg-stone-800 hover:bg-rose-900/50 hover:text-rose-300 border border-stone-700/60 hover:border-rose-700/50 text-[11px] text-stone-400 transition"
+              className="ml-2 px-2.5 py-1 rounded bg-stone-800 hover:bg-rose-900/50 hover:text-rose-300 border border-stone-700/60 hover:border-rose-700/50 text-[11px] text-stone-300 transition"
               title="抹除所有進度，重返創角頁面"
             >
               重新開始
@@ -685,8 +691,8 @@ export default function GamePage() {
                   <details key={`${gameState?.turn}-${item.name}-${item.label}`} className={`group rounded-sm border text-xs shadow-inner ${item.tone === "ready"
                     ? "border-[#8c6747] bg-[#2b2118] text-[#e9d8b6]"
                     : item.tone === "risk" ? "border-[#765739] bg-[#261c14] text-amber-300"
-                      : item.tone === "spent" ? "border-[#3a2e26] bg-[#17130f] text-stone-500"
-                        : "border-[#4a3929] bg-[#1b1713] text-stone-400"}`}>
+                      : item.tone === "spent" ? "border-[#4a3929] bg-[#17130f] text-stone-400"
+                        : "border-[#4a3929] bg-[#1b1713] text-stone-300"}`}>
                     <summary title={item.detail} className="cursor-pointer list-none px-2.5 py-1.5 focus-visible:outline focus-visible:outline-amber-400">
                       <span className="text-amber-500/90">〔{item.name}〕</span><span className="ml-1 text-[10px] opacity-75">{item.label}</span>
                     </summary>
@@ -720,13 +726,13 @@ export default function GamePage() {
               </div>
             )}
             {gameState?.questStep === "sandbox" && !gameState.flags.ending && (
-              <div className="text-[11px] text-stone-500">行路耗時，玄武樓持續施壓；差事、線索與欠帳都會留到終局。</div>
+              <div className="text-[11px] text-stone-400">行路耗時，玄武樓持續施壓；差事、線索與欠帳都會留到終局。</div>
             )}
             {gameState?.questStep === "sandbox" && gameState.flags.checkpointReady && !gameState.flags.midpointBriefed && (
               <div className="rounded border border-amber-800/60 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">首輪三件急事已處理；返回青鋒堂總壇向堂主交代，即可留下中期存檔。</div>
             )}
             {gameState?.questStep === "sandbox" && savedGame?.checkpoint && (
-              <div className="text-[11px] text-emerald-500">序章中期存檔已建立。</div>
+              <div className="text-[11px] text-emerald-400">序章中期存檔已建立。</div>
             )}
             {gameState?.questStep === "sandbox" && (gameState.turn >= 20 || gameState.flags.finalCrisis) && (
               <div className="rounded border border-amber-900/50 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
@@ -751,10 +757,10 @@ export default function GamePage() {
                   key={idx}
                   disabled={loading}
                   onClick={() => handleAction(opt)}
-                  className="text-left text-xs md:text-sm px-3.5 py-2.5 rounded-sm border border-[#382b20] bg-[#161311] text-[#e6d7bd] shadow-inner transition duration-150 hover:border-[#8c6747] hover:bg-[#271d15] active:translate-y-px disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="text-left text-xs md:text-sm px-3.5 py-2.5 rounded-sm border border-[#584330] bg-[#161311] text-stone-200 shadow-inner transition duration-150 hover:border-[#8c6747] hover:bg-[#271d15] active:translate-y-px disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {showActionWithoutTurnCount(opt)}
-                  {gameState && <span className="block mt-1 text-[11px] text-[#a98d69]">
+                  {highlightedOption(opt)}
+                  {gameState && <span className="block mt-1 text-[11px] text-stone-400">
                     {(() => {
                       const route = LANDMARKS.flatMap((destination) => travelChoices(gameState, destination))
                         .find((choice) => choice.label === opt);
@@ -790,9 +796,9 @@ export default function GamePage() {
                       <button key={opt} type="button" disabled={loading} onClick={() => handleAction(opt)}
                         title={opt}
                         aria-label={`${desperate ? "拼命" : "普通"}暗手：${opt}，精力減 ${cost}${darkHandItem ? `，用掉${darkHandItem}` : ""}`}
-                        className="rounded-sm border border-[#765739] bg-[#251b13] px-2.5 py-1.5 text-xs text-[#e6d7bd] shadow-inner transition hover:border-[#a68150] hover:bg-[#342416] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40">
-                        <span className="font-semibold">{opt}</span>
-                        <span className="ml-1.5 text-[#b39a78]">精力 −{cost}</span>
+                        className="rounded-sm border border-[#765739] bg-[#251b13] px-2.5 py-1.5 text-xs text-stone-100 shadow-inner transition hover:border-[#a68150] hover:bg-[#342416] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50">
+                        <span className="font-semibold">{highlightedOption(opt)}</span>
+                        <span className="ml-1.5 text-stone-400">精力 −{cost}</span>
                       </button>
                     );
                   })}
@@ -805,7 +811,7 @@ export default function GamePage() {
               && <form onSubmit={handleCustomSubmit} className="mt-2 pt-3 border-t border-stone-800 flex flex-col gap-1.5">
               <div className="text-xs font-semibold text-amber-400/90 tracking-wider flex items-center gap-1.5">
                 <span>F. [自由行動]</span>
-                <span className="text-[11px] text-stone-500 font-normal">可寫多件有先後的事；局勢改變時，餘下行動可能被打斷。限 300 字。</span>
+                <span className="text-[11px] text-stone-400 font-normal">可寫多件有先後的事；局勢改變時，餘下行動可能被打斷。限 300 字。</span>
               </div>
               <div className="flex gap-2">
                 <input
@@ -815,12 +821,12 @@ export default function GamePage() {
                   onChange={(e) => setCustomInput(e.target.value)}
                   placeholder={gameState.currentLocation === "黑泥街" ? "直接說話，或寫出你要做的事。" : "寫明眼前人物或物件，以及你要做的事。"}
                   maxLength={300}
-                  className="flex-1 bg-[#17130f] border border-[#59432e] rounded-sm px-3 py-2 text-xs md:text-sm focus:outline-none focus:border-[#a68150] text-[#e6d7bd] placeholder:text-[#806f5c] disabled:opacity-50"
+                  className="flex-1 bg-[#17130f] border border-[#59432e] rounded-sm px-3 py-2 text-xs md:text-sm focus:outline-none focus:border-[#a68150] text-stone-200 placeholder:text-stone-500 disabled:opacity-50"
                 />
                 <button
                   type="submit"
                   disabled={loading || !customInput.trim() || !gameState}
-                  className="bg-[#6f4d2a] hover:bg-[#8c6747] border border-[#a47a45] text-[#f0e2c5] px-5 py-2 rounded-sm text-xs md:text-sm font-medium transition disabled:opacity-30 disabled:cursor-not-allowed shadow-inner"
+                  className="bg-[#6f4d2a] hover:bg-[#8c6747] border border-[#a47a45] text-stone-100 px-5 py-2 rounded-sm text-xs md:text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed shadow-inner"
                 >
                   出招
                 </button>
@@ -836,8 +842,8 @@ export default function GamePage() {
               <span className="text-[10px] text-amber-300/80">{gameState?.skill || gameState?.trait}</span>
             </div>
             <div className="text-xs text-stone-400">兵器：<span className="text-stone-200">{gameState?.equippedWeapon === "beef_knife" ? "牛肉刀" : gameState?.equippedWeapon === "rusty_knife" ? "生鏽鐵刀" : gameState?.equippedWeapon === "captured_knife" ? "奪來短刀" : gameState?.equippedWeapon === "wooden_stick" ? "案邊木棍" : "徒手"}</span>
-              {gameState?.equippedWeapon && gameState.equippedWeapon !== "fists" && <span className="ml-2 text-stone-500">耐用 {gameState.weaponDurability}</span>}
-              {gameState?.equippedWeapon === "fists" && (gameState.inventory.includes("【牛肉刀】") || gameState.inventory.includes("【生鏽鐵刀】")) && <span className="ml-2 text-stone-500">藏刀耐用 {gameState.weaponDurability}</span>}
+              {gameState?.equippedWeapon && gameState.equippedWeapon !== "fists" && <span className="ml-2 text-stone-300">耐用 {gameState.weaponDurability}</span>}
+              {gameState?.equippedWeapon === "fists" && (gameState.inventory.includes("【牛肉刀】") || gameState.inventory.includes("【生鏽鐵刀】")) && <span className="ml-2 text-stone-300">藏刀耐用 {gameState.weaponDurability}</span>}
             </div>
             {(gameState?.knownMoves?.mud_step || gameState?.knownMoves?.short_punch || gameState?.knownMoves?.soft_parry || gameState?.knownMoves?.point_strike) ? (
               <div className="text-xs text-stone-400">所學：<span className="text-stone-200">{[
@@ -851,7 +857,7 @@ export default function GamePage() {
             <div>
               <div className="flex justify-between text-xs mb-1">
                 <span className="text-stone-400">氣血</span>
-                <span className="text-stone-300 font-mono">
+                <span className="text-stone-200 font-mono">
                   {gameState?.playerHp ?? 100} / {gameState?.maxHp ?? 100}
                 </span>
               </div>
@@ -868,7 +874,7 @@ export default function GamePage() {
             <div>
               <div className="flex justify-between text-xs mb-1">
                 <span className="text-stone-400">精力</span>
-                <span className="text-stone-300 font-mono">
+                <span className="text-stone-200 font-mono">
                   {gameState?.playerMp ?? 50} / {gameState?.maxMp ?? 50}
                 </span>
               </div>
@@ -904,7 +910,7 @@ export default function GamePage() {
             <div className="wood-panel p-4 space-y-2">
               <div className="flex justify-between items-center text-xs">
                 <span className="font-semibold text-amber-400">江湖因果事跡</span>
-                <span className="text-stone-500 font-mono text-[10px]">{gameState.worldFlags.length} 樁</span>
+                <span className="text-stone-400 font-mono text-[10px]">{gameState.worldFlags.length} 樁</span>
               </div>
               <div className="flex flex-wrap gap-1.5 pt-1">
                 {gameState.worldFlags.map((flag, idx) => (
@@ -933,7 +939,7 @@ export default function GamePage() {
                   <div
                     key={idx}
                     className={`h-14 rounded border flex items-center justify-center p-1.5 text-center text-[11px] leading-tight ${
-                      item ? "border-amber-700/50 bg-stone-800/80 text-amber-200" : "border-stone-800 border-dashed bg-stone-950/40 text-stone-600"
+                      item ? "border-amber-700/50 bg-stone-800/80 text-amber-400" : "border-stone-700 border-dashed bg-stone-950/40 text-stone-500"
                     }`}
                   >
                     {item || "空位"}
@@ -946,7 +952,7 @@ export default function GamePage() {
           <div className="wood-panel p-4 space-y-2 text-xs">
             <div className="flex items-center justify-between mb-2"><div className="font-semibold text-stone-400">城西地標與路程</div>
               <button type="button" onClick={() => setMapOpen(true)} className="text-amber-400 hover:text-amber-200">查看地圖</button></div>
-            <div className="space-y-1.5 text-stone-400">
+            <div className="space-y-1.5 text-stone-300">
               {LANDMARKS.filter((location) => location !== "碼頭" || gameState?.questStep === "chapter_one").map((location) => (
                 <button
                   key={location}
@@ -957,11 +963,12 @@ export default function GamePage() {
                     || (gameState.questStep === "sandbox" && Boolean(gameState.flags.ending))
                     || gameState.currentLocation === location || travelChoices(gameState, location).length === 0}
                   onClick={() => setSelectedDestination(location)}
-                  className={`block w-full text-left py-1 px-2 rounded disabled:opacity-45 ${gameState?.currentLocation === location ? "text-amber-300 bg-stone-800" : "hover:bg-stone-800 hover:text-stone-200"}`}
+                  className={`block w-full text-left py-1 px-2 rounded disabled:opacity-90 ${gameState?.currentLocation === location ? "text-amber-400 bg-stone-800" : "text-stone-300 hover:bg-stone-800 hover:text-stone-100"}`}
                 >
-                  {location}{gameState?.flags.chapterOne?.lostLandmarks?.includes(location) ? " · 失守" : ""}{gameState && gameState.currentLocation === location ? " · 目前所在"
+                  {location}{gameState?.flags.chapterOne?.lostLandmarks?.includes(location) ? " · 失守" : ""}
+                  <span className="text-stone-400">{gameState && gameState.currentLocation === location ? " · 目前所在"
                     : gameState && travelChoices(gameState, location).length > 0
-                      ? " · 路途費時" : " · 尚未開放"}
+                      ? " · 路途費時" : " · 尚未開放"}</span>
                 </button>
               ))}
             </div>

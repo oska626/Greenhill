@@ -32,7 +32,7 @@ export function FactionsModal({ open, onOpenChange }: FactionsModalProps) {
                 <h3 className="font-serif text-lg text-[#f0e2c5]">{faction.name}</h3>
                 <span className="text-xs tracking-widest text-amber-500">{faction.region}</span>
               </div>
-              <p className="mb-2 text-xs text-[#a98d69]">主事 · {faction.leader}</p>
+              <p className="mb-2 text-xs text-stone-300">主事 · {faction.leader}</p>
               <p className="text-sm leading-6 text-[#d9c9ab]">{faction.description}</p>
             </article>
           ))}
