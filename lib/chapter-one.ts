@@ -6,6 +6,7 @@ import { PACKED_MEDICINE, USE_PACKED_MEDICINE, USE_HEMOSTATIC_POWDER,
 import { actionEnergyCost, availableWithEnergy, canAffordEnergy, spendEnergy } from "./energy.ts";
 import { travelChoices } from "./city-progression.ts";
 import type { GameState, Landmark, TurnResult } from "./game-engine.ts";
+import { conciseOption } from "./option-text.ts";
 
 export type ChapterOneStage = "rest" | "shortage" | "dock" | "complete" | "failed";
 export const RAID_UNREST_THRESHOLD = 20;
@@ -30,7 +31,8 @@ export interface ChapterOneState {
   result?: string;
 }
 
-export const CHAPTER_START = "A. [踏入第一章] 回到青鋒堂總壇，與同伴休整並盤點城西生意。";
+export const CHAPTER_START = "A. [踏入第一章] 返回總壇盤點生意";
+export const CHAPTER_RECAP = "A. [回顧結局] 查看本章收局";
 export const CHAPTER_OPENING = `你回到青鋒堂總壇，見市販捧著銅錢踏進堂門。眾人說黑泥街的攤位已重新架好，願加繳半個月規費；何不歸當面致謝，逐筆列入公帳。
 
 你站在公匣旁，聽腳夫說貨車已重新上路，傷者也有人照料。城西暫獲喘息，碼頭貨路卻仍須有人盯守；堂主把帳簿推到你面前，等你盤點下一步。`;
@@ -64,7 +66,7 @@ const companionChoices = (state: GameState): string[] => {
   if (state.flags.chapterOne?.selectedCompanion) return [];
   const leads = state.flags.prologueCompanionLeads || [];
   return COMPANION_IDS.filter((name) => leads.includes(name) && (name !== "容晚秋" || state.silver >= 10))
-    .map((name) => `B. [選同伴：${name}] ${COMPANION_TRADEOFFS[name]}`);
+    .map((name) => `B. [選同伴：${name}] 與${name}同行`);
 };
 export function chapterPressureForecast(state: GameState): { loss: number; tributeIn: number | null; tributeCost: number; unrestGain: number } | null {
   const chapter = state.flags.chapterOne;
@@ -76,20 +78,20 @@ export function chapterPressureForecast(state: GameState): { loss: number; tribu
       : 1 + Math.floor(chapter.foodShortageDays / 4) + (state.factionFunds <= loss ? 1 : 0) };
 }
 const REST_OPTIONS = [
-  "A. [療傷調息] 在總壇休整一回合，氣血與精力各回復上限的20%。",
-  "C. [核對貨帳] 先看城西貨運帳，記下糧藥應到的日期。",
-  "D. [照料街坊] 請堂主從公款撥五文助傷者，鞏固街坊信任。",
-  "E. [巡視街口] 看城東來的車有否照常通過，記下異動。",
+  "A. [療傷調息] 在總壇休養調息",
+  "C. [核對貨帳] 核對城西貨運帳",
+  "D. [照料街坊] 請堂主照料傷者",
+  "E. [巡視街口] 巡視城東來的貨車",
 ];
 const SHORTAGE_OPTIONS = [
-  "A. [查黑泥街] 到市集查受斷貨影響的攤檔。",
-  "B. [查鬼骰坊] 到賭坊核對運費與客流。",
-  "C. [查苦煙館] 到藥館核對傷藥供應。",
-  "D. [查夜雨樓] 到樓內查酒水與來客。",
-  "E. [問接應] 請仍願幫忙的同伴指出最可疑的帳目。",
+  "A. [查黑泥街] 查市集斷貨攤檔",
+  "B. [查鬼骰坊] 核對賭坊運費帳",
+  "C. [查苦煙館] 核對藥館傷藥供應",
+  "D. [查夜雨樓] 查夜雨樓酒水貨車",
+  "E. [問接應] 問同伴可疑貨帳",
 ];
-const RECOVER_OPTION = "R. [總壇休養] 返回總壇休養一回合，氣血與精力各回復上限的20%；斷貨壓力照常增加。";
-const DEFEND_OPTION = "G. [派人守街] 請堂主支八文公款增派守街人手，民怨減八；耗一回合，斷貨壓力照常增加。";
+const RECOVER_OPTION = "R. [總壇休養] 返回總壇休養";
+const DEFEND_OPTION = "G. [派人守街] 請堂主派人守街";
 
 const remember = (state: GameState, flag: string) => {
   if (!state.worldFlags.includes(flag)) state.worldFlags.push(flag);
@@ -114,10 +116,11 @@ const finishTurn = (state: GameState, event: string): TurnResult => {
   return { state, event, options: chapterOneOptions(state), moneyNote: "" };
 };
 
-export function chapterOneOptions(state: GameState): string[] {
-  if (state.questStep !== "chapter_one") return state.flags.ending === "守住城西" ? [CHAPTER_START] : [];
+function rawChapterOneOptions(state: GameState): string[] {
+  if (state.questStep !== "chapter_one") return state.flags.ending === "守住城西" ? [CHAPTER_START]
+    : state.flags.ending ? [CHAPTER_RECAP] : [];
   const chapter = state.flags.chapterOne;
-  if (!chapter || chapter.stage === "complete" || chapter.stage === "failed") return [];
+  if (!chapter || chapter.stage === "complete" || chapter.stage === "failed") return [CHAPTER_RECAP];
   const medicineOptions = [...(canUsePackedMedicine(state) ? [USE_PACKED_MEDICINE] : []),
     ...(canUseHemostaticPowder(state) ? [USE_HEMOSTATIC_POWDER] : [])];
   if (chapter.stage === "rest") return availableWithEnergy(state, [REST_OPTIONS[0], ...companionChoices(state), ...REST_OPTIONS.slice(1),
@@ -132,22 +135,26 @@ export function chapterOneOptions(state: GameState): string[] {
   const travel = travelChoices(state, destination).map((route) => route.label);
   if (state.currentLocation !== "碼頭") return availableWithEnergy(state, [
     ...companionChoices(state),
-    "C. [僱船工] 請堂主從公款支十五文僱船工，摸清可通碼頭的水路。",
+    "C. [僱船工] 僱船工探水路",
     ...(state.factionFunds >= 8 ? [DEFEND_OPTION] : []),
     RECOVER_OPTION,
     ...travel,
     ...medicineOptions,
   ]);
   return availableWithEnergy(state, [
-    `A. [查碼頭貨單] 核對被扣糧藥車數；目前證據${chapter.evidence}點，首次查可多得一點。`,
-    "D. [夜探碼頭] 耗兩點精力，探明進港路線；可能受傷，顧忘生同行可減傷。",
-    `E. [硬奪碼頭] 耗兩點精力，勝後受傷並回收八文公款；須有${chapter.selectedCompanion === "霍破陣" ? "兩" : "三"}點證據及接應或路線。目前證據${chapter.evidence}點、同伴${chapter.selectedCompanion || "未選"}。`,
+    "A. [查碼頭貨單] 核對被扣糧車數目",
+    "D. [夜探碼頭] 潛入探明進港路線",
+    "E. [硬奪碼頭] 帶人強行奪回碼頭",
     ...(readyToRetake && state.playerMp >= 6
-      ? ["G. [運勁奪港] 耗六點精力穩住陣腳與貨箱；勝後不受傷，回收十二文公款。"] : []),
+      ? ["G. [運勁奪港] 運勁奪回碼頭"] : []),
     ...(!chapter.dockRouteKnown && state.playerMp >= 4
-      ? ["I. [運步夜探] 耗四點精力避開刀鋒，探明進港路線並減少受傷。"] : []),
+      ? ["I. [運步夜探] 運步探明碼頭路線"] : []),
     ...medicineOptions, ...travel,
   ]);
+}
+
+export function chapterOneOptions(state: GameState): string[] {
+  return rawChapterOneOptions(state).map(conciseOption);
 }
 
 function collectPressure(state: GameState, chapter: ChapterOneState, amount: number): string {
@@ -217,6 +224,10 @@ function selectCompanion(state: GameState, chapter: ChapterOneState, action: str
 export function resolveChapterOne(state: GameState, action: string, spendCustomUse = false): TurnResult {
   const options = chapterOneOptions(state);
   if (!options.includes(action)) return finishTurn(state, "眼前只能從列出的做法中擇一。");
+  action = rawChapterOneOptions(state).find((option) => conciseOption(option) === action) || action;
+  if (action === CHAPTER_RECAP) return finishTurn(state, state.questStep === "chapter_one"
+    ? `第一章〈碼頭斷貨〉已收局：${state.flags.chapterOne?.result || "城西貨路未定"}。`
+    : `城西序章已收局：${state.flags.ending}。`);
   if (spendCustomUse && state.customActionUses === 0) return finishTurn(state, "機變次數已用盡，先處理眼前的線索。");
   if (spendCustomUse) state.customActionUses -= 1;
   if (state.questStep !== "chapter_one") {

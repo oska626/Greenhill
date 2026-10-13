@@ -1,7 +1,7 @@
 import { STARTING_DARK_HAND } from "./dirty-hand.ts";
 
 export const STARTING_ITEMS_BY_BACKGROUND = {
-  debt_collector: ["【灌鉛假骰】", "【催債短木令】", "【開鎖鐵線】", "【止血散】"],
+  debt_collector: ["【灌鉛假骰】", "【催債短棍】", "【開鎖鐵線】", "【止血散】"],
   doc_assistant: ["【止血散】", "【行醫薄刃】", "【艾草藥條】", "【粗鐵護腕】"],
   pickpocket: ["【開鎖鐵線】", "【割包小薄刀】", "【爛布蒙面巾】", "【止血散】"],
   martial_dropout: ["【粗鐵護腕】", "【破舊纏手布】", "【行氣散】", "【開鎖鐵線】"],

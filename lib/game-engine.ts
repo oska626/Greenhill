@@ -17,6 +17,7 @@ import { DARK_HAND_LIMIT, DARK_HAND_PRICE, STARTING_DARK_HAND, SCAVENGE_SOURCES,
   darkHandPurchaseOptions, dirtyHandModifier, dirtyHandOptionMove, dirtyHandTier, dirtyHandVerb, isDarkHand,
   readyDarkHand, rollD20, type DarkHandItem } from "./dirty-hand.ts";
 import { LANDMARK_SCENES, normalizeSceneState, objectStatus, openEntrance, revealEntrance, type SceneState } from "./scene-state.ts";
+import { conciseOption } from "./option-text.ts";
 
 export const PROLOGUE_LANDMARKS = [
   "青鋒堂總壇", "晚秋茶寮", "黑泥街", "鬼骰坊", "裂石擂", "苦煙館", "夜雨樓",
@@ -138,8 +139,7 @@ function alleyOptions(state: GameState): string[] {
       "C. [扯籮阻路] 踢落竹籮絆住追兵，再從牆背落地；若被扯住便要掛彩。",
     ];
     const item = readyDarkHand(state.inventory, false);
-    if (item && state.playerMp >= 1) options.push(`I. [袖藏暗手] ${dirtyHandOptionMove(item)}；趁守巷刀手遮眼翻到牆背。`);
-    if (item && state.playerMp >= 2) options.push(`J. [全力陰手] 拼著挨刀也要${dirtyHandOptionMove(item)}；逼開守巷刀手再翻牆。`);
+    if (item && state.playerMp >= 1) options.push(`I. [${item === STARTING_DARK_HAND ? "撒生石灰" : "施放暗手"}] ${dirtyHandOptionMove(item)}攻刀手`);
     return availableWithEnergy(state, options);
   }
   const options = [
@@ -153,8 +153,7 @@ function alleyOptions(state: GameState): string[] {
   if (state.flags.alleyAllyPresent && !state.relationships["陸千帆"].wounded)
     options.splice(3, 0, "D. [交畀陸千帆] 讓陸千帆選攀牆時機；他能走動，卻會牽動舊傷。");
   const item = readyDarkHand(state.inventory, false);
-  if (item && state.playerMp >= 1) options.push(`I. [袖藏暗手] ${dirtyHandOptionMove(item)}；賭刀手失位一瞬，踩竹籮翻牆。`);
-  if (item && state.playerMp >= 2) options.push(`J. [全力陰手] 拼著掛彩也要${dirtyHandOptionMove(item)}；逼退刀手，踩竹籮翻牆。`);
+  if (item && state.playerMp >= 1) options.push(`I. [${item === STARTING_DARK_HAND ? "撒生石灰" : "施放暗手"}] ${dirtyHandOptionMove(item)}攻刀手`);
   return availableWithEnergy(state, options);
 }
 
@@ -756,8 +755,9 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
     return resolveChapterOne(state, action, false);
   }
   if (state.flags.finalCrisis) {
-    if (!ENDING_OPTIONS.includes(action)) return { state, options: ENDING_OPTIONS, event: "玄武樓已壓到城西門前。你須決定青鋒堂最後的去路。", moneyNote: "" };
-    const event = resolveEnding(state, action);
+    const endingAction = ENDING_OPTIONS.find((option) => option === action || conciseOption(option) === action);
+    if (!endingAction) return { state, options: availableOptions(state), event: "玄武樓已壓到城西門前。你須決定青鋒堂最後的去路。", moneyNote: "" };
+    const event = resolveEnding(state, endingAction);
     return { state, options: chapterOneOptions(state), event, moneyNote: "" };
   }
   if (!opening && state.flags.pendingIncident && customAction(action))
@@ -772,7 +772,7 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
     const routeTravel = state.questStep === "sandbox" && !state.combat && !state.flags.pendingIncident
       && !state.flags.alleyEscape && !state.flags.alleyWall && !state.flags.marketAftermath && LANDMARKS.some((destination) =>
       travelChoices(state, destination).some((route) => route.label === action));
-    const exactOnly = /\[(?:袖藏暗手|全力陰手|硬闖街口|伏低護人|伏低保命|踢翻餿水桶|踩籮翻牆|交畀陸千帆|撞開刀手|借牆脫身|扯籮阻路|檢視傷勢|裹緊傷口|伏巷警戒|盤問張斷骨|安頓收隊|搜刮殘局|封住退路|離巷收隊)\]/.test(action);
+    const exactOnly = /\[(?:撒生石灰|施放暗手|袖藏暗手|全力陰手|硬闖街口|伏低護人|伏低保命|踢翻餿水桶|踩籮翻牆|交畀陸千帆|撞開刀手|借牆脫身|扯籮阻路|檢視傷勢|裹緊傷口|伏巷警戒|盤問張斷骨|安頓收隊|搜刮殘局|封住退路|離巷收隊)\]/.test(action);
     if (!options.includes(action) && !(key && !exactOnly && options.some((option) => option.startsWith(key)))
       && !legacyTravel && !routeTravel)
       return { state, options, event: "眼前不能採取這項行動。", moneyNote: "" };
@@ -801,9 +801,11 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
   const startingEnergy = state.playerMp;
   const startingLocation = state.currentLocation;
   const wasInCombat = Boolean(state.combat || state.questStep === "huizhi_ambush");
-  const travelTarget = /^F\. \[(?:明路前往|暗道前往|前往)\] ([^（]+)/.exec(action)?.[1] as Landmark | undefined;
+  const selectedTravel = LANDMARKS.flatMap((destination) => travelChoices(state, destination))
+    .find((route) => route.label === action);
+  const travelTarget = selectedTravel?.destination || /^F\. \[前往\] (.+)$/.exec(action)?.[1] as Landmark | undefined;
   const quotedTurns = Number(/(?:共)?(\d+)回合/.exec(action)?.[1] || 0);
-  const plannedTurns = quotedTurns || (travelTarget && LANDMARKS.includes(travelTarget)
+  const plannedTurns = selectedTravel?.turns || quotedTurns || (travelTarget && LANDMARKS.includes(travelTarget)
     ? travelChoices(state, travelTarget)[0]?.turns || 1 : 1);
   const energyCost = creative
     ? creative.goal === "做工" || creative.goal === "牽制" ? 3
@@ -830,9 +832,11 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
     if (freeAttempt?.effect === "seize" && freeAttempt.object === "刀手短刀") disarmAttempt = true;
     const wasMarketAmbush = state.combat.scenario === "market_ambush";
     const weaponBefore = state.equippedWeapon || "fists";
-    const usingDarkHand = /\[(?:袖藏暗手|全力陰手)\]/.test(action);
-    const guaranteed = action.includes("[全力陰手]");
-    const darkItem = usingDarkHand ? readyDarkHand(state.inventory) : undefined;
+    const usingDarkHand = /\[(?:撒生石灰|施放暗手|袖藏暗手|全力陰手)\]/.test(action);
+    const guaranteed = action.includes("[全力陰手]")
+      || usingDarkHand && state.playerMp >= 2 && state.playerHp <= Math.ceil(state.maxHp * 0.3);
+    const darkItem = usingDarkHand ? state.inventory.includes(STARTING_DARK_HAND)
+      ? STARTING_DARK_HAND : readyDarkHand(state.inventory) : undefined;
     if (usingDarkHand && darkItem) state.inventory.splice(state.inventory.indexOf(darkItem), 1);
     const selectedTerrain = terrainObject || (wasMarketAmbush && action.includes("[扯鐵鉤]") ? "懸肉鐵鉤"
       : wasMarketAmbush && action.includes("[推砧板]") ? "厚砧板" : undefined);
@@ -1042,8 +1046,8 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
     state.combat = fight;
     if (!state.worldFlags.includes("救下陸千帆")) state.relationships["陸千帆"].wounded = true;
   } else if (state.flags.alleyEscape) {
-    const item = /\[(?:袖藏暗手|全力陰手)\]/.test(action) ? readyDarkHand(state.inventory, false) : undefined;
-    const guaranteed = action.includes("[全力陰手]");
+    const item = /\[(?:撒生石灰|施放暗手)\]/.test(action) ? readyDarkHand(state.inventory, false) : undefined;
+    const guaranteed = Boolean(item && state.playerMp >= 2 && state.playerHp <= Math.ceil(state.maxHp * 0.3));
     const tier = item ? dirtyHandTier(rollD20(state, action), dirtyHandModifier(state), guaranteed) : undefined;
     if (item) {
       state.inventory.splice(state.inventory.indexOf(item), 1);
@@ -1311,9 +1315,9 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
       npcReply = { speaker: "陸千帆", line: "帳是平了。這條街的人可未必肯認你。" };
     } else {
     const travel = /^F\. \[前往\] (.+)$/.exec(action);
-    const routeTravel = /^F\. \[(明路前往|暗道前往)\] (.+?)（/.exec(action);
+    const routeTravel = selectedTravel;
     const movement = customAction(action) && /前往|走去|走到|抵達|潛入|闖入|進入/.test(action);
-    const destination = routeTravel?.[2] || travel?.[1] || (movement ? LANDMARKS.find((place) => action.includes(place)) : undefined);
+    const destination = routeTravel?.destination || travel?.[1] || (movement ? LANDMARKS.find((place) => action.includes(place)) : undefined);
     if (destination && LANDMARKS.includes(destination as Landmark)) {
       const routes = travelChoices(state, destination as Landmark);
       const selected = routeTravel ? routes.find((route) => route.label === action) : routes[0];
@@ -2156,7 +2160,8 @@ export function resolveMarketIntent(rawState: GameState, plan: MarketIntent): Tu
     const combatLetter = plan.approach === "脫身" ? "E"
       : plan.approach === "救護" || plan.approach === "防守" ? "B"
         : plan.approach === "借物" ? "C" : plan.approach === "查探" || plan.approach === "交涉" ? "D" : "A";
-    const option = usingDarkHand ? withTag(/全力|拼命|豁出去/.test(plan.method) ? "全力陰手" : "袖藏暗手")
+    const option = usingDarkHand ? options.find((item) => item.startsWith("I. [撒生石灰]")
+      || item.startsWith("I. [施放暗手]"))
       : state.combat ? options.find((item) => item.startsWith(`${combatLetter}.`)) : withTag(tag);
     if (!option) return rejected("眼前無法用這件物事達成所想；換個貼近當前身位的手段。 ");
     const terrainObject = state.combat && plan.approach === "借物" && ["厚砧板", "懸肉鐵鉤", "剁骨刀"].includes(plan.object || "")
@@ -2330,13 +2335,14 @@ function marketCollectionOptions(state: GameState): string[] {
         ? "C. [暗查巷口] 沿已知刀手位置再查動靜。" : option);
 }
 
-export function availableOptions(state: GameState): string[] {
+function rawAvailableOptions(state: GameState): string[] {
   if (state.questStep === "chapter_one" || state.flags.ending) return chapterOneOptions(state);
   if (state.flags.finalCrisis) return ENDING_OPTIONS;
   if (state.combat || state.questStep === "huizhi_ambush") {
     const combat = state.combat || createCombat("market_ambush", !state.worldFlags.includes("出賣陸千帆"));
     const options = combatOptions(combat, state.equippedWeapon || "fists", state.knownMoves || {}, state.playerMp,
-      !state.inventory.includes("【牛肉刀】") && !state.inventory.includes("【生鏽鐵刀】") && !state.inventory.includes("【奪來短刀】"), readyDarkHand(state.inventory));
+      !state.inventory.includes("【牛肉刀】") && !state.inventory.includes("【生鏽鐵刀】") && !state.inventory.includes("【奪來短刀】"),
+      state.inventory.includes(STARTING_DARK_HAND) ? STARTING_DARK_HAND : readyDarkHand(state.inventory));
     if (combat.scenario === "market_ambush") {
       const scene = normalizeSceneState(state.sceneState, state.worldFlags);
       const terrain = !scene.movedObjects["懸肉鐵鉤"] && !scene.depletedSources.includes("懸肉鐵鉤")
@@ -2460,4 +2466,8 @@ export function availableOptions(state: GameState): string[] {
   return availableWithEnergy(state, [...base, ...missionOptions(state), ...training, ...sideWork,
     ...(canUsePackedMedicine(state) ? [USE_PACKED_MEDICINE] : []),
     ...(canUseHemostaticPowder(state) ? [USE_HEMOSTATIC_POWDER] : [])]);
+}
+
+export function availableOptions(state: GameState): string[] {
+  return rawAvailableOptions(state).map(conciseOption);
 }

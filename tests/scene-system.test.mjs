@@ -206,7 +206,9 @@ test("active arena combat and city incidents hide ordinary jobs", () => {
 
 test("combat choices use scene actions while costs stay in system labels", () => {
   const market = combatOptions(createCombat("market_ambush", true), "fists", {}, 40, true, "【生石灰包】");
-  assert.equal(market.length, 7);
+  assert.equal(market.length, 6);
+  assert.ok(market.some((option) => option.startsWith("I. [撒生石灰]")));
+  assert.equal(market.some((option) => option.startsWith("J.")), false);
   assert.ok(market.some((option) => option.includes("案邊木棍")));
   assert.ok(market.some((option) => option.includes("陸千帆")));
   assert.ok(market.some((option) => option.includes("生石灰")));
@@ -229,12 +231,27 @@ test("dark hand is physical, limited, consumed and has a paid guarantee", () => 
   assert.equal(dirtyHandTier(1, 0, true), "ordinary");
   assert.equal(dirtyHandTier(18, 0, true), "great");
   assert.equal(rollD20(base, "暗手"), rollD20(base, "暗手"));
-  const fighting = game({ questStep: "huizhi_ambush", combat: createCombat("market_ambush", true) });
-  const trick = availableOptions(fighting).find((option) => option.includes("[全力陰手]"));
+  const fighting = game({ questStep: "huizhi_ambush", combat: createCombat("market_ambush", true), playerHp: 10,
+    inventory: ["【生石灰包】"] });
+  const trick = availableOptions(fighting).find((option) => option.includes("[撒生石灰]"));
   const outcome = resolveTurn(fighting, trick, false);
   assert.equal(darkHandCount(outcome.state.inventory), 0);
   assert.equal(outcome.state.playerMp, 38);
   assert.equal(outcome.state.combat, undefined);
+});
+
+test("one combat dark-hand choice switches to a desperate strike at low health", () => {
+  const scene = game({ questStep: "huizhi_ambush", combat: createCombat("market_ambush", true),
+    inventory: ["【生石灰包】"], playerHp: 30, playerMp: 40 });
+  const choice = availableOptions(scene).find((option) => option.startsWith("I. [撒生石灰]"));
+  assert.ok(choice);
+  assert.equal(availableOptions(scene).filter((option) => /^[IJ]\. /.test(option)).length, 1);
+  const ordinary = resolveTurn(scene, choice, false);
+  const desperate = resolveTurn({ ...scene, playerHp: 10 }, choice, false);
+  assert.equal(ordinary.state.playerMp, 39);
+  assert.equal(desperate.state.playerMp, 38);
+  assert.equal(ordinary.state.inventory.includes("【生石灰包】"), false);
+  assert.equal(desperate.state.inventory.includes("【生石灰包】"), false);
 });
 
 test("three passage entrances connect only after discovery", () => {

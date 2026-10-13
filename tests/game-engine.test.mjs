@@ -432,7 +432,7 @@ test("ambush tactics have distinct costs and a saved game receives current optio
   const ambush = { ...newGame(), questStep: "huizhi_ambush", currentLocation: "黑泥街" };
   const outcomes = availableOptions(ambush).map((option) => resolveTurn(ambush, option, false));
   assert.ok(new Set(outcomes.map((result) => `${result.state.playerHp}:${result.state.playerMp}`)).size >= 5);
-  assert.ok(availableOptions(ambush).some((option) => option.includes("[袖藏暗手]")));
+  assert.ok(availableOptions(ambush).some((option) => option.includes("[撒生石灰]")));
   assert.ok(outcomes[4].state.worldFlags.includes("市集伏擊撤守"));
   assert.ok(outcomes[4].state.sectLifeline < ambush.sectLifeline);
   const restored = normalizeState({ ...ambush, questStep: "sandbox", worldFlags: ["張斷骨欠費三十文"] });
@@ -637,7 +637,7 @@ test("every market raid choice previews and arrives at the meat stall", () => {
     flags: { ...newGame().flags, pendingIncident: "market_raid" } };
   const options = availableOptions(base);
   for (const option of options) {
-    assert.match(option, /須赴黑泥街/);
+    assert.ok(option.replace(/^[A-Z]\. \[[^\]]+\]\s*/, "").length <= 12);
     const turn = resolveTurn(base, option, false);
     assert.equal(turn.state.currentLocation, "黑泥街");
     assert.match(turn.event, /^你沿明路趕到黑泥街/);
@@ -879,8 +879,9 @@ test("clinic medicine can be carried, consumes a slot, and heals when used", () 
   assert.equal(stocked.state.inventory.includes(PACKED_MEDICINE), true);
   assert.equal(stocked.state.inventory.length, clinic.inventory.length + 1);
   assert.equal(stocked.state.playerHp, 50);
-  assert.equal(stocked.options.includes(USE_PACKED_MEDICINE), true);
-  const healed = resolveTurn(stocked.state, USE_PACKED_MEDICINE, false);
+  const medicine = stocked.options.find((option) => option.startsWith("H. [服用療傷藥]"));
+  assert.ok(medicine);
+  const healed = resolveTurn(stocked.state, medicine, false);
   assert.equal(healed.state.turn, stocked.state.turn + 1);
   assert.equal(healed.state.inventory.includes(PACKED_MEDICINE), false);
   assert.equal(healed.state.playerHp, 50 + Math.ceil(clinic.maxHp * 0.35));
@@ -978,7 +979,8 @@ test("zero lifeline opens a final choice and failed ending closes chapter access
   const collapse = resolveTurn(crisis.state, crisis.options[0], false);
   assert.equal(collapse.state.flags.ending, "城西陷落");
   assert.match(collapse.event, /守街名冊/);
-  assert.deepEqual(collapse.options, []);
+  assert.equal(collapse.options.length, 1);
+  assert.match(collapse.options[0], /回顧結局/);
   const repeated = resolveTurn(collapse.state, "A. [休整]", false);
   assert.equal(repeated.state.turn, collapse.state.turn);
   const lastStand = resolveTurn({ ...crisis.state, worldFlags: MISSIONS.map((mission) => mission.clue) }, crisis.options[0], false);

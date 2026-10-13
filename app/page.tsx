@@ -393,11 +393,12 @@ export default function GamePage() {
     ? gameState?.flags.treasuryChange : undefined;
   const chapterForecast = gameState ? chapterPressureForecast(gameState) : null;
   const darkHandOptions = gameState && (gameState.combat || gameState.flags.alleyEscape)
-    ? options.filter((option) => /^[IJ]\. \[(?:袖藏暗手|全力陰手)\]/.test(option)) : [];
+    ? options.filter((option) => /^[IJ]\. \[(?:撒生石灰|施放暗手|袖藏暗手|全力陰手)\]/.test(option)) : [];
   const primaryOptions = darkHandOptions.length
     ? options.filter((option) => !darkHandOptions.includes(option)) : options;
   const darkHandItem = darkHandOptions.length && gameState
-    ? readyDarkHand(gameState.inventory, !gameState.flags.alleyEscape) : undefined;
+    ? gameState.combat && gameState.inventory.includes(STARTING_DARK_HAND) ? STARTING_DARK_HAND
+      : readyDarkHand(gameState.inventory, !gameState.flags.alleyEscape) : undefined;
 
   if (view === "creation") {
     const curBg = BACKGROUNDS.find((b) => b.id === selectedBgId) || BACKGROUNDS[0];
@@ -500,8 +501,8 @@ export default function GamePage() {
           )}
 
           <div className="space-y-1.5 border-t border-[#4a3727] pt-3">
-            <p className="text-xs text-[#bca887]">江湖防身：自備<span className="text-amber-300">{STARTING_DARK_HAND}</span>（暗手）</p>
-            <label htmlFor="starting-item" className="block text-xs font-semibold tracking-wider text-[#c6ab82]">另選一件隨身防身物（4選1）</label>
+            <p className="text-xs text-[#bca887]">江湖防身：系統自備<span className="text-amber-300">{STARTING_DARK_HAND}</span></p>
+            <label htmlFor="starting-item" className="block text-xs font-semibold tracking-wider text-[#c6ab82]">另選一件隨身物（4選1）</label>
             <select id="starting-item" value={startingItems[1]} onChange={(e) => setSelectedStartingItem(e.target.value)}
               className="w-full rounded-sm border border-[#59432e] bg-[#17130f] px-3 py-2 text-sm text-[#e6d7bd] focus:outline-none focus:border-[#a68150]">
               {startingChoices.map((item) => <option key={item} value={item}>{item}</option>)}
@@ -723,7 +724,7 @@ export default function GamePage() {
                 <div>同行同伴：{gameState.flags.chapterOne?.selectedCompanion || "未選；只可選一位"}。</div>
               </div>
             )}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div className={gameState?.combat ? "flex flex-col gap-2" : "grid grid-cols-1 md:grid-cols-2 gap-2"}>
               {primaryOptions.map((opt, idx) => (
                 <button
                   key={idx}
@@ -734,7 +735,9 @@ export default function GamePage() {
                   {showActionWithoutTurnCount(opt)}
                   {gameState && <span className="block mt-1 text-[11px] text-[#a98d69]">
                     {(() => {
-                      const turns = Number(/(?:共)?(\d+)回合/.exec(opt)?.[1] || 1);
+                      const route = LANDMARKS.flatMap((destination) => travelChoices(gameState, destination))
+                        .find((choice) => choice.label === opt);
+                      const turns = route?.turns || Number(/(?:共)?(\d+)回合/.exec(opt)?.[1] || 1);
                       const cost = actionEnergyCost(gameState, opt, turns);
                       const travel = /\[(?:明路前往|暗道前往|前往)\]/.test(opt);
                       const duration = turns > 1 ? " · 耗時較長" : "";
@@ -743,7 +746,7 @@ export default function GamePage() {
                           ? `精力 -${gameState.playerMp} · 氣血 -${2 * (cost - gameState.playerMp)}${duration}`
                         : gameState.playerMp === 0 && cost === 1 ? "精力耗盡 · 氣血 -2"
                           : `精力 -${cost}${turns > 1 ? duration : ""}`;
-                      const item = /\[(?:袖藏暗手|全力陰手)\]/.test(opt)
+                      const item = /\[(?:撒生石灰|施放暗手|袖藏暗手|全力陰手)\]/.test(opt)
                         ? readyDarkHand(gameState.inventory, !gameState.flags.alleyEscape) : undefined;
                       return `${costText}${item ? ` · 用掉${item}` : ""}`;
                     })()}
@@ -759,14 +762,15 @@ export default function GamePage() {
                 </span>
                 <div className="flex flex-wrap gap-1.5">
                   {darkHandOptions.map((opt) => {
-                    const desperate = opt.startsWith("J.");
-                    const cost = actionEnergyCost(gameState, opt);
+                    const desperate = opt.startsWith("J.") || Boolean(gameState.combat
+                      && gameState.playerMp >= 2 && gameState.playerHp <= Math.ceil(gameState.maxHp * 0.3));
+                    const cost = gameState.combat && desperate ? 2 : actionEnergyCost(gameState, opt);
                     return (
                       <button key={opt} type="button" disabled={loading} onClick={() => handleAction(opt)}
                         title={opt}
                         aria-label={`${desperate ? "拼命" : "普通"}暗手：${opt}，精力減 ${cost}${darkHandItem ? `，用掉${darkHandItem}` : ""}`}
                         className="rounded-sm border border-[#765739] bg-[#251b13] px-2.5 py-1.5 text-xs text-[#e6d7bd] shadow-inner transition hover:border-[#a68150] hover:bg-[#342416] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40">
-                        <span className="font-semibold">{desperate ? "拼命" : "普通"}</span>
+                        <span className="font-semibold">{opt}</span>
                         <span className="ml-1.5 text-[#b39a78]">精力 −{cost}</span>
                       </button>
                     );

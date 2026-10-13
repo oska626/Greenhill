@@ -33,7 +33,7 @@ function chooseCompanion(state, name) {
 }
 
 function travelTo(state, destination) {
-  const action = availableOptions(state).find((option) => option.startsWith(`F. [明路前往] ${destination}（`));
+  const action = availableOptions(state).find((option) => option === `F. [明路前往] 前往${destination}`);
   assert.ok(action, `${destination} should be reachable`);
   return resolveTurn(state, action, false);
 }
@@ -51,7 +51,7 @@ function inspectAffected(state) {
 
 test("only the successful prologue ending unlocks the authored chapter opening", () => {
   for (const ending of ["城西陷落", "割地求存", "獨自撤走"])
-    assert.deepEqual(availableOptions(finished(ending)), []);
+    assert.match(availableOptions(finished(ending))[0], /回顧結局/);
   const start = choose(finished(), "A");
   assert.equal(start.event, CHAPTER_OPENING);
   assert.match(start.event, /^你回到青鋒堂總壇/);
@@ -233,8 +233,9 @@ test("Liu can persuade the city with two grounded evidence points and paid tribu
 test("carried medicine remains usable during shortage and counts as a pressured turn", () => {
   const shortage = calmToShortage();
   const before = { ...shortage.state, inventory: [PACKED_MEDICINE], playerHp: 30, playerMp: 5 };
-  assert.equal(availableOptions(before).includes(USE_PACKED_MEDICINE), true);
-  const healed = resolveTurn(before, USE_PACKED_MEDICINE, false);
+  const medicine = availableOptions(before).find((option) => option.startsWith("H. [服用療傷藥]"));
+  assert.ok(medicine);
+  const healed = resolveTurn(before, medicine, false);
   assert.equal(healed.state.turn, before.turn + 1);
   assert.equal(healed.state.playerHp, Math.min(before.maxHp, before.playerHp + 35));
   assert.equal(healed.state.playerMp, Math.min(before.maxMp, before.playerMp + 18));
@@ -312,7 +313,7 @@ test("three lost landmarks end the chapter, including midway through travel", ()
   assert.equal(loss.state.flags.chapterOne.stage, "failed");
   assert.equal(loss.state.flags.chapterOne.result, "城西地標陷落");
   assert.equal(loss.state.flags.chapterOne.lostLandmarks.length, MAX_LOST_LANDMARKS);
-  assert.deepEqual(availableOptions(loss.state), []);
+  assert.match(availableOptions(loss.state)[0], /回顧結局/);
   const travelling = travelTo(structuredClone(doomed), "碼頭");
   assert.equal(travelling.state.currentLocation, "青鋒堂總壇");
   assert.equal(travelling.state.flags.chapterOne.stage, "failed");
@@ -339,7 +340,11 @@ test("evidence and a companion can restore dock logistics", () => {
   assert.equal(won.state.flags.chapterOne.stage, "complete");
   assert.equal(won.state.flags.chapterOne.result, "奪回碼頭");
   assert.ok(won.state.worldFlags.includes("第一章碼頭復航"));
-  assert.deepEqual(won.options, []);
+  assert.equal(won.options.length, 1);
+  assert.match(won.options[0], /回顧結局/);
+  const recap = resolveTurn(won.state, won.options[0], false);
+  assert.equal(recap.state.turn, won.state.turn);
+  assert.match(recap.event, /奪回碼頭/);
 });
 
 test("a prepared water route restores the dock without inventing a companion", () => {

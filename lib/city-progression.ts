@@ -2,6 +2,7 @@ import type { GameState, Landmark } from "./game-engine.ts";
 import { CUSTOM_ACTION_MAX } from "./custom-action.ts";
 import { applyMissionRelationship, companionLeads } from "./companion-relations.ts";
 import { normalizeSceneState, revealEntrance } from "./scene-state.ts";
+import { conciseOption } from "./option-text.ts";
 
 type Route = { from: Landmark; to: Landmark; turns: number };
 const ROADS: Route[] = [
@@ -60,15 +61,13 @@ export function travelChoices(state: GameState, destination: Landmark): TravelCh
       || !["青鋒堂總壇", "碼頭"].includes(state.currentLocation)) return [];
   } else if (destination === "碼頭" || state.currentLocation === "碼頭") return [];
   const road = Math.min(3, roadDistance(state.currentLocation, destination));
-  const roadNote = state.questStep === "chapter_one"
-    ? "趕路時斷貨仍侵蝕公款；貢款期限照走" : "人多較安全";
   const choices: TravelChoice[] = [{ destination, kind: "road", turns: road,
-    label: `F. [明路前往] ${destination}（${road}回合；${roadNote}）`, danger: "", riskPeriod: 0, riskDamage: 0, riskLifeline: 0 }];
+    label: `F. [明路前往] 前往${destination}`, danger: "", riskPeriod: 0, riskDamage: 0, riskLifeline: 0 }];
   const shortcut = SHORTCUTS.find((route) =>
     ((route.from === state.currentLocation && route.to === destination) || (route.to === state.currentLocation && route.from === destination))
     && shortcutKnown(state, route));
   if (shortcut) choices.push({ destination, kind: "shortcut", turns: shortcut.turns,
-    label: `F. [暗道前往] ${destination}（${shortcut.turns}回合；${shortcut.danger}）`, danger: shortcut.danger,
+    label: `F. [暗道前往] 潛往${destination}`, danger: shortcut.danger,
     riskPeriod: shortcut.riskPeriod, riskDamage: shortcut.riskDamage, riskLifeline: shortcut.riskLifeline });
   return choices;
 }
@@ -111,7 +110,8 @@ export function missionOptions(state: GameState): string[] {
 
 export function resolveMission(state: GameState, action: string): { event: string; speaker: string; line: string } | undefined {
   const allowed = missionOptions(state);
-  if (!allowed.includes(action)) return undefined;
+  action = allowed.find((option) => option === action || conciseOption(option) === action) || "";
+  if (!action) return undefined;
   const mission = MISSIONS.find((item) => action.includes(item.title));
   if (!mission) return undefined;
   if (action.startsWith("G. [領差]")) {
