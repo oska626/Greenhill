@@ -57,14 +57,13 @@ export function spendEnergy(state: GameState, cost: number, alreadySpent = 0, tr
   if (remaining === 0) return "";
   if (state.playerMp >= remaining) {
     state.playerMp -= remaining;
-    return `精力減${remaining}。`;
+    return "";
   }
   if ((cost === 1 && state.playerMp === 0) || travel) {
     const energyUsed = Math.min(state.playerMp, remaining);
     state.playerMp -= energyUsed;
-    const before = state.playerHp;
-    state.playerHp = Math.max(1, before - 2 * (remaining - energyUsed));
-    return `精力耗盡，你勉強${travel ? "走完路程" : "行動"}，氣血減${before - state.playerHp}。`;
+    state.playerHp = Math.max(1, state.playerHp - 2 * (remaining - energyUsed));
+    return `你氣力不繼，勉強${travel ? "走完路程" : "行動"}，腳步踉蹌。`;
   }
   return "";
 }

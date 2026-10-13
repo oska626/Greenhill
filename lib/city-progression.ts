@@ -162,7 +162,7 @@ export function resolveMission(state: GameState, action: string): { event: strin
   const contact: Partial<Record<Landmark, string>> = { "青鋒堂總壇": "何不歸", "晚秋茶寮": "容晚秋",
     "黑泥街": state.relationships["陸千帆"].estranged ? "張斷骨" : "陸千帆", "鬼骰坊": "祁觀衡",
     "苦煙館": "顧忘生", "裂石擂": "衛沉岳", "夜雨樓": "柳照霜" };
-  return { event: `${careful ? mission.good : mission.bad}你在${mission.target}收妥${mission.pay}文私銀賞錢；${careful ? "青鋒堂命脈升五。" : "青鋒堂命脈減三。"}${mission.id === "double_dues" && !careful ? "另有十文規費記入公帳。" : ""}`,
+  return { event: `${careful ? mission.good : mission.bad}你在${mission.target}收妥賞錢。${mission.id === "double_dues" && !careful ? "另有規費記入公帳。" : ""}`,
     speaker: contact[mission.target] || mission.giver, line: careful ? "這事辦得實在。日後用得上。" : "眼前過得去，後頭的帳還得算。" };
 }
 

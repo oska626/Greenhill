@@ -21,6 +21,7 @@ import { conciseOption } from "./option-text.ts";
 import { drawEncounter, encounterChoice, encounterOptions, ENCOUNTERS, resolveEncounter, type EncounterId } from "./encounters.ts";
 import { applyActionTags, normalizeRelationshipScores, type RelationshipScores } from "./npc-traits.ts";
 import { startingWeaponItem } from "./character-creation.ts";
+import { withoutSettlementLog } from "./narrative-style.ts";
 import { getPseudoRandom } from "./state-random.ts";
 export { getPseudoRandom } from "./state-random.ts";
 
@@ -685,11 +686,11 @@ function settleCustomEchoes(state: GameState): string {
     remember(state, `${echo.location}機變${echo.goal}已兌現`);
     if (echo.goal === "查線索") {
       state.sectLifeline = Math.min(100, state.sectLifeline + 1);
-      return `你早前從${echo.location}的${echo.anchor}查到破綻，同門據此避過玄武樓眼線；青鋒堂命脈升一。`;
+      return `你早前從${echo.location}的${echo.anchor}查到破綻，同門據此避過玄武樓眼線。`;
     }
     if (echo.goal === "護人") {
       state.sectLifeline = Math.min(100, state.sectLifeline + 2);
-      return `你早前在${echo.location}護住的人帶來街坊接應；青鋒堂命脈升二。`;
+      return `你早前在${echo.location}護住的人帶來街坊接應。`;
     }
     if (echo.goal === "做工") {
       state.silver += 2;
@@ -697,10 +698,10 @@ function settleCustomEchoes(state: GameState): string {
     }
     if (echo.goal === "牽制") {
       state.sectLifeline = Math.max(0, state.sectLifeline - 2);
-      return `你早前在${echo.location}牽制的眼線回頭試探堂口；青鋒堂命脈減二。`;
+      return `你早前在${echo.location}牽制的眼線回頭試探堂口。`;
     }
     state.sectLifeline = Math.min(100, state.sectLifeline + 1);
-    return `你早前在${echo.location}同${echo.anchor}談妥的事得到回應，對方替堂口傳來消息；青鋒堂命脈升一。`;
+    return `你早前在${echo.location}同${echo.anchor}談妥的事得到回應，對方替堂口傳來消息。`;
   }).join("");
 }
 
@@ -720,39 +721,39 @@ function resolveIncident(state: GameState, incident: Incident, choice: number): 
   let event = "";
   let reply: TurnResult["npcReply"];
   if (incident === "market_raid") {
-    if (index === 0) { state.playerHp = Math.max(0, state.playerHp - 4); state.sectLifeline = Math.min(100, state.sectLifeline + 8); event = "你擋在攤販前挨了一刀，氣血減四；街坊守住肉檔，青鋒堂命脈升八。"; }
-    if (index === 1) { state.playerMp = Math.max(0, state.playerMp - 5); state.sectLifeline = Math.min(100, state.sectLifeline + 6); event = "你從暗巷截住刀手退路，精力減五；對方拔旗撤走，青鋒堂命脈升六。"; }
-    if (index === 2) { state.sectLifeline = Math.min(100, state.sectLifeline + 4); event = "你記下三名攤販的證詞，逼刀手收旗，青鋒堂命脈升四。"; }
-    if (index === 3) { if (state.silver >= 20) { state.silver -= 20; state.sectLifeline = Math.min(100, state.sectLifeline + 3); event = "你自掏二十文私銀安頓攤販，刀手暫退，青鋒堂命脈升三。"; } else event = "私銀不足二十文，你只能護攤販退入窄巷，刀手仍在肉檔。"; }
-    if (index === 4) { state.sectLifeline = Math.max(0, state.sectLifeline - 8); event = "你先護傷者撤走，肉檔失去半日生意，刀手把旗插在路口；青鋒堂命脈減八。"; }
+    if (index === 0) { state.playerHp = Math.max(0, state.playerHp - 4); state.sectLifeline = Math.min(100, state.sectLifeline + 8); event = "你擋在攤販前挨了一刀，痛得倒抽一口涼氣；街坊守住肉檔。"; }
+    if (index === 1) { state.playerMp = Math.max(0, state.playerMp - 5); state.sectLifeline = Math.min(100, state.sectLifeline + 6); event = "你從暗巷截住刀手退路，氣喘吁吁；對方拔旗撤走。"; }
+    if (index === 2) { state.sectLifeline = Math.min(100, state.sectLifeline + 4); event = "你記下三名攤販的證詞，逼刀手收旗。"; }
+    if (index === 3) { if (state.silver >= 20) { state.silver -= 20; state.sectLifeline = Math.min(100, state.sectLifeline + 3); event = "你自掏私銀安頓攤販，刀手暫退。"; } else event = "私銀不足二十文，你只能護攤販退入窄巷，刀手仍在肉檔。"; }
+    if (index === 4) { state.sectLifeline = Math.max(0, state.sectLifeline - 8); event = "你先護傷者撤走，肉檔失去半日生意，刀手把旗插在路口。"; }
     if (index < 4 && state.worldFlags.includes("街面有備")) {
       state.sectLifeline = Math.min(100, state.sectLifeline + 2);
-      event += "先前記下的街面異動讓眾人及早應對，青鋒堂命脈再升二。";
+      event += "先前記下的街面異動讓眾人及早應對。";
     }
     if (index < 4 && state.worldFlags.includes("擊退伏擊刀手")) {
       state.sectLifeline = Math.min(100, state.sectLifeline + 2);
-      event += "刀手認出你曾在肉檔擊退同夥，攻勢一滯，青鋒堂命脈再升二。";
+      event += "刀手認出你曾在肉檔擊退同夥，攻勢一滯。";
     }
     if (index <= 1 && (state.knownMoves?.short_punch || 0) > 0) {
       const restored = Math.min(2, state.maxHp - state.playerHp);
       state.playerHp += restored;
-      event += `你憑練過的拳路卸去一部分刀勢，氣血回復${restored}。`;
+      event += "你憑練過的拳路卸去一部分刀勢，呼吸稍稍平穩。";
     }
     remember(state, index === 4 ? "市集暫失" : "市集守住");
     reply = { speaker: "陸千帆", line: index === 4 ? "人先撤了。我記著那面旗，遲早拔回來。" : "肉檔先守住了。我去看巷口，你別再替我挨刀。" };
   } else if (incident === "missing_ledger") {
     let tipBought = false;
-    if (index === 0) { state.sectLifeline = Math.min(100, state.sectLifeline + 3); event = "你到鬼骰坊對帳，查出缺頁記著一筆假規費。祁觀衡鎖好原本，青鋒堂命脈升三。"; }
+    if (index === 0) { state.sectLifeline = Math.min(100, state.sectLifeline + 3); event = "你到鬼骰坊對帳，查出缺頁記著一筆假規費。祁觀衡鎖好原本。"; }
     if (index === 1) {
       if (state.silver >= 10) {
         state.silver -= 10; tipBought = true;
         state.sectLifeline = Math.min(100, state.sectLifeline + 2);
-        event = "你付十文私銀向容晚秋買消息，得知灰衣客昨夜從總壇帶走帳頁；青鋒堂命脈升二。";
+        event = "你向容晚秋買到消息，得知灰衣客昨夜從總壇帶走帳頁。";
       } else event = "你拿不出十文私銀，容晚秋沒有說出誰帶走帳頁；缺頁仍待追查。";
     }
-    if (index === 2) { state.playerMp = Math.max(0, state.playerMp - 4); state.sectLifeline = Math.min(100, state.sectLifeline + 4); event = "你沿泥印追到市集後巷，找回濕透的帳頁；精力減四，青鋒堂命脈升四。"; }
-    if (index === 3) { if (state.silver >= 10) { state.silver -= 10; state.sectLifeline = Math.min(100, state.sectLifeline + 1); event = "你自掏十文私銀補上缺口，暫且穩住人心，青鋒堂命脈升一；缺的那頁仍得追查。"; } else event = "私銀不足十文，缺帳未補，你把破綻先記在紙上。"; }
-    if (index === 4) { state.sectLifeline = Math.min(100, state.sectLifeline + 1); event = `你在${state.currentLocation}寫下缺頁線索，託同門送交堂主；回信說帳櫃已封，往後要逐筆重查。青鋒堂命脈升一。`; }
+    if (index === 2) { state.playerMp = Math.max(0, state.playerMp - 4); state.sectLifeline = Math.min(100, state.sectLifeline + 4); event = "你沿泥印追到市集後巷，氣喘吁吁地找回濕透的帳頁。"; }
+    if (index === 3) { if (state.silver >= 10) { state.silver -= 10; state.sectLifeline = Math.min(100, state.sectLifeline + 1); event = "你自掏私銀補上缺口，暫且穩住人心；缺的那頁仍得追查。"; } else event = "私銀不足十文，缺帳未補，你把破綻先記在紙上。"; }
+    if (index === 4) { state.sectLifeline = Math.min(100, state.sectLifeline + 1); event = `你在${state.currentLocation}寫下缺頁線索，託同門送交堂主；回信說帳櫃已封，往後要逐筆重查。`; }
     if (index <= 2 && (index !== 1 || tipBought) && state.worldFlags.includes("帳目有據")) {
       state.factionFunds += 10;
       event += "你憑先前留下的帳目對出被藏的十文規費，追回公款。";
@@ -764,18 +765,18 @@ function resolveIncident(state: GameState, incident: Incident, choice: number): 
         ? { speaker: "容晚秋", line: tipBought ? "灰衣客沒喝茶，手倒一直按著袖口。" : "十文私銀帶來，我才說那晚誰經過茶寮。" }
         : { speaker: "何不歸", line: index === 3 ? "十文我記下了。缺的那頁，還得替我找。" : "帳先收好。你查到哪一步，我替你擋到哪一步。" };
   } else {
-    if (index === 0) { state.sectLifeline = Math.min(100, state.sectLifeline + 2); event = "你封存可疑藥包，叫腳夫暫停送藥，傷者改用乾淨布條止血；青鋒堂命脈升二。"; }
-    if (index === 1) { state.sectLifeline = Math.min(100, state.sectLifeline + 3); event = "你把藥帶到苦煙館，顧忘生驗出封口混了苦麻粉；青鋒堂命脈升三。"; }
-    if (index === 2) { state.sectLifeline = Math.min(100, state.sectLifeline + 2); event = "你追問送藥腳夫，查到他替灰衣客轉過手；青鋒堂命脈升二。"; }
-    if (index === 3) { if (state.silver >= 10) { state.silver -= 10; state.playerHp = Math.min(state.maxHp, state.playerHp + 5); event = "你花十文私銀買乾淨傷藥救人，餘藥敷在自己傷口，氣血回復五。"; } else event = "你拿不出十文私銀，便用乾淨布條替傷者止血。"; }
-    if (index === 4) { state.sectLifeline = Math.min(100, state.sectLifeline + 4); event = "你派人告知城西七處據點停用這批藥，逐一收回藥包；青鋒堂命脈升四。"; }
+    if (index === 0) { state.sectLifeline = Math.min(100, state.sectLifeline + 2); event = "你封存可疑藥包，叫腳夫暫停送藥，傷者改用乾淨布條裹傷。"; }
+    if (index === 1) { state.sectLifeline = Math.min(100, state.sectLifeline + 3); event = "你把藥帶到苦煙館，顧忘生驗出封口混了苦麻粉。"; }
+    if (index === 2) { state.sectLifeline = Math.min(100, state.sectLifeline + 2); event = "你追問送藥腳夫，查到他替灰衣客轉過手。"; }
+    if (index === 3) { if (state.silver >= 10) { state.silver -= 10; state.playerHp = Math.min(state.maxHp, state.playerHp + 5); event = "你買來乾淨傷藥救人，餘藥敷在自己傷口，痛楚稍緩。"; } else event = "你拿不出十文私銀，便用乾淨布條替傷者裹傷。"; }
+    if (index === 4) { state.sectLifeline = Math.min(100, state.sectLifeline + 4); event = "你派人告知城西七處據點停用這批藥，逐一收回藥包。"; }
     if (index !== 3 && state.worldFlags.includes("傷藥有據")) {
       state.sectLifeline = Math.min(100, state.sectLifeline + 2);
-      event += "先前認清的藥封讓眾人及早分出可疑傷藥，青鋒堂命脈再升二。";
+      event += "先前認清的藥封讓眾人及早分出可疑傷藥。";
     }
     if (index !== 3 && state.worldFlags.includes("辨清傷藥封口")) {
       state.sectLifeline = Math.min(100, state.sectLifeline + 2);
-      event += `${state.flags.visitedGu ? "顧忘生" : "容晚秋"}教過你的繩結仍記得清楚，你當場挑出換過封口的藥，青鋒堂命脈再升二。`;
+      event += `${state.flags.visitedGu ? "顧忘生" : "容晚秋"}教過你的繩結仍記得清楚，你當場挑出換過封口的藥。`;
     }
     remember(state, "可疑傷藥已處置");
     reply = index === 1
@@ -914,7 +915,7 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
       : actionEnergyCost(state, `F. [${creative.goal}]`)
     : actionEnergyCost(state, action, plannedTurns);
   if (!canAffordEnergy(state, energyCost, action))
-    return { state, options: availableOptions(state), event: `精力不足，這項行動須${energyCost}點精力；先休養或服藥。`, moneyNote: "" };
+    return { state, options: availableOptions(state), event: "你氣力不足，須先休養或服藥。", moneyNote: "" };
   const oldSilver = state.silver;
   const oldFunds = state.factionFunds;
   let event = "";
@@ -926,7 +927,7 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
   if (!opening) state.turn += 1;
   if (absurd) {
     state.playerHp = Math.max(0, state.playerHp - 4);
-    event = "你被劣質丹藥幻覺誤導，當場出醜，氣血減四。";
+    event = "你被劣質丹藥幻覺誤導，當場出醜，腳下一晃，強忍劇痛。";
   }
 
   if (state.pendingEncounter) {
@@ -1028,18 +1029,18 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
           }
           state.sectLifeline = Math.max(0, state.sectLifeline - (result.outcome === "fled" ? 6 : 10));
           remember(state, result.outcome === "fled" ? "市集伏擊撤守" : "市集伏擊戰敗");
-          event += result.outcome === "fled" ? "你保住性命，卻讓出肉檔前的街口；青鋒堂命脈減六。"
-            : "青鋒堂暫失肉檔前的街口，青鋒堂命脈減十。";
+          event += result.outcome === "fled" ? "你保住性命，卻讓出肉檔前的街口。"
+            : "青鋒堂暫失肉檔前的街口。";
         }
         if (result.combat.allyWounded) {
           remember(state, "陸千帆再受刀傷");
           state.relationships["陸千帆"].wounded = true;
           state.sectLifeline = Math.max(0, state.sectLifeline - 3);
-          event += "陸千帆的舊傷又添一刀，青鋒堂命脈再減三。";
+          event += "陸千帆的舊傷又添一刀，握著肉案才站穩。";
         }
         if (state.worldFlags.includes("茶寮傳信接應") || state.worldFlags.includes("苦煙館傳信接應")) {
           state.sectLifeline = Math.min(100, state.sectLifeline + 4);
-          event += `${state.worldFlags.includes("苦煙館傳信接應") ? "顧忘生" : "容晚秋"}傳出的信帶來接應，青鋒堂命脈升四。`;
+          event += `${state.worldFlags.includes("苦煙館傳信接應") ? "顧忘生" : "容晚秋"}傳出的信帶來接應。`;
         }
         if (state.playerHp === 0) {
           state.playerHp = 1;
@@ -1053,7 +1054,7 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
         if (result.outcome === "won") {
           state.silver += 20;
           remember(state, "裂石擂勝場");
-          event += "衛沉岳把二十文賞錢放到你手裏，私銀增加二十文。";
+          event += "衛沉岳把賞錢放到你手裏。";
         } else if (state.playerHp === 0) {
           state.playerHp = 1;
           event += "衛沉岳將你從擂台上扶下，氣血只剩一線。";
@@ -1063,7 +1064,7 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
     }
     if (!wasMarketAmbush) {
       state.sectLifeline = Math.max(0, state.sectLifeline - 2);
-      event += "玄武樓又向城西逼近一步；青鋒堂命脈減二。";
+      event += "玄武樓又向城西逼近一步。";
     }
   } else if (state.questStep === "prologue_briefing") {
     state.currentLocation = "青鋒堂總壇";
@@ -1088,11 +1089,11 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
       event += flavor("prologue_briefing");
       if (choice === 0) {
         state.sectLifeline = Math.min(100, state.sectLifeline + 4);
-        event += "何不歸得以留下補強守備，防線升四。";
+        event += "何不歸得以留下補強守備。";
       } else if (choice === 1) {
         if (state.factionFunds >= 10) {
           state.factionFunds -= 10; state.silver += 10;
-          event += "他從公款撥十文給你作路費；公款減少十文，私銀增加十文。";
+          event += "他從公帳撥出路費，交到你手裏。";
         } else event += "堂口已拿不出十文路費，你只得空手上路。";
       } else if (choice === 2) { remember(state, "問清刀手兵刃"); event += "你記住刀手慣用的短刀，往後交手便有了防備。"; }
       else if (choice === 3) { remember(state, "問清陸千帆傷勢"); event += "何不歸說清傷口深淺，你記下來向顧忘生交代。"; }
@@ -1331,8 +1332,8 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
       state.currentLocation = selectedTravel.destination;
       event += `你走${selectedTravel.kind === "shortcut" ? "暗道" : "明路"}到${selectedTravel.destination}；急事仍待處置。`;
       if (selectedTravel.kind === "shortcut" && shortcutRiskDue(state, selectedTravel.riskPeriod)) {
-        if (selectedTravel.riskDamage) { state.playerHp = Math.max(1, state.playerHp - selectedTravel.riskDamage); event += `暗巷遭人攔截，氣血減${selectedTravel.riskDamage}。`; }
-        if (selectedTravel.riskLifeline) { state.sectLifeline = Math.max(0, state.sectLifeline - selectedTravel.riskLifeline); event += `眼線尾隨，青鋒堂命脈減${selectedTravel.riskLifeline}。`; }
+        if (selectedTravel.riskDamage) { state.playerHp = Math.max(1, state.playerHp - selectedTravel.riskDamage); event += "暗巷遭人攔截，你帶傷脫身。"; }
+        if (selectedTravel.riskLifeline) { state.sectLifeline = Math.max(0, state.sectLifeline - selectedTravel.riskLifeline); event += "眼線尾隨，堂口守衛不得不分神接應。"; }
       }
     } else if (pendingIncident) {
       const resolved = resolveIncident(state, pendingIncident, choice);
@@ -1364,24 +1365,24 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
         }].slice(-20);
         if (creative.goal === "查線索") {
           state.sectLifeline = Math.min(100, state.sectLifeline + 2);
-          event += `你從${creative.anchor}察出旁人漏看的破綻，及早通知堂口；青鋒堂命脈升二。`;
+          event += `你從${creative.anchor}察出旁人漏看的破綻，及早通知堂口。`;
         } else if (creative.goal === "護人") {
           state.playerHp -= 3;
           state.sectLifeline = Math.min(100, state.sectLifeline + 4);
-          event += `你借${creative.anchor}護住眼前的人，自己受傷氣血減三；街面暫穩，青鋒堂命脈升四。`;
+          event += `你借${creative.anchor}護住眼前的人，自己帶傷踉蹌半步；街面暫穩。`;
         } else if (creative.goal === "做工") {
           state.playerMp -= 3;
           state.silver += 4;
-          event += `你借${creative.anchor}替人完成一樁活，精力減三，領四文私銀。`;
+          event += `你借${creative.anchor}替人完成一樁活，氣喘吁吁地領了工錢。`;
         } else if (creative.goal === "牽制") {
           state.playerMp -= 3;
           state.sectLifeline = Math.min(100, state.sectLifeline + 3);
-          event += `你借${creative.anchor}拖住玄武樓眼線，精力減三；堂口得以補位，青鋒堂命脈升三。`;
+          event += `你借${creative.anchor}拖住玄武樓眼線，虎口發麻；堂口得以補位。`;
         } else {
           state.sectLifeline = Math.min(100, state.sectLifeline + 2);
           const companion = COMPANION_IDS.find((name) => name === creative.anchor);
           if (companion) changeTrust(state.relationships, companion, 1);
-          event += `你同${creative.anchor}把眼前利害說清，對方肯替堂口留一條路；青鋒堂命脈升二。`;
+          event += `你同${creative.anchor}把眼前利害說清，對方肯替堂口留一條路。`;
           npcReply = { speaker: creative.anchor, line: "話說明白了。眼前這一步，我會照應。" };
         }
         event += ({
@@ -1423,10 +1424,10 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
       if (skill >= 2 && state.playerHp >= 8) {
         state.silver += 40; state.playerHp -= 6; state.sectLifeline = Math.max(0, state.sectLifeline - 6);
         remember(state, "城東記恨暗殺");
-        event += "你在肉檔後巷截住刀手頭目，受傷氣血減六，領到四十文私銀；城東認出你的手法，青鋒堂命脈減六。";
+        event += "你在肉檔後巷截住刀手頭目，帶傷領了酬勞；城東也認出你的手法。";
       } else {
         state.playerHp = Math.max(1, state.playerHp - 8); state.sectLifeline = Math.max(0, state.sectLifeline - 8);
-        event += "你伏擊刀手卻未能壓住對方，帶傷撤回；氣血減八，青鋒堂命脈減八，酬勞落空。";
+        event += "你伏擊刀手卻未能壓住對方，帶傷撤回，酬勞落空。";
       }
     } else if (state.currentLocation === "鬼骰坊" && action.startsWith("J. [私銀放貸]") && state.worldFlags.filter((flag) => flag.endsWith("完成")).length >= 3 && !state.flags.loanDueTurn) {
       if (state.silver >= 20) {
@@ -1438,7 +1439,7 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
       state.silver += 26; state.flags.loanDueTurn = 0;
       state.sectLifeline = Math.max(0, state.sectLifeline - 3);
       remember(state, "街坊怨貸");
-      event += "你在鬼骰坊收回私貸二十六文，其中六文是利錢；門外街坊傳來怨言，青鋒堂命脈減三。";
+      event += "你在鬼骰坊收回私貸與利錢；門外街坊傳來怨言。";
       npcReply = { speaker: "祁觀衡", line: "錢收齊了。人情這一欄，帳上沒法替你填。" };
     } else if (state.currentLocation === "鬼骰坊" && action.startsWith("K. [領追債令]") && state.worldFlags.includes("假借據完成") && !state.worldFlags.includes("追債令已領")) {
       remember(state, "追債令已領");
@@ -1453,7 +1454,7 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
       remember(state, "追債令已結"); state.factionFunds += 20; state.silver += 8;
       changeTrust(state.relationships, "陸千帆", -1);
       state.sectLifeline = Math.max(0, state.sectLifeline - 5);
-      event += "你在黑泥街強追二十文舊款入公帳，祁觀衡託人送來八文私銀佣金；攤販閉門，青鋒堂命脈減五。";
+      event += "你在黑泥街強追舊款入公帳，祁觀衡託人送來佣金；攤販閉門。";
       npcReply = { speaker: "陸千帆", line: "帳是平了。這條街的人可未必肯認你。" };
     } else {
     const travel = /^F\. \[前往\] (.+)$/.exec(action);
@@ -1471,8 +1472,8 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
         event += `你走${selected.kind === "shortcut" ? "暗道" : "明路"}，趕到${destination}。`;
         if (selected.kind === "shortcut") {
           if (shortcutRiskDue(state, selected.riskPeriod)) {
-            if (selected.riskDamage) { state.playerHp = Math.max(1, state.playerHp - selected.riskDamage); event += `暗巷有人攔路，你脫身時氣血減${selected.riskDamage}。`; }
-            if (selected.riskLifeline) { state.sectLifeline = Math.max(0, state.sectLifeline - selected.riskLifeline); event += `尾巴跟到堂口據點，青鋒堂命脈減${selected.riskLifeline}。`; }
+            if (selected.riskDamage) { state.playerHp = Math.max(1, state.playerHp - selected.riskDamage); event += "暗巷有人攔路，你帶傷脫身。"; }
+            if (selected.riskLifeline) { state.sectLifeline = Math.max(0, state.sectLifeline - selected.riskLifeline); event += "尾巴跟到堂口據點，守衛忙著遮掩行跡。"; }
           }
           else { remember(state, "暗道行跡已藏"); event += "你避過街口眼線，記下對方的守位。"; }
         }
@@ -1574,7 +1575,7 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
           state.playerMp -= lesson.mpCost;
           state.silver -= lesson.silverCost;
           state.knownMoves = { ...state.knownMoves, [move]: lesson.rank };
-          event += `你跟著${teacher}拆過一遍招，${moveName}練到第${lesson.rank}層；精力減${lesson.mpCost}${lesson.silverCost ? `，私銀減${lesson.silverCost}文` : ""}。`;
+          event += `你跟著${teacher}拆過一遍招，${moveName}的手法漸熟，虎口發麻。`;
         } else event += lesson.reason;
       } else if (state.currentLocation === "裂石擂" && tag === "整備兵器") {
         if (!state.inventory.includes("【生鏽鐵刀】")) {
@@ -1627,11 +1628,11 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
           npcReply = { speaker: "容晚秋", line: "那條路值十五文。錢帶來，我才說入口在哪裏。" };
         }
       } else if (state.currentLocation === "青鋒堂總壇" && tag === "捐銀固防") {
-        if (state.silver >= 20) { state.silver -= 20; state.factionFunds += 20; state.sectLifeline = Math.min(100, state.sectLifeline + 10); event += "你捐二十文私銀入公帳，何不歸收下後安排人手換門閂、補傷藥；青鋒堂命脈升十。"; }
+        if (state.silver >= 20) { state.silver -= 20; state.factionFunds += 20; state.sectLifeline = Math.min(100, state.sectLifeline + 10); event += "你捐私銀入公帳，何不歸收下後安排人手換門閂、補傷藥。"; }
         else event += "你私銀不足二十文，何不歸叫你先留錢買藥。";
       } else if (state.currentLocation === "青鋒堂總壇" && tag === "休整") {
-        const { hp: hpRestored, mp: mpRestored } = restoreVitals(state, 0.2);
-        event += `你在總壇靜坐調息，氣血回復${hpRestored}，精力回復${mpRestored}。`;
+        restoreVitals(state, 0.2);
+        event += "你在總壇靜坐調息，重新包紮傷處，呼吸漸穩。";
       } else if (state.currentLocation === "黑泥街" && tag === "巡街收規") {
         const outstanding = state.worldFlags.includes("張斷骨規費未收") ? 50
           : state.worldFlags.includes("張斷骨欠費三十文") ? 30
@@ -1659,8 +1660,8 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
           if (readTable) state.worldFlags = state.worldFlags.filter((flag) => flag !== "已看透骰局");
           state.silver += won ? 10 : -10;
           event += won
-            ? `骰盅落桌，你押在小上的十文私銀贏了。${readTable ? "先前看出的手勢讓你避開了莊家的圈套；" : ""}祁觀衡把銅錢撥回你面前，這一局私銀淨增十文。`
-            : "骰盅落桌，你押在小上的十文私銀卻開了大。祁觀衡把銅錢撥到莊家那邊；這一局私銀減少十文。";
+            ? `骰盅落桌，你押在小上贏了。${readTable ? "先前看出的手勢讓你避開了莊家的圈套；" : ""}祁觀衡把銅錢撥回你面前。`
+            : "骰盅落桌，你押在小上卻開了大。祁觀衡把銅錢撥到莊家那邊。";
         } else event += "你掏不出十文私銀，祁觀衡不讓你下注。";
       } else if (state.currentLocation === "鬼骰坊" && (tag === "查老千" || tag === "核暗帳")) {
         const recoveredFlag = tag === "查老千" ? "老千贓款已收" : "賭坊錯帳已收";
@@ -1677,8 +1678,8 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
           event += "你氣血與精力都已充足，顧忘生沒有收錢配藥。";
         } else if (state.silver >= 10) {
           state.silver -= 10;
-          const { hp: hpRestored, mp: mpRestored } = restoreVitals(state, 0.35);
-          event += `你付十文私銀請顧忘生配藥，敷藥後調勻氣息；氣血回復${hpRestored}，精力回復${mpRestored}。`;
+          restoreVitals(state, 0.35);
+          event += "你付錢請顧忘生配藥，敷藥後調勻氣息。";
         } else event += "你拿不出十文私銀，顧忘生沒有給你藥。";
       } else if (state.currentLocation === "苦煙館" && tag === "買藥帶走") {
         if (state.inventory.length >= state.maxInventory) event += "行囊已滿，顧忘生沒有收錢，也沒有交藥。";
@@ -1691,8 +1692,16 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
       } else if (tag === "服用療傷藥") {
         const restored = consumePackedMedicine(state);
         event += restored
-          ? `你拆開行囊裏一包療傷藥，氣血回復${restored.hp}，精力回復${restored.mp}。`
+          ? "你拆開行囊裏一包療傷藥，服下後調勻呼吸。"
           : "你沒有可用的療傷藥，或氣血與精力都已充足。";
+      } else if (tag === "自敷止血膏藥" || tag === "自敷金創散") {
+        const medicine = tag === "自敷止血膏藥" ? "【止血膏藥】" : "【金創散】";
+        const index = state.inventory.indexOf(medicine);
+        if (index >= 0 && state.playerHp < state.maxHp) {
+          state.inventory.splice(index, 1);
+          state.playerHp = Math.min(state.maxHp, state.playerHp + 4);
+          event += `你取出${medicine}敷在傷口，重新紮緊布條，痛楚漸緩。`;
+        } else event += "傷口無須再敷藥，這包藥仍留在行囊。";
       } else if (tag === "敷止血散") {
         const healed = consumeHemostaticPowder(state);
         event += healed ? "你將止血散按進傷口，重新紮緊布條，血終於止住。"
@@ -1701,7 +1710,7 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
         if (state.playerMp >= 4) {
           state.playerMp -= 4;
           state.sectLifeline = Math.min(100, state.sectLifeline + 4);
-          event += "你耗去四點精力甩開尾巴，替堂口藏住行跡；青鋒堂命脈升四。";
+          event += "你氣喘吁吁地甩開尾巴，替堂口藏住行跡。";
         } else event += "你氣力不足，才到側門便被身後的人重新盯上。";
       } else if (repeatedAction) {
         event += `你再次查問${tag}，眼前沒有新的線索。`;
@@ -1728,11 +1737,11 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
     }
     }
     state.sectLifeline = Math.max(0, state.sectLifeline - travelTurns);
-    event += `玄武樓趁你趕路向城西施壓；青鋒堂命脈減${travelTurns}。`;
+    event += "玄武樓趁你趕路向城西施壓。";
     if (state.currentLocation === "青鋒堂總壇" && state.worldFlags.includes("私吞五十文規費") && !state.worldFlags.includes("何不歸查出私吞")) {
       state.sectLifeline = Math.max(0, state.sectLifeline - 8);
       remember(state, "何不歸查出私吞");
-      event += "你見何不歸查出私吞規費，防線再減八。";
+      event += "你見何不歸查出私吞規費，堂口眾人面色鐵青。";
     }
     if (!state.combat && !pendingIncident && incidentDue(state)) {
       const incident = INCIDENTS[(state.flags.incidentCount || 0) % INCIDENTS.length];
@@ -1826,6 +1835,7 @@ export function resolveTurn(rawState: GameState, action: string, opening: boolea
     }
     result.options = availableOptions(result.state);
   }
+  result.event = withoutSettlementLog(result.event);
   const history = result.state.history || [];
   const entry: HistoryEntry = { turn: result.state.turn, action, narrative: result.event,
     narrativeSource: "Fallback", preLocation: rawState.currentLocation,
@@ -2675,7 +2685,11 @@ function rawAvailableOptions(state: GameState): string[] {
   }
   return availableWithEnergy(state, [...base, ...missionOptions(state), ...training, ...sideWork,
     ...(canUsePackedMedicine(state) ? [USE_PACKED_MEDICINE] : []),
-    ...(canUseHemostaticPowder(state) ? [USE_HEMOSTATIC_POWDER] : [])]);
+    ...(canUseHemostaticPowder(state) ? [USE_HEMOSTATIC_POWDER] : []),
+    ...(state.playerHp < state.maxHp && state.inventory.includes("【止血膏藥】")
+      ? ["W. [自敷止血膏藥] 用一回合將隨身膏藥敷在自己的傷口。"] : []),
+    ...(state.playerHp < state.maxHp && state.inventory.includes("【金創散】")
+      ? ["X. [自敷金創散] 用一回合將隨身金創散敷在自己的傷口。"] : [])]);
 }
 
 export function availableOptions(state: GameState): string[] {

@@ -10,7 +10,19 @@ export function narrativeSentenceCount(text: string): number {
 }
 
 export function containsSettlementLog(text: string): boolean {
-  return /(?:氣血|精力|命脈|防線|守備|私銀|公款)(?:減|升|回復|增加|減少|餘|淨增)[零一二三四五六七八九十百千\d]+|\d+\s*(?:點|文)(?:氣血|精力|命脈|防線|守備)/.test(text);
+  return /(?:氣血|精力|命脈|防線|守備|私銀|公款)(?:再)?(?:減|升|回復|增加|減少|餘|淨增|[+＋-－])[零一二三四五六七八九十百千\d]+|[零一二三四五六七八九十百千\d]+\s*(?:點|文)(?:氣血|精力|命脈|防線|守備)|造成[零一二三四五六七八九十百千\d]+點傷害/.test(text);
+}
+
+/** Keep authored scene facts while dropping legacy ledger clauses from the story channel. */
+export function withoutSettlementLog(text: string): string {
+  return text
+    .replace(/(?:對手|刀手)氣血(?:減|[－-])[零一二三四五六七八九十百千\d]+(?:點)?/g, "對手攻勢一滯")
+    .replace(/(?:你)?氣血(?:減|[－-])[零一二三四五六七八九十百千\d]+(?:點)?/g, "你強忍痛楚")
+    .replace(/(?:青鋒堂)?(?:氣血|精力|命脈|防線|守備|私銀|公款)(?:再)?(?:減|升|回復|增加|減少|餘|淨增|[+＋-－])[零一二三四五六七八九十百千\d]+(?:點|文)?/g, "")
+    .replace(/(?:耗去|耗費|消耗|傷及|傷了|傷勢多)[零一二三四五六七八九十百千\d]+點(?:氣血|精力)?/g, "")
+    .replace(/造成[零一二三四五六七八九十百千\d]+點傷害/g, "")
+    .replace(/[；，]\s*[；，。]/g, "。")
+    .replace(/。{2,}/g, "。").trim();
 }
 
 export function completeSentences(text: string, fallback: string): string[] {
@@ -88,5 +100,5 @@ function hardboiledFallbackCore(event: string, state: GameState, reply?: { speak
 }
 
 export function hardboiledFallback(event: string, state: GameState, reply?: { speaker: string; line: string }): string {
-  return appendRelationshipFeedback(hardboiledFallbackCore(event, state, reply), event);
+  return withoutSettlementLog(appendRelationshipFeedback(hardboiledFallbackCore(withoutSettlementLog(event), state, reply), event));
 }

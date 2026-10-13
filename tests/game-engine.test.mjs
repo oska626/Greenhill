@@ -9,12 +9,14 @@ import { PACKED_MEDICINE, USE_PACKED_MEDICINE } from "../lib/recovery.ts";
 import { actionEnergyCost, FATIGUE_THRESHOLD, MAX_ENERGY } from "../lib/energy.ts";
 import { darkHandCount } from "../lib/dirty-hand.ts";
 import { objectStatus, sceneFacts } from "../lib/scene-state.ts";
-import { appendRelationshipFeedback, containsSettlementLog, hardboiledFallback, validHardboiledNarrative } from "../lib/narrative-style.ts";
+import { appendRelationshipFeedback, containsSettlementLog, hardboiledFallback, validHardboiledNarrative, withoutSettlementLog } from "../lib/narrative-style.ts";
 import { appendDangerCue, resolveActionSequence } from "../lib/action-sequence.ts";
 import { hasOffSceneDirectSpeech, localNpcReply, localSpeaker, socialTargets } from "../lib/social-influence.ts";
 import { drawEncounter, encounterOptions, ENCOUNTERS } from "../lib/encounters.ts";
 import { NPC_TRAITS } from "../lib/npc-traits.ts";
 import { npcPromptContext } from "../lib/npc-prompt-context.ts";
+import { playerStatusContext } from "../lib/player-status-context.ts";
+import { carriedSelfCareOption, hasOffSceneActionReference } from "../lib/custom-action.ts";
 import { lastTurnContext } from "../lib/last-turn-context.ts";
 
 function newGame() {
@@ -173,6 +175,9 @@ test("NPC prompt context uses current local scores and excludes off-scene people
   assert.match(teaContext, /關係度 < 0|關係度 0~19|關係度 >= 20/);
   assert.match(teaContext, /02_characters\.md/);
   assert.match(teaContext, /威懾、制伏、逼退/);
+  assert.match(teaContext, /合理性判定/);
+  assert.match(teaContext, /禁止報數/);
+  assert.match(teaContext, /具象描寫代替數值/);
 
   const arena = npcPromptContext(normalizeState({ ...base, currentLocation: "裂石擂" }));
   assert.match(arena, /衛沉岳 \(關係度: 15\)/);
@@ -180,6 +185,32 @@ test("NPC prompt context uses current local scores and excludes off-scene people
   const dock = npcPromptContext({ ...base, currentLocation: "碼頭" });
   assert.match(dock, /無具名 NPC 在場/);
   assert.doesNotMatch(dock, /容晚秋 \(關係度:/);
+});
+
+test("player status prompt binds current vitals, inventory and displayed weapon", () => {
+  const state = { ...newGame(), playerHp: 17, maxHp: 30, playerMp: 9, maxMp: 50,
+    inventory: ["【止血膏藥】", "【行醫薄刃】"], equippedWeapon: "medical_blade" };
+  const context = playerStatusContext(state);
+  assert.match(context, /^<PlayerStatus>\n\[玩家當前狀態\]/);
+  assert.match(context, /氣血: 17 \/ 30/);
+  assert.match(context, /精力: 9 \/ 50/);
+  assert.match(context, /行囊物品: 【止血膏藥】, 【行醫薄刃】/);
+  assert.match(context, /裝備兵器: 行醫薄刃/);
+  assert.match(playerStatusContext({ ...state, inventory: [], equippedWeapon: "fists" }), /行囊物品: 無\n裝備兵器: 徒手/);
+});
+
+test("free self-treatment uses carried medicine and rejects an absent item", () => {
+  const state = { ...newGame(), questStep: "sandbox", currentLocation: "晚秋茶寮",
+    playerHp: 10, inventory: ["【止血膏藥】"] };
+  assert.equal(hasOffSceneActionReference(normalizeState(state), "我拿出止血膏藥處理傷口"), false);
+  const action = carriedSelfCareOption(state, "我拿出止血膏藥處理傷口", availableOptions(state));
+  assert.match(action, /\[自敷止血膏藥\]/);
+  const turn = resolveTurn(state, action, false);
+  assert.equal(turn.state.playerHp, 14);
+  assert.equal(turn.state.inventory.includes("【止血膏藥】"), false);
+  assert.match(turn.event, /止血膏藥.*敷在傷口/);
+  assert.equal(carriedSelfCareOption(turn.state, "我拿出止血膏藥處理傷口", availableOptions(turn.state)), undefined);
+  assert.equal(carriedSelfCareOption(state, "我不拿出止血膏藥處理傷口", availableOptions(state)), undefined);
 });
 
 test("encounter action tags score local personalities with deterministic feedback", () => {
@@ -536,7 +567,8 @@ test("zero-energy combat keeps basic moves and invalid commands spend nothing", 
   assert.equal(options.some((option) => option.startsWith("C. [借地形]")), false);
   const fought = resolveTurn(scene, options[0], false);
   assert.equal(fought.state.playerMp, 0);
-  assert.match(fought.event, /精力耗盡.*氣血減2/);
+  assert.ok(fought.state.playerHp < scene.playerHp);
+  assert.equal(containsSettlementLog(fought.event), false);
   const refused = resolveTurn(scene, "C. [借地形]", false);
   assert.equal(refused.state.turn, scene.turn);
   assert.equal(refused.state.playerHp, scene.playerHp);
@@ -606,6 +638,7 @@ test("every sandbox choice has a distinct event and NPC reply", () => {
     for (const option of options) {
       const turn = resolveTurn(state, option, false);
       assert.ok(!turn.event.includes("照自己的意思行事"), `${location}: ${option}`);
+      assert.equal(containsSettlementLog(turn.event), false, `${location}: ${option}: ${turn.event}`);
       assert.ok(turn.npcReply?.line, `${location}: ${option} needs a reply`);
       events.add(turn.event);
     }
@@ -615,6 +648,17 @@ test("every sandbox choice has a distinct event and NPC reply", () => {
   const injury = resolveTurn(market, "C. [找陸千帆] 問陸千帆傷勢。", false);
   assert.match(injury.event, /刀口卻未合/);
   assert.equal(injury.npcReply.speaker, "陸千帆");
+});
+
+test("story channel drops legacy settlement logs while state keeps the actual cost", () => {
+  assert.equal(withoutSettlementLog("你踉蹌半步，氣血減2；對手氣血減6。"), "你踉蹌半步，你強忍痛楚；對手攻勢一滯。");
+  const state = { ...newGame(), questStep: "sandbox", currentLocation: "裂石擂",
+    maxHp: 100, playerHp: 50, playerMp: 0, combat: createCombat("arena") };
+  const turn = resolveTurn(state, availableOptions(state)[0], false);
+  assert.ok(turn.state.playerHp < state.playerHp);
+  assert.equal(turn.state.playerMp, 0);
+  assert.equal(containsSettlementLog(turn.event), false);
+  assert.match(turn.event, /踉蹌|劇痛|氣喘/);
 });
 
 test("tutorial choices advance one scene while preserving their different costs", () => {

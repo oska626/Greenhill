@@ -113,6 +113,19 @@ export type CustomDecision =
   | { kind: "special"; action: string }
   | { kind: "reject"; reason: "unclear" | "impossible" | "unavailable" };
 
+/** Route explicit self-treatment through an offered rule action, even without AI service. */
+export function carriedSelfCareOption(state: GameState, text: string, options: string[]): string | undefined {
+  if (!/(?:敷|塗|擦|服|吞|用|拿出|取出|處理)/.test(text)
+    || /(?:陸千帆|千帆|別人|他人)/.test(text)
+    || /(?:如果|假如|假設|會點|可唔可以|能否)/.test(text)
+    || /(?:唔|不|別|不要|沒有|未曾)[^，。！？]{0,8}(?:敷|塗|擦|服|吞|用|拿出|取出|處理)/.test(text)) return undefined;
+  const names: Record<string, string> = {
+    "止血膏藥": "自敷止血膏藥", "金創散": "自敷金創散", "止血散": "敷止血散", "療傷藥": "服用療傷藥",
+  };
+  const item = Object.keys(names).find((name) => text.includes(name) && state.inventory.includes(`【${name}】`));
+  return item ? options.find((option) => option.includes(`[${names[item]}]`)) : undefined;
+}
+
 export function sceneAnchors(state: GameState): string[] {
   const local = SCENE_ANCHORS[state.currentLocation].filter((anchor) =>
     !NAMED_NPCS.includes(anchor) || socialTargets(state).includes(anchor));

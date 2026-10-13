@@ -22,9 +22,9 @@ export const ENCOUNTERS = [
     condition: (state, loc) => loc === "青鋒堂總壇" && state.turn > state.lastEncounterTurn + 2 && getPseudoRandom(state) < 20,
     choices: [
       { label: "A. [立威] 拍碎木桌鎮住場面", actionTags: ["ruthless", "trouble"], lifeline: 4,
-        event: "你一掌拍裂桌面，兩人鬆開刀柄。堂口規矩暫穩，青鋒堂命脈升四。" },
+        event: "你一掌拍裂桌面，兩人鬆開刀柄。堂口規矩暫穩。" },
       { label: "B. [無視] 讓堂主親自去頭痛", actionTags: ["cautious", "cowardly"], lifeline: -4,
-        event: "你把爭執留給堂主。兩人仍堵在帳房門前，青鋒堂命脈減四。" },
+        event: "你把爭執留給堂主。兩人仍堵在帳房門前。" },
     ] },
   { id: "tea_tail", location: "晚秋茶寮", report: "對面茶桌有人記下你的行蹤，筆尖壓在袖中的紙上。",
     condition: (state, loc) => loc === "晚秋茶寮" && state.turn > state.lastEncounterTurn + 2 && getPseudoRandom(state) < 20,
@@ -59,7 +59,7 @@ export const ENCOUNTERS = [
     choices: [
       { label: "A. [震開] 運勁震開他的雙手", actionTags: ["violence"], event: "你運勁抽回衣袖，讓他扶穩藥櫃；顧忘生過來接手。" },
       { label: "B. [讓藥] 扣除私銀替他付帳", actionTags: ["generous", "protective"], price: 10, lifeline: 2,
-        event: "你替傷患付了十文私銀，顧忘生把藥交到他手裡；青鋒堂命脈升二。",
+        event: "你替傷患付了藥錢，顧忘生把藥交到他手裡。",
         refusal: "私銀不足十文，顧忘生沒有收錢；她先讓傷患坐下候藥。" },
     ] },
   { id: "tower_drunk", location: "夜雨樓", report: "醉客攔在樓梯口，握著短刀，酒氣逼得人退開兩步。",
@@ -67,7 +67,7 @@ export const ENCOUNTERS = [
     choices: [
       { label: "A. [奪刀] 奪下短刀將他推開", actionTags: ["brave"], event: "你扣住他的刀腕，取下短刀推到樓梯一側；樓道重新讓出來。" },
       { label: "B. [退讓] 貼牆避開免生事端", actionTags: ["cautious"], lifeline: -1,
-        event: "你貼牆讓他過去。幾名看客記下你讓路的樣子，青鋒堂命脈減一。" },
+        event: "你貼牆讓他過去。幾名看客記下你讓路的樣子。" },
     ] },
 ] as const satisfies readonly DynamicEncounter[];
 
