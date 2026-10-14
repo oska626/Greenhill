@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { aptitude, availableOptions, getPseudoRandom, PROLOGUE_LANDMARKS, normalizeState, OPENING_CITY_NARRATION, resolveOpeningKnifeRequest, resolveSocialIntent, resolveTurn } from "../lib/game-engine.ts";
+import { aptitude, availableOptions, getPseudoRandom, PROLOGUE_LANDMARKS, normalizeState, OPENING_CITY_NARRATION, resolveClinicInquiry, resolveOpeningKnifeRequest, resolveSocialIntent, resolveTurn } from "../lib/game-engine.ts";
 import { NPC_VOICES, hasSectAddressViolation, npcVoiceGuide, renameLegacyWorldNames, repeatedNpcLine, sectMemberAddress } from "../lib/npc-voices.ts";
 import { createCombat, resolveCombatRound, trainMove } from "../lib/combat-engine.ts";
 import { ENDING_OPTIONS, MISSIONS, ROAD_ADJACENCY, guardLayersForLifeline, missionOptions, travelChoices } from "../lib/city-progression.ts";
@@ -32,6 +32,21 @@ function newGame() {
       darkHandInitialized: true },
   };
 }
+
+test("bare Cantonese question at clinic gets a grounded answer without forcing travel", () => {
+  const clinic = normalizeState({ ...newGame(), questStep: "kuyan_medicine", currentLocation: "苦煙館" });
+  const turn = resolveClinicInquiry(clinic, "「近排有冇生面口嘅人出沒?」");
+  assert.ok(turn);
+  assert.equal(turn.state.turn, clinic.turn + 1);
+  assert.equal(turn.state.playerMp, clinic.playerMp - actionEnergyCost(clinic, "B. [追問刀手]"));
+  assert.equal(turn.state.currentLocation, "苦煙館");
+  assert.equal(turn.state.questStep, "kuyan_medicine");
+  assert.ok(turn.state.worldFlags.includes("認清刀手裝束"));
+  assert.match(turn.npcReply?.line, /生面口.*灰線/);
+  assert.equal(clinic.worldFlags.includes("認清刀手裝束"), false);
+  assert.equal(resolveClinicInquiry(clinic, "我唔問生面口嘅人有冇出沒"), null);
+  assert.equal(resolveClinicInquiry(clinic, "如果有生面口嘅人出沒會點?"), null);
+});
 
 function finishCombat(turn) {
   for (let round = 0; round < 5 && turn.state.combat; round++) turn = resolveTurn(turn.state, turn.options[0], false);

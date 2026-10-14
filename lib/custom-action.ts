@@ -51,6 +51,11 @@ export function hasOffSceneActionReference(state: GameState, playerText: string)
   if (NAMED_NPCS.some((name) => !present.includes(name)
     && (new RegExp(`(?:找|問|叫|請|向|同|跟|對|替|救|打|扶|拉|攻|抓|帶走|交給|遞給|說服|勸|威脅|接近|治療)[^，。！？]{0,6}${name}`).test(active)
       || active.startsWith(`${name}，`) || active.startsWith(`${name}：`)))) return true;
+  // A question about borrowing an item does not claim that the player already holds it.
+  if (/[？?]\s*[」』”"']?$/.test(active)
+    && !/[，,；;。]\s*(?:我|就|即刻|順手|跟住|再|然後|之後)?\s*(?:攞|拿|偷|打|攻|扯|踢|推|敷|買|付|交|走|去)/.test(active)
+    && /(?:可唔可以|可不可以|能否|得唔得|借我|畀我|給我)/.test(active)
+    && /(?:借|畀|給|攞|拿)/.test(active)) return false;
   const available = new Set([...(isMarketIntentScene(state) ? sceneAttemptObjects(state) : []), ...sceneAnchors(state),
     ...state.inventory.map((item) => item.replace(/^【|】$/g, ""))]);
   if (state.equippedWeapon === "wooden_stick") available.add("木棍");

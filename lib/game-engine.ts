@@ -775,6 +775,27 @@ export function resolveOpeningKnifeRequest(rawState: GameState, playerText: stri
     moneyNote: "", npcReply };
 }
 
+export function resolveClinicInquiry(rawState: GameState, playerText: string): TurnResult | null {
+  const state = normalizeState(rawState);
+  if (!state || state.questStep !== "kuyan_medicine" || state.currentLocation !== "苦煙館"
+    || state.combat || state.flags.pendingIncident || state.pendingEncounter
+    || state.flags.finalCrisis || state.flags.ending) return null;
+  const question = playerText.trim().replace(/^[「『"']|[」』"']$/g, "");
+  if (/^(?:如果|假如|假設|若果)/.test(question)
+    || /(?:唔|不|冇|無|沒有|毋)(?:會|要|想)?問/.test(question)
+    || !/(?:生面口|生面孔|生面人|陌生人|可疑人|可疑客|刀手)/.test(question)
+    || !/(?:有冇|有無|有沒有|見過|見到|出沒|打聽|問|乜人|誰)/.test(question)) return null;
+  const cost = actionEnergyCost(state, GU_OPTIONS[1]);
+  if (!canAffordEnergy(state, cost, GU_OPTIONS[1]))
+    return { state, options: availableOptions(state), event: "你氣力不足，須先休養或服藥。", moneyNote: "" };
+  state.turn += 1;
+  const fatigue = spendEnergy(state, cost);
+  remember(state, "認清刀手裝束");
+  return { state, options: availableOptions(state), moneyNote: "",
+    event: `你向顧忘生打聽近日的生面孔。她說有個袖口繫灰線的刀手曾來買止痛藥，你記住這個記號。${fatigue}`,
+    npcReply: { speaker: "顧忘生", line: "有個生面口嚟買過止痛藥，袖口繫住條灰線。去黑泥街要認住佢。" } };
+}
+
 function resolveTurnCore(rawState: GameState, action: string, opening: boolean, creative?: CreativeAction, spendCustomUse = false,
   terrainObject?: "厚砧板" | "懸肉鐵鉤" | "剁骨刀", disarmAttempt = false, freeAttempt?: SceneAttempt): TurnResult {
   const state = normalizeState(rawState);

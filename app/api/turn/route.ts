@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { availableOptions, normalizeState, recordMarketNpcReply, resolveMarketDialogue,
+import { availableOptions, normalizeState, recordMarketNpcReply, resolveClinicInquiry, resolveMarketDialogue,
   resolveMarketIntent, resolveOpeningKnifeRequest, resolveSceneAttempt, resolveSocialIntent, resolveTurn, type GameState, type Landmark } from "@/lib/game-engine";
 import { relationshipLabel } from "@/lib/companion-relations";
 import { CREATIVE_GOALS, carriedSelfCareOption, claimsUnacquiredObject, hasOffSceneActionReference, interpretGroundedObjectHandling, interpretMarketText, isMarketIntentScene, marketIntentTargets, SCENE_EFFECTS, sceneAttemptObjects, sceneAnchors, unavailableCarriedItem, unneededSelfCare, validateCustomDecision, type CustomDecision } from "@/lib/custom-action";
@@ -7,6 +7,7 @@ import { appendDangerCue, explicitActionSteps, resolveActionSequence, validatedA
 import { hasSectAddressViolation, npcVoiceGuide, sectMemberAddress } from "@/lib/npc-voices";
 import { npcPromptContext } from "@/lib/npc-prompt-context";
 import { playerStatusContext } from "@/lib/player-status-context";
+import { resolveLocalInquiry } from "@/lib/local-inquiry";
 import { lastTurnContext } from "@/lib/last-turn-context";
 import { containsGraphicWording, screenCustomAction } from "@/lib/content-filter";
 import { resolveChapterPetition } from "@/lib/chapter-one";
@@ -357,6 +358,22 @@ async function narrate(state: GameState, _action: string, event: string, moneyCh
   return fallbackResult(failureReason);
 }
 
+async function playLocalInquiry(state: GameState, playerText: string, action: string, lastTurn: string) {
+  if (hasOffSceneActionReference(state, playerText)) return null;
+  const inquiry = resolveLocalInquiry(state, playerText);
+  if (!inquiry) return null;
+  if (inquiry.state.turn === state.turn) return NextResponse.json({ narrative: inquiry.event,
+    options: inquiry.options, state: inquiry.state, narrativeSource: "custom_rejected" });
+  if (inquiry.state.questStep === "chapter_one") return NextResponse.json({
+    narrative: appendDangerCue(hardboiledFallback(inquiry.event, inquiry.state, inquiry.npcReply), inquiry.state),
+    options: inquiry.options, state: inquiry.state, narrativeSource: "chapter_one" });
+  const narration = await narrate(inquiry.state, action, inquiry.event, false, false,
+    inquiry.npcReply, lastTurn, true, state);
+  return NextResponse.json({ narrative: appendDangerCue(narration.text, inquiry.state),
+    options: inquiry.options, state: inquiry.state, narrativeSource: narration.source,
+    ...("reason" in narration ? { narrativeFallbackReason: narration.reason } : {}) });
+}
+
 export async function POST(req: NextRequest) {
   let body: unknown;
   try { body = await req.json(); } catch {
@@ -382,6 +399,19 @@ export async function POST(req: NextRequest) {
       const request = resolveOpeningKnifeRequest(state, playerText);
       if (request) return NextResponse.json({ narrative: `${request.event}\n何不歸：「${request.npcReply!.line}」`,
         options: request.options, state: request.state, narrativeSource: "opening_knife_request" });
+      if (!hasOffSceneActionReference(state, playerText)) {
+        const inquiry = resolveClinicInquiry(state, playerText);
+        if (inquiry) {
+          if (inquiry.state.turn === state.turn) return NextResponse.json({ narrative: inquiry.event,
+            options: inquiry.options, state: inquiry.state, narrativeSource: "custom_rejected" });
+          const narration = await narrate(inquiry.state, payload.action, inquiry.event, false, false,
+            inquiry.npcReply, lastTurn, true, state);
+          return NextResponse.json({ narrative: narration.text, options: inquiry.options, state: inquiry.state,
+            narrativeSource: narration.source, ...("reason" in narration ? { narrativeFallbackReason: narration.reason } : {}) });
+        }
+      }
+      const localInquiry = await playLocalInquiry(state, playerText, payload.action, lastTurn);
+      if (localInquiry) return localInquiry;
     }
     if (playerText && !(state.flags.finalCrisis && state.questStep !== "chapter_one") && !state.flags.ending
       && state.flags.chapterOne?.stage !== "complete" && state.flags.chapterOne?.stage !== "failed") {
@@ -390,6 +420,10 @@ export async function POST(req: NextRequest) {
         const outcome = await resolveActionSequence(state, steps, async (current, step) => {
           const request = resolveOpeningKnifeRequest(current, step);
           if (request) return request;
+          if (!hasOffSceneActionReference(current, step)) {
+            const inquiry = resolveClinicInquiry(current, step);
+            if (inquiry) return inquiry.state.turn > current.turn ? inquiry : null;
+          }
           const target = marketDialogueTarget(current, step);
           if (target) {
             const raw = await marketNpcJson(
@@ -399,6 +433,12 @@ export async function POST(req: NextRequest) {
             const line = fallbackMarketReply(target, result.reaction);
             recordMarketNpcReply(result.state, target, line);
             return { ...result, npcReply: { speaker: target, line } };
+          }
+          if (!hasOffSceneActionReference(current, step)) {
+            const inquiry = resolveLocalInquiry(current, step);
+            if (inquiry) return inquiry.state.turn > current.turn && inquiry.npcReply
+              ? { ...inquiry, event: `${inquiry.event}\n${inquiry.npcReply.speaker}：「${inquiry.npcReply.line}」` }
+              : inquiry.state.turn > current.turn ? inquiry : null;
           }
           if (current.questStep === "chapter_one"
             && /(?:城主|燕鎮嶽|官府)/.test(step) && !inferSocialIntent(current, step))
@@ -454,7 +494,9 @@ export async function POST(req: NextRequest) {
       const narrative = decision.reason === "uninjured" ? "你並未受傷，藥先留在行囊。"
         : decision.reason === "unavailable" ? "眼下無法判明這個自訂手段，請稍後再試或先選眼前可行的做法。"
         : decision.reason === "impossible" ? "眼前的人手、物件或局勢做不到這件事；你可以換一個合乎當下情況的做法。"
-          : "這句話尚未說清你真正要做的事；請換個講法，尤其要說明否定之後打算採取的行動。";
+          : /(?:唔|不|冇|無|沒有|毋)[^，。；]{0,8}(?:會|要|想|問|做|去|攞|拿|借)/.test(playerText)
+            ? "這句話尚未說清你真正要做的事；請換個講法，尤其要說明否定之後打算採取的行動。"
+            : "這句話尚未說清你要問誰，或想查甚麼；請換個講法。";
       return NextResponse.json({ narrative, options: availableOptions(state), state, narrativeSource: "custom_rejected" });
     }
     const turn = decision.kind === "scene_attempt" ? resolveSceneAttempt(state, decision.plan)
