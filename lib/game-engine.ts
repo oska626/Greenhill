@@ -108,9 +108,10 @@ export interface GameState {
     darkHandInitialized?: boolean;
     alleyEscape?: boolean;
     alleyWall?: boolean;
+    alleyOpening?: boolean;
     alleyAllyPresent?: boolean;
     marketAftermath?: boolean;
-    marketAftermathKind?: "victory" | "escape" | "defeat";
+    marketAftermathKind?: "victory" | "escape" | "defeat" | "truce";
     marketIntentHistory?: Array<{ turn: number; approach: MarketIntent["approach"] | "自訂"; target: string; object?: string; outcome: string }>;
     marketNpcHistory?: MarketNpcExchange[];
   };
@@ -172,8 +173,8 @@ function alleyOptions(state: GameState): string[] {
       "B. [借牆脫身] 伏低避開刀鋒，沿牆脊爬往後巷；顧不上肉檔街口。",
       "C. [扯籮阻路] 踢落竹籮絆住追兵，再從牆背落地；若被扯住便要掛彩。",
     ];
-    const item = readyDarkHand(state.inventory, false);
-    if (item && state.playerMp >= 1) options.push(`I. [${item === STARTING_DARK_HAND ? "撒生石灰" : "施放暗手"}] ${dirtyHandOptionMove(item)}攻刀手`);
+    if (state.playerMp >= 1) state.inventory.filter((item): item is DarkHandItem => isDarkHand(item) && item !== "【袖藏短刺】")
+      .slice(0, 2).forEach((item, index) => options.push(`${index ? "J" : "I"}. [${item === STARTING_DARK_HAND ? "撒生石灰" : "施放暗手"}] ${dirtyHandOptionMove(item)}掩護翻牆`));
     return availableWithEnergy(state, options);
   }
   const options = [
@@ -186,30 +187,40 @@ function alleyOptions(state: GameState): string[] {
   ];
   if (state.flags.alleyAllyPresent && !state.relationships["陸千帆"].wounded)
     options.splice(3, 0, "D. [交畀陸千帆] 讓陸千帆選攀牆時機；他能走動，卻會牽動舊傷。");
-  const item = readyDarkHand(state.inventory, false);
-  if (item && state.playerMp >= 1) options.push(`I. [${item === STARTING_DARK_HAND ? "撒生石灰" : "施放暗手"}] ${dirtyHandOptionMove(item)}攻刀手`);
+  if (state.playerMp >= 1) state.inventory.filter((item): item is DarkHandItem => isDarkHand(item) && item !== "【袖藏短刺】")
+    .slice(0, 2).forEach((item, index) => options.push(`${index ? "J" : "I"}. [${item === STARTING_DARK_HAND ? "撒生石灰" : "施放暗手"}] ${dirtyHandOptionMove(item)}掩護翻牆`));
   return availableWithEnergy(state, options);
 }
 
 function marketAftermathOptions(state: GameState): string[] {
+  if (state.flags.marketAftermathKind === "truce") return availableWithEnergy(state, [
+    ...(state.flags.alleyAllyPresent && state.relationships["陸千帆"].wounded
+      ? ["C. [檢視傷勢] 替陸千帆壓住傷口"] : []),
+    "D. [盤問刀手] 趁刀手收刀問清來意",
+    "G. [安頓收隊] 讓街坊退開並收拾肉檔",
+  ]);
   if (state.flags.marketAftermathKind === "defeat") return availableWithEnergy(state, [
-    state.flags.alleyAllyPresent ? "C. [檢視傷勢] 扶陸千帆退到肉檔後" : "C. [裹緊傷口] 按住刀口退往後巷",
+    ...(state.flags.alleyAllyPresent
+      ? state.relationships["陸千帆"].wounded ? ["C. [檢視傷勢] 扶陸千帆退到肉檔後"] : []
+      : state.playerHp < state.maxHp ? ["C. [裹緊傷口] 按住刀口退往後巷"] : []),
     "D. [伏身避刀] 借肉案遮身避開追兵",
     "G. [撤離街口] 沿後巷退出失守街口",
   ]);
   if (state.flags.marketAftermathKind === "escape") return availableWithEnergy(state, [
-    state.flags.alleyAllyPresent
-      ? "C. [檢視傷勢] 退到後巷替陸千帆壓住傷口；別讓追兵循血找來。"
-      : "C. [裹緊傷口] 在後巷撕布裹住刀口；先止血再動身。",
+    ...(state.flags.alleyAllyPresent
+      ? state.relationships["陸千帆"].wounded
+        ? ["C. [檢視傷勢] 退到後巷替陸千帆壓住傷口；別讓追兵循血找來。"] : []
+      : state.playerHp < state.maxHp ? ["C. [裹緊傷口] 在後巷撕布裹住刀口；先止血再動身。"] : []),
     state.sceneState?.depletedSources.includes("廢竹籮")
       ? "D. [封住退路] 堆起散竹守住後巷轉角；只能示警，擋不住追兵。"
       : "D. [封住退路] 把竹籮堵在牆背，守住後巷轉角；防追兵翻牆。",
     "G. [離巷收隊] 沿後巷撤回青鋒堂勢力範圍；先甩開刀手再接別的事。",
   ]);
   const options = [
-    ...(state.flags.alleyAllyPresent && !state.relationships["陸千帆"].estranged
+    ...(state.flags.alleyAllyPresent && state.relationships["陸千帆"].wounded
+      && !state.relationships["陸千帆"].estranged
       ? ["C. [檢視傷勢] 撕布替陸千帆壓住肋下刀口；先穩住他，別讓血浸透衣衫。"]
-      : ["C. [裹緊傷口] 撕布按住自己身上的刀口；先止血，再看街口動靜。"]),
+      : state.playerHp < state.maxHp ? ["C. [裹緊傷口] 撕布按住自己身上的刀口；先止血，再看街口動靜。"] : []),
     "D. [伏巷警戒] 伏在巷口盯緊退路；防備刀手轉頭殺回來。",
     "E. [盤問張斷骨] 扣住躲在肉案後的張斷骨；問清誰把刀手放進街口。",
     "G. [安頓收隊] 叫同門看住巷口，送傷者離開肉檔；街面穩住才接下一樁事。",
@@ -433,6 +444,7 @@ export function normalizeState(raw: unknown): GameState | null {
     .slice(0, 6).map((item) => item === "【生石灰粉】" ? STARTING_DARK_HAND : item.slice(0, 30)) : [];
   if (!flags.darkHandInitialized && darkHandCount(inventory) === 0 && inventory.length < finite(value.maxInventory, 4, 4, 6))
     inventory.push(STARTING_DARK_HAND);
+  const maxInventory = Math.max(finite(value.maxInventory, 4, 4, 6), inventory.length);
   const sceneState = normalizeSceneState(value.sceneState, worldFlags);
   const borrowedLegacyKnife = sceneState.objectHolders["牛肉刀"] === "玩家" && inventory.includes("【生鏽鐵刀】")
     && !inventory.includes("【牛肉刀】");
@@ -494,7 +506,7 @@ export function normalizeState(raw: unknown): GameState | null {
     currentLocation,
     inventory,
     sceneState,
-    maxInventory: finite(value.maxInventory, 4, 4, 6),
+    maxInventory,
     playerHp, maxHp, hpScaleVersion: 2,
     playerMp, maxMp,
     silver: finite(value.silver, 0, 0, Number.MAX_SAFE_INTEGER - 1000), factionFunds: finite(value.factionFunds, 10, 0, Number.MAX_SAFE_INTEGER - 1000),
@@ -512,7 +524,8 @@ export function normalizeState(raw: unknown): GameState | null {
     socialMemory: normalizeSocialMemory(value.socialMemory),
     equippedWeapon, weaponDurability, knownMoves,
     combat: activeCombat || (value.questStep === "huizhi_ambush"
-      ? createCombat("market_ambush", !worldFlags.includes("出賣陸千帆")) : undefined),
+      ? createCombat("market_ambush", !worldFlags.includes("出賣陸千帆")
+        && !worldFlags.includes("棄下陸千帆")) : undefined),
     questStep: value.questStep as QuestStep,
     flags: {
       tookHerbs: flags.tookHerbs === true, visitedYung: flags.visitedYung === true, visitedGu: flags.visitedGu === true,
@@ -536,6 +549,7 @@ export function normalizeState(raw: unknown): GameState | null {
       darkHandInitialized: true,
       alleyEscape,
       alleyWall: alleyEscape && flags.alleyWall === true,
+      alleyOpening: alleyEscape && flags.alleyOpening === true,
       alleyAllyPresent: flags.alleyAllyPresent === true,
       marketAftermath: !activeCombat && !alleyEscape && value.questStep === "sandbox" && currentLocation === "黑泥街"
         && (flags.marketAftermath === true || (flags.marketAftermath === undefined
@@ -543,6 +557,7 @@ export function normalizeState(raw: unknown): GameState | null {
         && !flags.alleyEscape && !pendingIncident && !flags.lastSandboxTag
         && finite(value.turn, 1, 1, 100000) <= 10 && worldFlags.includes("擊退伏擊刀手"))),
       marketAftermathKind: flags.marketAftermathKind === "escape" || flags.marketAftermathKind === "defeat"
+        || flags.marketAftermathKind === "truce"
         ? flags.marketAftermathKind : "victory",
       marketIntentHistory: Array.isArray(flags.marketIntentHistory) ? flags.marketIntentHistory
         .filter((entry): entry is { turn: number; approach: MarketIntent["approach"] | "自訂"; target: string; object?: string; outcome: string } =>
@@ -613,6 +628,13 @@ function marketMedicine(state: GameState, preferred?: string): string | undefine
   return MARKET_MEDICINES.find((item) => state.inventory.includes(item));
 }
 
+function selectedDarkHand(inventory: string[], action: string, closeRange = true): DarkHandItem | undefined {
+  if (action.includes("[撒生石灰]")) return inventory.includes(STARTING_DARK_HAND) ? STARTING_DARK_HAND : undefined;
+  if (action.includes("[施放暗手]")) return inventory.find((item): item is DarkHandItem =>
+    isDarkHand(item) && (closeRange || item !== "【袖藏短刺】") && action.includes(dirtyHandOptionMove(item)));
+  return readyDarkHand(inventory, closeRange);
+}
+
 function treatMarketWound(state: GameState, preferred?: string): string | undefined {
   if (marketWoundTreated(state)) return undefined;
   const medicine = marketMedicine(state, preferred);
@@ -622,6 +644,20 @@ function treatMarketWound(state: GameState, preferred?: string): string | undefi
   remember(state, MARKET_TREATMENT_FLAG);
   remember(state, "救下陸千帆");
   return medicine.slice(1, -1);
+}
+
+function settleKnifeParley(state: GameState): void {
+  const allyPresent = state.combat?.allyPresent ?? (!state.worldFlags.includes("棄下陸千帆")
+    && !state.worldFlags.includes("出賣陸千帆"));
+  state.combat = undefined;
+  state.questStep = "sandbox";
+  state.currentLocation = "黑泥街";
+  state.flags.alleyEscape = false;
+  state.flags.alleyWall = false;
+  state.flags.alleyAllyPresent = allyPresent;
+  state.flags.marketAftermath = true;
+  state.flags.marketAftermathKind = "truce";
+  remember(state, "市集伏擊停戰");
 }
 
 function dropMarketObject(state: GameState, name: string, position: string): void {
@@ -671,14 +707,20 @@ function resolveIncident(state: GameState, incident: Incident, choice: number): 
   const destination = incidentDestination(incident, index);
   if (destination && destination !== state.currentLocation)
     return { event: `須先沿街走到${destination}，才能處置這樁急事。`, reply: undefined, turns: 1 };
+  if (incident === "market_raid" && index === 3 && state.silver < 20)
+    return { event: "私銀不足二十文，攤販仍在肉檔等候，刀手沒有退開；市集插旗尚待處置。", reply: undefined, turns: 1 };
+  if (incident === "missing_ledger" && (index === 1 || index === 3) && state.silver < 10)
+    return { event: index === 1
+      ? "你拿不出十文私銀，容晚秋沒有說出誰帶走帳頁；缺頁仍待追查。"
+      : "你拿不出十文私銀，缺帳未補，這樁事仍待處置。", reply: undefined, turns: 1 };
   const lead = `你處置${incident === "market_raid" ? "市集插旗" : incident === "missing_ledger" ? "失蹤帳頁" : "可疑傷藥"}。`;
   let event = "";
   let reply: TurnResult["npcReply"];
   if (incident === "market_raid") {
     if (index === 0) { state.playerHp = Math.max(0, state.playerHp - 4); state.sectLifeline = Math.min(100, state.sectLifeline + 8); event = "你擋在攤販前挨了一刀，痛得倒抽一口涼氣；街坊守住肉檔。"; }
-    if (index === 1) { state.playerMp = Math.max(0, state.playerMp - 5); state.sectLifeline = Math.min(100, state.sectLifeline + 6); event = "你從暗巷截住刀手退路，氣喘吁吁；對方拔旗撤走。"; }
+    if (index === 1) { state.sectLifeline = Math.min(100, state.sectLifeline + 6); event = "你從暗巷截住刀手退路，氣喘吁吁；對方拔旗撤走。"; }
     if (index === 2) { state.sectLifeline = Math.min(100, state.sectLifeline + 4); event = "你記下三名攤販的證詞，逼刀手收旗。"; }
-    if (index === 3) { if (state.silver >= 20) { state.silver -= 20; state.sectLifeline = Math.min(100, state.sectLifeline + 3); event = "你自掏私銀安頓攤販，刀手暫退。"; } else event = "私銀不足二十文，你只能護攤販退入窄巷，刀手仍在肉檔。"; }
+    if (index === 3) { state.silver -= 20; state.sectLifeline = Math.min(100, state.sectLifeline + 3); event = "你自掏私銀安頓攤販，刀手暫退。"; }
     if (index === 4) { state.sectLifeline = Math.max(0, state.sectLifeline - 8); event = "你先護傷者撤走，肉檔失去半日生意，刀手把旗插在路口。"; }
     if (index < 4 && state.worldFlags.includes("街面有備")) {
       state.sectLifeline = Math.min(100, state.sectLifeline + 2);
@@ -699,14 +741,12 @@ function resolveIncident(state: GameState, incident: Incident, choice: number): 
     let tipBought = false;
     if (index === 0) { state.sectLifeline = Math.min(100, state.sectLifeline + 3); event = "你到鬼骰坊對帳，查出缺頁記著一筆假規費。祁觀衡鎖好原本。"; }
     if (index === 1) {
-      if (state.silver >= 10) {
-        state.silver -= 10; tipBought = true;
-        state.sectLifeline = Math.min(100, state.sectLifeline + 2);
-        event = "你向容晚秋買到消息，得知灰衣客昨夜從總壇帶走帳頁。";
-      } else event = "你拿不出十文私銀，容晚秋沒有說出誰帶走帳頁；缺頁仍待追查。";
+      state.silver -= 10; tipBought = true;
+      state.sectLifeline = Math.min(100, state.sectLifeline + 2);
+      event = "你向容晚秋買到消息，得知灰衣客昨夜從總壇帶走帳頁。";
     }
-    if (index === 2) { state.playerMp = Math.max(0, state.playerMp - 4); state.sectLifeline = Math.min(100, state.sectLifeline + 4); event = "你沿泥印追到市集後巷，氣喘吁吁地找回濕透的帳頁。"; }
-    if (index === 3) { if (state.silver >= 10) { state.silver -= 10; state.sectLifeline = Math.min(100, state.sectLifeline + 1); event = "你自掏私銀補上缺口，暫且穩住人心；缺的那頁仍得追查。"; } else event = "私銀不足十文，缺帳未補，你把破綻先記在紙上。"; }
+    if (index === 2) { state.sectLifeline = Math.min(100, state.sectLifeline + 4); event = "你沿泥印追到市集後巷，氣喘吁吁地找回濕透的帳頁。"; }
+    if (index === 3) { state.silver -= 10; state.sectLifeline = Math.min(100, state.sectLifeline + 1); event = "你自掏私銀補上缺口，暫且穩住人心；缺的那頁仍得追查。"; }
     if (index === 4) { state.sectLifeline = Math.min(100, state.sectLifeline + 1); event = `你在${state.currentLocation}寫下缺頁線索，託同門送交堂主；回信說帳櫃已封，往後要逐筆重查。`; }
     if (index <= 2 && (index !== 1 || tipBought) && state.worldFlags.includes("帳目有據")) {
       state.factionFunds += 10;
@@ -918,8 +958,7 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
     const usingDarkHand = /\[(?:撒生石灰|施放暗手|袖藏暗手|全力陰手)\]/.test(action);
     const guaranteed = action.includes("[全力陰手]")
       || usingDarkHand && state.playerMp >= 2 && state.playerHp <= Math.ceil(state.maxHp * 0.3);
-    const darkItem = usingDarkHand ? state.inventory.includes(STARTING_DARK_HAND)
-      ? STARTING_DARK_HAND : readyDarkHand(state.inventory) : undefined;
+    const darkItem = usingDarkHand ? selectedDarkHand(state.inventory, action) : undefined;
     if (usingDarkHand && darkItem) state.inventory.splice(state.inventory.indexOf(darkItem), 1);
     const selectedTerrain = terrainObject || (wasMarketAmbush && action.includes("[扯鐵鉤]") ? "懸肉鐵鉤"
       : wasMarketAmbush && action.includes("[推砧板]") ? "厚砧板" : undefined);
@@ -1081,10 +1120,11 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
     }
     state.questStep = "market_collection";
     state.currentLocation = "黑泥街";
-    if (!state.inventory.includes("【止血膏藥】")) state.inventory.push("【止血膏藥】");
+    if (!state.inventory.includes("【止血膏藥】") && state.inventory.length < state.maxInventory)
+      state.inventory.push("【止血膏藥】");
     state.flags.visitedGu = true;
     npcReply = { speaker: "陸千帆", line: "刀手還在巷口。先看清再動手。" };
-    event = `你趕到黑泥街市集肉檔，懷裡的止血膏藥尚未拆封。${choice === 1 ? "你記著顧忘生提過的灰線刀手。" : "藥包貼著胸口，腥氣已迎面而來。"}陸千帆仍帶傷，張斷骨卻拒交規費。`;
+    event = `你趕到黑泥街市集肉檔，${state.inventory.includes("【止血膏藥】") ? "懷裡的止血膏藥尚未拆封。" : "行囊已滿，止血膏藥留在苦煙館。"}${choice === 1 ? "你記著顧忘生提過的灰線刀手。" : "肉檔腥氣已迎面而來。"}陸千帆仍帶傷，張斷骨卻拒交規費。`;
   } else if (state.questStep === "yung_tea_stall") {
     event += flavor("yung_tea_stall");
     if (choice === 0) { remember(state, "趕在刀手前到市集"); event += "你沒等茶涼，便先一步趕到市集。"; }
@@ -1096,9 +1136,10 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
     state.currentLocation = "黑泥街";
     const herb = state.inventory.indexOf("【生草藥包】");
     if (herb >= 0) state.inventory.splice(herb, 1);
-    if (!state.inventory.includes("【金創散】")) state.inventory.push("【金創散】");
+    if (!state.inventory.includes("【金創散】") && state.inventory.length < state.maxInventory)
+      state.inventory.push("【金創散】");
     state.flags.visitedYung = true;
-    event = `你趕到黑泥街市集肉檔，袖裡的金創散尚未拆封。${choice === 1 ? "你記著容晚秋提過的灰線刀手。" : "茶香還在袖口，肉檔腥氣已迎面而來。"}陸千帆仍帶傷，張斷骨卻拒交規費。`;
+    event = `你趕到黑泥街市集肉檔，${state.inventory.includes("【金創散】") ? "袖裡的金創散尚未拆封。" : "行囊已滿，金創散留在茶寮。"}${choice === 1 ? "你記著容晚秋提過的灰線刀手。" : "茶香還在袖口，肉檔腥氣已迎面而來。"}陸千帆仍帶傷，張斷骨卻拒交規費。`;
   } else if (state.questStep === "market_collection") {
     const betrayed = /(?:背叛|出賣陸千帆|不救陸千帆)/.test(action);
     const embezzled = /(?:私吞|昧起|袋起|自己收)/.test(action);
@@ -1127,7 +1168,10 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
     state.combat = fight;
     if (!state.worldFlags.includes("救下陸千帆")) state.relationships["陸千帆"].wounded = true;
   } else if (state.flags.alleyEscape) {
-    const item = /\[(?:撒生石灰|施放暗手)\]/.test(action) ? readyDarkHand(state.inventory, false) : undefined;
+    const alleyOpening = state.flags.alleyOpening === true;
+    state.flags.alleyOpening = false;
+    const item = /\[(?:撒生石灰|施放暗手)\]/.test(action)
+      ? selectedDarkHand(state.inventory, action, false) : undefined;
     const guaranteed = Boolean(item && state.playerMp >= 2 && state.playerHp <= Math.ceil(state.maxHp * 0.3));
     const tier = item ? dirtyHandTier(rollD20(state, action), dirtyHandModifier(state), guaranteed) : undefined;
     if (item) {
@@ -1136,14 +1180,14 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
     }
     if (state.flags.alleyWall) {
       if (action.includes("[撞開刀手]")) {
-        state.playerHp = Math.max(1, state.playerHp - 4);
+        state.playerHp = Math.max(1, state.playerHp - (alleyOpening ? 2 : 4));
         event = "你從牆頭撲下撞歪刀手，肩上又挨一刀。你跌進後巷，竹籮堵住追兵；牆背終於沒了刀聲。";
       } else if (action.includes("[借牆脫身]")) {
         state.sceneState!.movedObjects["廢竹籮"] = "被追兵撞散在死巷牆下";
         if (!state.sceneState!.depletedSources.includes("廢竹籮")) state.sceneState!.depletedSources.push("廢竹籮");
         event = "你伏在牆脊避過刀鋒，爬到後巷才落地。追兵撞散竹籮，腳步卻停在牆那邊。";
       } else if (action.includes("[扯籮阻路]")) {
-        state.playerHp = Math.max(1, state.playerHp - 2);
+        state.playerHp = Math.max(1, state.playerHp - (alleyOpening ? 1 : 2));
         state.sceneState!.movedObjects["廢竹籮"] = "被踢落牆背窄口";
         event = "你踢落竹籮，追兵扯住你衣角。你掙開時手臂見血，翻到牆背，巷口刀手沒跟上。";
       } else if (tier === "failed") {
@@ -1155,7 +1199,7 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
       }
       state.flags.alleyWall = tier === "failed";
     } else if (action.includes("[硬闖街口]")) {
-      state.playerHp = Math.max(1, state.playerHp - 5);
+      state.playerHp = Math.max(1, state.playerHp - (alleyOpening ? 2 : 5));
       state.sectLifeline = Math.min(100, state.sectLifeline + 3);
       event = "你撞回肉檔前，肩頭挨刀，硬把刀手逼開。刀手退入暗巷，街口重新露出一條路。";
       remember(state, "黑泥街街口重奪");
@@ -1179,7 +1223,7 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
       event = "陸千帆把竹籮踢到牆邊，先托你上去，再攀牆跟來。他扯開了舊傷。";
       npcReply = { speaker: "陸千帆", line: "手拿開。老子還爬得動。" };
     } else if (action.includes("[踩籮翻牆]")) {
-      state.playerHp = Math.max(1, state.playerHp - 2);
+      state.playerHp = Math.max(1, state.playerHp - (alleyOpening ? 1 : 2));
       state.sceneState!.movedObjects["廢竹籮"] = "被追兵撞散在死巷牆下";
       if (!state.sceneState!.depletedSources.includes("廢竹籮")) state.sceneState!.depletedSources.push("廢竹籮");
       if (state.inventory.includes("【牛肉刀】") || state.inventory.includes("【生鏽鐵刀】") || state.inventory.includes("【奪來短刀】")) {
@@ -1213,7 +1257,20 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
     }
     state.sectLifeline = Math.max(0, state.sectLifeline - 1);
   } else if (state.flags.marketAftermath) {
-    if (state.flags.marketAftermathKind === "defeat") {
+    if (state.flags.marketAftermathKind === "truce") {
+      if (action.includes("[檢視傷勢]")) {
+        remember(state, "陸千帆傷勢已包紮");
+        event = "你替陸千帆按住傷口；刀手收著刀，讓你們退到肉案後。";
+      } else if (action.includes("[盤問刀手]")) {
+        event = "你問刀手誰叫他守住肉檔。他沒有報名字，只指向玄武樓的方向，仍把刀留在鞘裡。";
+      } else if (action.includes("[安頓收隊]")) {
+        event = "你讓街坊退離肉檔，叫同門接手守住街口；刀手沒有再拔刀。";
+      }
+      if (event) {
+        state.flags.marketAftermath = false;
+        remember(state, "市集殘局已定");
+      }
+    } else if (state.flags.marketAftermathKind === "defeat") {
       if (action.includes("[檢視傷勢]")) {
         remember(state, "陸千帆傷勢已包紮");
         event = "你扶陸千帆退到肉案後，撕布按住他的傷口；刀手佔著街口，你們沿後巷撤走。";
@@ -1886,11 +1943,14 @@ export function resolveMarketDialogue(rawState: GameState, target: string, utter
     if (!person.beliefs.includes(belief)) person.beliefs.push(belief);
     event += `${target}接受了${belief}，這不會替他抹去舊帳。`;
   }
+  if (target === "刀手" && (reaction === "cooperate" || reaction === "defect")
+    && (state.combat?.scenario === "market_ambush" || state.questStep === "market_collection"))
+    settleKnifeParley(state);
   const memory = typeof proposal.memory === "string" ? proposal.memory.replace(/[\r\n<>]/g, "").slice(0, 100) : "";
   state.flags.marketNpcHistory = [...(state.flags.marketNpcHistory || []), {
     turn: state.turn, target, player: utterance.slice(0, 300), reply: "", reaction, memory,
   }].slice(-16);
-  if (rawState.questStep === "market_collection") {
+  if (rawState.questStep === "market_collection" && !state.flags.marketAftermath) {
     const intentHistory: NonNullable<GameState["flags"]["marketIntentHistory"]> = [...(state.flags.marketIntentHistory || []), {
       turn: state.turn, approach: "交涉" as const, target, outcome: event.slice(0, 160),
     }].slice(-8);
@@ -2042,7 +2102,10 @@ export function resolveSocialIntent(rawState: GameState, plan: SocialIntent): Tu
         : `${plan.target}答應出手幫這一回，往後是否同行仍要看交情。`;
     line = plan.goal === "truce" ? "先停手。別當我認輸。" : "好，這一回我幫。";
   }
-  if (start.questStep === "market_collection") {
+  if (achieved && plan.target === "刀手" && ["truce", "defect", "help"].includes(plan.goal)
+    && (state.combat?.scenario === "market_ambush" || state.questStep === "market_collection"))
+    settleKnifeParley(state);
+  if (start.questStep === "market_collection" && !state.flags.marketAftermath) {
     const history: NonNullable<GameState["flags"]["marketIntentHistory"]> = [...(state.flags.marketIntentHistory || []), {
       turn: state.turn, approach: "交涉" as const, target: plan.target, outcome: event.slice(0, 160),
     }].slice(-8);
@@ -2165,14 +2228,14 @@ export function resolveSceneAttempt(rawState: GameState, plan: SceneAttempt): Tu
       state.flags.marketAftermath = true;
       state.flags.marketAftermathKind = "escape";
       remember(state, "黑泥街巷尾脫險");
-      event = `你借${plan.object || "牆根"}翻出死巷。刀手留在牆那邊，陸千帆仍須止血。`;
+      event = `你借${plan.object || "牆根"}翻出死巷。刀手留在牆那邊。${state.flags.alleyAllyPresent && state.relationships["陸千帆"].wounded ? "陸千帆的傷仍須照看。" : ""}`;
     } else if (plan.effect === "move" || plan.effect === "disrupt") {
       state.flags.alleyWall = true;
       state.playerHp = Math.max(1, state.playerHp - 2);
       event = `你${plan.object ? `挪動${plan.object}` : "搶身貼牆"}，刀手仍守著街口；你踩上巷尾牆根，手背又挨了一刀。`;
     } else {
       state.playerHp = Math.max(1, state.playerHp - 3);
-      event = `你在死巷裡${plan.effect === "protect" ? "護住身後的人" : "試探刀手的位置"}，刀口仍逼近，退路尚未打開。`;
+      event = `你在死巷裡${plan.effect === "protect" && state.flags.alleyAllyPresent ? "護住陸千帆" : "試探刀手的位置"}，刀口仍逼近，退路尚未打開。`;
     }
     if (plan.object === "餿水桶" && (plan.effect === "move" || plan.effect === "disrupt")) {
       const poured = /踢翻|推翻|倒|潑|傾|翻桶/.test(plan.method);
@@ -2299,9 +2362,49 @@ export function resolveMarketIntent(rawState: GameState, plan: MarketIntent): Tu
       ...(plan.object ? { object: plan.object } : {}), method: plan.method });
   }
   if (state.questStep !== "market_collection") {
+    if (state.flags.marketAftermath && state.flags.marketAftermathKind === "truce"
+      && ["進擊", "施壓", "奪械", "借物"].includes(plan.approach))
+      return rejected("刀手已收刀，眼下這個停戰殘局不能按交手時的身位出招；先盤問或安頓街口。 ");
     if (state.combat && plan.object === "剁骨刀")
       return rejected("刀手正隔在你與張斷骨的肉案之間，眼下碰不到那把剁骨刀。 ");
     const usingDarkHand = Boolean(plan.object && state.inventory.some((item) => isDarkHand(item) && item === `【${plan.object}】`));
+    const darkHandAttack = usingDarkHand && state.flags.alleyEscape && plan.target === "刀手"
+      && plan.object !== "袖藏短刺" && plan.approach !== "脫身"
+      && !/翻牆|攀牆|撤|逃|脫身|離開/.test(plan.method);
+    if (darkHandAttack) {
+      if (state.playerMp < 1) return rejected("你氣力不足，眼下使不出暗手。");
+      const item = `【${plan.object}】` as DarkHandItem;
+      state.turn += 1;
+      const guaranteed = state.playerMp >= 2 && state.playerHp <= Math.ceil(state.maxHp * 0.3);
+      state.playerMp -= guaranteed ? 2 : 1;
+      state.inventory.splice(state.inventory.indexOf(item), 1);
+      const tier = dirtyHandTier(rollD20(state, plan.method), dirtyHandModifier(state), guaranteed);
+      state.sectLifeline = Math.max(0, state.sectLifeline - 1);
+      if (tier === "failed") state.playerHp = Math.max(1, state.playerHp - 5);
+      else {
+        state.flags.alleyOpening = true;
+        if (tier === "ordinary") state.playerHp = Math.max(1, state.playerHp - 2);
+      }
+      const event = tier === "failed"
+        ? `你${dirtyHandVerb(item)}，刀手避開暗手，反刀逼你退回巷尾。`
+        : `你${dirtyHandVerb(item)}，刀手失位，街口與牆頭都露出短暫空檔；你仍在死巷。`;
+      record(state, event);
+      return { state, options: availableOptions(state), event, moneyNote: "" };
+    }
+    if (state.combat?.scenario === "market_ambush"
+      && (plan.approach === "查探" || plan.approach === "交涉")) {
+      state.turn += 1;
+      spendEnergy(state, 1);
+      state.playerHp = Math.max(1, state.playerHp - 2);
+      state.sectLifeline = Math.max(0, state.sectLifeline - 1);
+      state.combat.round = Math.min(4, state.combat.round + 1);
+      if (plan.approach === "查探") state.combat.preparedDefense = Math.min(5, state.combat.preparedDefense + 1);
+      const event = plan.approach === "查探"
+        ? "你看清刀手換步時露出的空門；他趁你分神逼近，刀仍在手。"
+        : `你向${plan.target}喊話，刀手沒有收刀，趁你開口逼近半步。`;
+      record(state, event);
+      return { state, options: availableOptions(state), event, moneyNote: "" };
+    }
     if (plan.approach === "借物" && state.combat && !usingDarkHand
       && !["厚砧板", "懸肉鐵鉤", "剁骨刀"].includes(plan.object || ""))
       return rejected("這件物事眼下不能拿來擋刀；換個合乎手邊位置的用法。 ");
@@ -2335,6 +2438,9 @@ export function resolveMarketIntent(rawState: GameState, plan: MarketIntent): Tu
           : plan.object === "餿水桶" ? "踢翻餿水桶"
             : plan.approach === "救護" || plan.approach === "防守" ? state.flags.alleyAllyPresent ? "伏低護人" : "伏低保命"
               : plan.approach === "進擊" || plan.approach === "施壓" ? "硬闖街口" : "踩籮翻牆"
+        : state.flags.marketAftermathKind === "truce"
+          ? plan.approach === "救護" ? "檢視傷勢"
+            : plan.approach === "查探" || plan.approach === "交涉" ? "盤問刀手" : "安頓收隊"
         : state.flags.marketAftermathKind === "defeat"
           ? plan.approach === "救護" ? state.flags.alleyAllyPresent ? "檢視傷勢" : "裹緊傷口"
             : plan.approach === "查探" || plan.approach === "防守" ? "伏身避刀" : "撤離街口"
@@ -2346,8 +2452,8 @@ export function resolveMarketIntent(rawState: GameState, plan: MarketIntent): Tu
     const combatLetter = plan.approach === "脫身" ? "E"
       : plan.approach === "救護" || plan.approach === "防守" ? "B"
         : plan.approach === "借物" ? "C" : plan.approach === "查探" || plan.approach === "交涉" ? "D" : "A";
-    const option = usingDarkHand ? options.find((item) => item.startsWith("I. [撒生石灰]")
-      || item.startsWith("I. [施放暗手]"))
+    const option = usingDarkHand ? options.find((item) => /^[IJ]\. \[(?:撒生石灰|施放暗手)\]/.test(item)
+      && (plan.object === "生石灰包" ? item.includes("[撒生石灰]") : item.includes(dirtyHandOptionMove(`【${plan.object}】` as DarkHandItem))))
       : state.combat ? options.find((item) => item.startsWith(`${combatLetter}.`)) : withTag(tag);
     if (!option) return rejected("眼前無法用這件物事達成所想；換個貼近當前身位的手段。 ");
     const terrainObject = state.combat && plan.approach === "借物" && ["厚砧板", "懸肉鐵鉤", "剁骨刀"].includes(plan.object || "")
@@ -2535,10 +2641,11 @@ function rawAvailableOptions(state: GameState): string[] {
   if (state.questStep === "chapter_one" || state.flags.ending) return chapterOneOptions(state);
   if (state.flags.finalCrisis) return ENDING_OPTIONS;
   if (state.combat || state.questStep === "huizhi_ambush") {
-    const combat = state.combat || createCombat("market_ambush", !state.worldFlags.includes("出賣陸千帆"));
+    const combat = state.combat || createCombat("market_ambush", !state.worldFlags.includes("出賣陸千帆")
+      && !state.worldFlags.includes("棄下陸千帆"));
     const options = combatOptions(combat, state.equippedWeapon || "fists", state.knownMoves || {}, state.playerMp,
       !state.inventory.includes("【牛肉刀】") && !state.inventory.includes("【生鏽鐵刀】") && !state.inventory.includes("【奪來短刀】"),
-      state.inventory.includes(STARTING_DARK_HAND) ? STARTING_DARK_HAND : readyDarkHand(state.inventory));
+      state.inventory.filter((item): item is DarkHandItem => isDarkHand(item)));
     if (combat.scenario === "market_ambush") {
       const scene = normalizeSceneState(state.sceneState, state.worldFlags);
       const terrain = !scene.movedObjects["懸肉鐵鉤"] && !scene.depletedSources.includes("懸肉鐵鉤")

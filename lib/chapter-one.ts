@@ -371,6 +371,9 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
     }
   } else if (chapter.stage === "dock") {
     const pressure = collectPressure(state, chapter, 4);
+    if (chapter.lostLandmarks.length >= MAX_LOST_LANDMARKS || state.sectLifeline === 0)
+      return finishTurn(state, pressure + settleTribute(state, chapter)
+        + spendEnergy(state, energyCost, Math.max(0, startingEnergy - state.playerMp)));
     if (choice === 0) { if (!chapter.manifestFound) { chapter.evidence += chapter.selectedCompanion === "祁觀衡" ? 2 : 1; chapter.manifestFound = true; event = chapter.selectedCompanion === "祁觀衡" ? "祁觀衡眼快，連貨單上的偽造印記也查出來；船次與玄武樓所報不符，足以拿去對質。" : "你查到碼頭貨單上的船次與玄武樓所報不符，留下一份可對質的證據。"; } else event = "你重查貨單，沒有找到新船次。"; }
     if (choice === 1) event = selectCompanion(state, chapter, action);
     if (choice === 2) { if (!chapter.crewHired && state.factionFunds >= 15) { addFunds(state, -15, "堂主僱船工查碼頭水路"); chapter.crewHired = true; chapter.dockRouteKnown = true; event = "你向堂主呈上帳目，何不歸從公款支十五文僱船工，摸清通向碼頭的水路。"; } else event = chapter.crewHired ? "船工已在碼頭外候命，重付錢也不會多一條路。" : "堂口公款不足十五文，何不歸暫無法僱船工。"; }

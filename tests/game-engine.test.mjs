@@ -1282,7 +1282,8 @@ test("sect members call He Bugui 堂主 while outsiders may use his name", () =>
 });
 
 test("incident replies use the speaker involved in each branch", () => {
-  const state = { ...newGame(), questStep: "sandbox", turn: 13, flags: { ...newGame().flags, pendingIncident: "missing_ledger" } };
+  const state = { ...newGame(), questStep: "sandbox", turn: 13, silver: 10,
+    flags: { ...newGame().flags, pendingIncident: "missing_ledger" } };
   const atDice = walkTo(state, "鬼骰坊");
   assert.equal(resolveTurn(atDice, availableOptions(atDice).find((option) => option.includes("[查賭檔]")), false).npcReply.speaker, "祁觀衡");
   const atTea = walkTo(state, "晚秋茶寮");

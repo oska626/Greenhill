@@ -74,7 +74,12 @@ function walkTo(state, destination, route) {
     }
     if (state.flags.pendingIncident) {
       const local = availableOptions(state).find((option) => !option.startsWith("F."));
-      if (local) { state = step(state, local.match(/\[[^\]]+\]/)?.[0], route); continue; }
+      const payable = local && ((local.includes("[付錢息事]") && state.silver >= 20)
+        || (local.includes("[買帳頁線索]") && state.silver >= 10)
+        || (local.includes("[自掏補帳]") && state.silver >= 10));
+      if (local && (!/\[(?:付錢息事|買帳頁線索|自掏補帳)\]/.test(local) || payable)) {
+        state = step(state, local.match(/\[[^\]]+\]/)?.[0], route); continue;
+      }
     }
     if (state.currentLocation === destination && !state.flags.pendingIncident && !state.pendingEncounter) return state;
     const nextDestination = state.flags.pendingIncident === "market_raid" ? "黑泥街" : destination;
@@ -99,7 +104,12 @@ function settlePending(state, route) {
   if (!state.flags.pendingIncident) return state;
   if (state.flags.pendingIncident === "market_raid" && state.currentLocation !== "黑泥街")
     state = walkTo(state, "黑泥街", route);
-  const local = availableOptions(state).find((option) => !option.startsWith("F."));
+  if (state.flags.pendingIncident === "missing_ledger" && state.currentLocation !== "青鋒堂總壇")
+    state = walkTo(state, "青鋒堂總壇", route);
+  if (!state.flags.pendingIncident) return state;
+  const preferred = state.flags.pendingIncident === "market_raid" ? "[設局取證]"
+    : state.flags.pendingIncident === "missing_ledger" ? "[告知堂主]" : "[封存藥包]";
+  const local = availableOptions(state).find((option) => option.includes(preferred));
   assert.ok(local, `${route}: no local incident response at ${state.currentLocation}`);
   return step(state, local.match(/\[[^\]]+\]/)?.[0], route);
 }
@@ -207,6 +217,7 @@ function main() {
   standard = finishAmbush(standard, "standard");
   assert.equal(standard.flags.marketAftermath, true);
   standard = settle(standard, "standard");
+  standard.silver = 20;
   reachChapter(standard, "standard");
 
   for (const exit of ["[踢翻餿水桶]", "[踩籮翻牆]"]) {

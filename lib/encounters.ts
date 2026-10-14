@@ -51,7 +51,7 @@ export const ENCOUNTERS = [
   { id: "arena_blockade", location: "裂石擂", report: "輸掉擂台的拳手堵在巷口，伸手討要傷藥費。",
     condition: (state, loc) => loc === "裂石擂" && state.turn > state.lastEncounterTurn + 2 && getPseudoRandom(state) < 20,
     choices: [
-      { label: "A. [逼退] 拔出半寸刀鋒嚇退", actionTags: ["brave", "ruthless"], event: "你推開刀鍔半寸，拳手看了眼刀口，收手退到牆邊。" },
+      { label: "A. [逼退] 搶上一步逼退拳手", actionTags: ["brave", "ruthless"], event: "你搶上一步卡住拳手的身位；他見討不到藥費，收手退到牆邊。" },
       { label: "B. [閃避] 憑身法繞過攔路者", actionTags: ["cautious"], event: "你錯身繞過他的肩頭，從巷壁與貨車間穿了過去。" },
     ] },
   { id: "clinic_patron", location: "苦煙館", report: "一名傷患攥住你的衣袖，指著櫃上的止痛藥，求你替他付帳。",

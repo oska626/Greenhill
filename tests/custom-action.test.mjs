@@ -10,6 +10,7 @@ import { createCombat } from "../lib/combat-engine.ts";
 import { inferSocialIntent, marketDialogueTarget } from "../lib/social-influence.ts";
 import { objectStatus, sceneFacts } from "../lib/scene-state.ts";
 import { appendDangerCue, explicitActionSteps, resolveActionSequence, sceneDangerCue, validatedActionSteps } from "../lib/action-sequence.ts";
+import { hardboiledFallback } from "../lib/narrative-style.ts";
 
 function state() {
   return {
@@ -609,6 +610,82 @@ test("speaking to an active knife man consumes a guarded combat round", () => {
   assert.equal(result.state.turn, scene.turn + 1);
   assert.ok(result.state.playerHp < scene.playerHp || result.state.playerMp < scene.playerMp);
   assert.notEqual(result.state.socialMemory["刀手"].stance, "ally");
+});
+
+test("combat inquiry and negotiation do not become feint attacks", () => {
+  const scene = { ...state(), questStep: "huizhi_ambush", combat: createCombat("market_ambush", true) };
+  for (const approach of ["查探", "交涉"]) {
+    const result = resolveMarketIntent(scene, { approach, target: "刀手", method: `${approach}刀手動靜` });
+    assert.equal(result.state.combat.enemyHp, scene.combat.enemyHp);
+    assert.equal(result.state.questStep, "huizhi_ambush");
+    assert.doesNotMatch(result.event, /佯攻|攻勢一滯/);
+  }
+});
+
+test("a specific dark hand in free combat intent spends that item", () => {
+  const scene = { ...state(), questStep: "huizhi_ambush", combat: createCombat("market_ambush", true),
+    inventory: ["【生石灰包】", "【飛蝗石】"] };
+  const result = resolveMarketIntent(scene, { approach: "借物", target: "刀手", object: "飛蝗石",
+    method: "擲飛蝗石攻刀手" });
+  assert.match(result.event, /飛蝗石/);
+  assert.deepEqual(result.state.inventory, ["【生石灰包】"]);
+});
+
+test("alley attack with lime leaves an opening without moving the player", () => {
+  const scene = { ...state(), questStep: "sandbox", playerHp: 10,
+    flags: { ...state().flags, alleyEscape: true, alleyAllyPresent: false },
+    inventory: ["【生石灰包】"] };
+  const attack = resolveMarketIntent(scene, { approach: "借物", target: "刀手", object: "生石灰包",
+    method: "撒生石灰攻刀手" });
+  assert.equal(attack.state.flags.alleyEscape, true);
+  assert.equal(attack.state.flags.marketAftermath, false);
+  assert.equal(attack.state.flags.alleyOpening, true);
+  assert.deepEqual(attack.state.inventory, []);
+  const escape = resolveTurn(attack.state, availableOptions(attack.state).find((option) => option.includes("[硬闖街口]")), false);
+  assert.equal(escape.state.playerHp, attack.state.playerHp - 2);
+});
+
+test("wall inquiry fallback reports the inquiry without inventing a bucket kick", () => {
+  const scene = { ...state(), questStep: "sandbox", flags: { ...state().flags,
+    alleyEscape: true, alleyWall: true, alleyAllyPresent: false } };
+  const result = resolveMarketIntent(scene, { approach: "查探", target: "刀手", method: "查探牆背刀手" });
+  const prose = hardboiledFallback(result.event, result.state);
+  assert.match(prose, /伏在牆頭看清後巷/);
+  assert.doesNotMatch(prose, /餿水桶翻倒|腳下一滑/);
+});
+
+test("a knife man's accepted cooperation ends the hostile combat state", () => {
+  const prior = [1, 2].map((turn) => ({ turn, target: "刀手", player: "我提出收刀的條件。",
+    reply: "再說。", reaction: "consider", memory: "談過收刀" }));
+  const scene = { ...state(), questStep: "huizhi_ambush", combat: createCombat("market_ambush", true),
+    flags: { ...state().flags, marketNpcHistory: prior } };
+  const result = resolveMarketDialogue(scene, "刀手", "刀手，我有證據，可保你性命，請你收刀。",
+    { reaction: "cooperate", reason: "接受條件", memory: "同意收刀" });
+  assert.equal(result.state.combat, undefined);
+  assert.equal(result.state.flags.marketAftermathKind, "truce");
+  assert.equal(result.state.questStep, "sandbox");
+  assert.ok(availableOptions(result.state).some((option) => option.includes("[盤問刀手]")));
+});
+
+test("a negotiated truce ends combat instead of granting only defense", () => {
+  const scene = { ...state(), questStep: "huizhi_ambush", combat: createCombat("market_ambush", true),
+    socialMemory: { "刀手": { stance: "hostile", beliefs: [], topics: {
+      "truce:眼前停手": { progress: 3, resistance: 0, tactics: [], arguments: [], lastTurn: 0 },
+    } } } };
+  const speech = "我同刀手講：因為玄武樓會棄你不顧，現在收刀保命。";
+  const result = resolveSocialIntent(scene, inferSocialIntent(scene, speech));
+  assert.equal(result.state.combat, undefined);
+  assert.equal(result.state.flags.marketAftermathKind, "truce");
+  assert.match(result.event, /暫且收手/);
+});
+
+test("free inquiry during a truce questions the knife man", () => {
+  const scene = { ...state(), questStep: "sandbox", combat: undefined,
+    flags: { ...state().flags, marketAftermath: true, marketAftermathKind: "truce" } };
+  const result = resolveMarketIntent(scene, { approach: "查探", target: "刀手", method: "問刀手誰叫他守住肉檔" });
+  assert.match(result.event, /你問刀手誰叫他守住肉檔/);
+  assert.equal(result.state.flags.marketAftermath, false);
+  assert.doesNotMatch(result.event, /伏巷警戒|無法用這件物事/);
 });
 
 test("an unaddressed spoken line reaches the knife man during combat", () => {

@@ -130,7 +130,7 @@ test("kicking the slop bucket leaves the player on a contested wall", () => {
   assert.equal(blackmudAnchors(bucket.state).find((item) => item.name === "餿水桶").label, "已耗盡");
   const prose = hardboiledFallback(bucket.event, bucket.state);
   assert.equal(validHardboiledNarrative(prose), true, prose);
-  assert.match(prose, /牆背另一名刀手/);
+  assert.match(prose, /牆背仍有刀手/);
   const rejectedJob = resolveTurn(bucket.state, "B. [搬貨] 替商販搬貨", false);
   assert.equal(rejectedJob.state.turn, bucket.state.turn);
   const escaped = resolveTurn(bucket.state, bucket.options.find((option) => option.includes("[借牆脫身]")), false);
@@ -154,7 +154,7 @@ test("market victory requires one aftermath action before ordinary work resumes"
   const won = resolveTurn(fight, availableOptions(fight).find((option) => option.startsWith("A.")), false);
   assert.equal(won.state.flags.marketAftermath, true);
   assert.equal(won.options.some((option) => /搬貨|巡街收規|領差/.test(option)), false);
-  assert.equal(won.options.some((option) => option.includes("[檢視傷勢]")), true);
+  assert.equal(won.options.some((option) => option.includes("[檢視傷勢]")), false);
   assert.equal(won.options.some((option) => option.includes("[伏巷警戒]")), true);
   assert.equal(won.options.some((option) => option.includes("[盤問張斷骨]")), true);
   assert.equal(won.options.some((option) => option.includes("[搜刮殘局]")), true);
@@ -267,7 +267,88 @@ test("dark hand is physical, limited, consumed and has a paid guarantee", () => 
   const outcome = resolveTurn(fighting, trick, false);
   assert.equal(darkHandCount(outcome.state.inventory), 0);
   assert.equal(outcome.state.playerMp, 38);
-  assert.equal(outcome.state.combat, undefined);
+  assert.ok(outcome.state.combat);
+  assert.equal(outcome.state.flags.alleyEscape, false);
+  assert.ok(outcome.state.combat.opening >= 2);
+});
+
+test("turn six lime choice blinds the knife man without silently retreating", () => {
+  const fighting = game({ turn: 5, questStep: "huizhi_ambush", combat: createCombat("market_ambush", true),
+    playerHp: 10, inventory: ["【生石灰包】"] });
+  const choice = availableOptions(fighting).find((option) => option.startsWith("I. [撒生石灰]"));
+  const outcome = resolveTurn(fighting, choice, false);
+  const prose = hardboiledFallback(outcome.event, outcome.state, outcome.npcReply);
+  assert.equal(outcome.state.turn, 6);
+  assert.match(outcome.event, /撒石灰迷眼/);
+  assert.match(prose, /撒石灰迷眼/);
+  assert.doesNotMatch(prose, /退入死巷|翻牆|刀口擦過後頸/);
+  assert.equal(outcome.state.questStep, "huizhi_ambush");
+  assert.ok(outcome.state.combat);
+  assert.equal(outcome.state.flags.alleyEscape, false);
+  assert.equal(outcome.state.inventory.includes("【生石灰包】"), false);
+});
+
+test("two carried dark hands produce distinct choices and consume the chosen item", () => {
+  const fighting = game({ questStep: "huizhi_ambush", combat: createCombat("market_ambush", true),
+    inventory: ["【生石灰包】", "【飛蝗石】"], playerHp: 10 });
+  const options = availableOptions(fighting);
+  assert.ok(options.some((option) => option.startsWith("I. [撒生石灰]")));
+  const stone = options.find((option) => option.startsWith("J. [施放暗手]"));
+  assert.match(stone, /飛蝗石/);
+  const thrown = resolveTurn(fighting, stone, false);
+  assert.match(thrown.event, /飛蝗石/);
+  assert.deepEqual(thrown.state.inventory, ["【生石灰包】"]);
+});
+
+test("restored ambush respects an abandoned companion", () => {
+  const restored = normalizeState(game({ questStep: "huizhi_ambush", combat: undefined,
+    worldFlags: ["棄下陸千帆"] }));
+  assert.equal(restored.combat.allyPresent, false);
+  assert.equal(availableOptions(restored).some((option) => option.includes("[護住同門]")), false);
+});
+
+test("a full legacy inventory does not gain an extra tutorial medicine", () => {
+  const packed = normalizeState(game({ questStep: "kuyan_medicine", currentLocation: "苦煙館",
+    inventory: ["【生石灰包】", "【牛肉刀】", "【飛蝗石】", "【粗鐵護腕】", "【灌鉛假骰】", "【開鎖鐵線】"],
+    maxInventory: 4 }));
+  assert.equal(packed.maxInventory, 6);
+  const arrived = resolveTurn(packed, availableOptions(packed)[0], false);
+  assert.equal(arrived.state.inventory.length, 6);
+  assert.equal(arrived.state.inventory.includes("【止血膏藥】"), false);
+  assert.match(arrived.event, /止血膏藥留在苦煙館/);
+  assert.doesNotMatch(hardboiledFallback(arrived.event, arrived.state), /膏藥尚未拆封/);
+});
+
+test("incident effort is gated and an unfunded payment does not retreat", () => {
+  const raid = normalizeState(game({ turn: 20, playerMp: 5, silver: 0,
+    flags: { ...game().flags, pendingIncident: "market_raid" } }));
+  assert.equal(availableOptions(raid).some((option) => option.includes("[暗巷截路]")), false);
+  const pay = resolveTurn(raid, availableOptions(raid).find((option) => option.includes("[付錢息事]")), false);
+  assert.match(pay.event, /私銀不足二十文/);
+  assert.doesNotMatch(pay.event, /退入窄巷/);
+  assert.equal(pay.state.flags.alleyEscape, false);
+  assert.equal(pay.state.flags.pendingIncident, "market_raid");
+  assert.equal(pay.state.worldFlags.includes("市集守住"), false);
+  const ledgerUnfunded = normalizeState(game({ currentLocation: "晚秋茶寮", turn: 20, silver: 0,
+    flags: { ...game().flags, pendingIncident: "missing_ledger" } }));
+  const refusedTip = resolveTurn(ledgerUnfunded,
+    availableOptions(ledgerUnfunded).find((option) => option.includes("[買帳頁線索]")), false);
+  assert.equal(refusedTip.state.flags.pendingIncident, "missing_ledger");
+  assert.equal(refusedTip.state.worldFlags.includes("規費帳失頁已查"), false);
+  const ledger = normalizeState(game({ turn: 20, playerMp: 6,
+    flags: { ...game().flags, pendingIncident: "missing_ledger" } }));
+  const chase = resolveTurn(ledger, availableOptions(ledger).find((option) => option.includes("[追腳印]")), false);
+  assert.match(chase.event, /找回濕透的帳頁/);
+  assert.equal(chase.state.playerMp, 0);
+});
+
+test("escape aftermath does not invent an untreated companion wound", () => {
+  const scene = normalizeState(game({ flags: { ...game().flags, marketAftermath: true,
+    marketAftermathKind: "escape", alleyAllyPresent: true } }));
+  assert.equal(scene.relationships["陸千帆"].wounded, false);
+  assert.equal(availableOptions(scene).some((option) => option.includes("[檢視傷勢]")), false);
+  const prose = hardboiledFallback("你翻過巷牆，刀手沒能追上。", scene);
+  assert.doesNotMatch(prose, /傷還未止住|先收拾傷口/);
 });
 
 test("one combat dark-hand choice switches to a desperate strike at low health", () => {

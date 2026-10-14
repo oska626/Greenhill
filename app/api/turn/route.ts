@@ -236,7 +236,8 @@ function npcFacts(state: GameState, target: string): string {
   const relation = target === "陸千帆" ? `與玩家信任：${relationshipLabel(state.relationships["陸千帆"])}；負傷：${state.relationships["陸千帆"].wounded}` : "";
   const social = state.socialMemory?.[target];
   const position = state.combat || state.flags.alleyEscape ? "刀手在側，喊話會耗掉守勢機會"
-    : state.flags.marketAftermath ? "刀手暫退，現場局勢仍待處置"
+    : state.flags.marketAftermath ? state.flags.marketAftermathKind === "truce"
+      ? "刀手收刀仍在肉檔，停戰尚待安頓" : "刀手暫退，現場局勢仍待處置"
       : state.questStep === "market_collection" ? "刀手伏在巷口，肉檔前尚未安全" : "街面暫無即時刀口";
   return `地點：黑泥街；階段：${state.questStep}；現場：${position}。人物：${target}；聲線及利益：${npcVoiceGuide(target)}；${relation}；立場：${social?.stance || "未定"}。`;
 }

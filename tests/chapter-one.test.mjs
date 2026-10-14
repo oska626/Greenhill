@@ -473,7 +473,7 @@ test("three lost landmarks end the chapter, including midway through travel", ()
   assert.match(travelling.event, /前路未到/);
 });
 
-test("restoring dock logistics wins even when unrest triggers a raid that turn", () => {
+test("a third lost landmark ends the chapter before dock recovery can succeed", () => {
   const start = inspectAffected(calmToShortage().state).state;
   const ready = { ...start, currentLocation: "碼頭", sectLifeline: 60,
     flags: { ...start.flags, chapterOne: { ...start.flags.chapterOne,
@@ -481,8 +481,8 @@ test("restoring dock logistics wins even when unrest triggers a raid that turn",
       unrest: RAID_UNREST_THRESHOLD - 2,
       lostLandmarks: ["晚秋茶寮", "裂石擂"] } } };
   const won = choose(ready, "E");
-  assert.equal(won.state.flags.chapterOne.stage, "complete");
-  assert.equal(won.state.flags.chapterOne.result, "奪回碼頭");
+  assert.equal(won.state.flags.chapterOne.stage, "failed");
+  assert.equal(won.state.flags.chapterOne.result, "城西地標陷落");
 });
 
 test("evidence and a companion can restore dock logistics", () => {

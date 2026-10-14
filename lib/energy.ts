@@ -14,6 +14,7 @@ export function actionEnergyCost(state: GameState, action: string, turns = 1): n
     return tag === "反制" || tag === "立威" ? 2 : 1;
   }
   if (/^(明路前往|暗道前往|前往)$/.test(tag)) return turns;
+  if (tag === "暗巷截路" || tag === "追腳印") return 6;
 
   let cost = 1;
   if (state.questStep === "chapter_one") {

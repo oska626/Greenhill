@@ -46,6 +46,7 @@ function hardboiledFallbackCore(event: string, state: GameState, reply?: { speak
   reply = localNpcReply(state, reply);
   if (state.questStep === "market_collection" && state.currentLocation === "黑泥街"
     && state.flags.visitedGu && event.startsWith("你趕到黑泥街市集肉檔")) {
+    if (!state.inventory.includes("【止血膏藥】")) return event.trim();
     const medicineNote = event.includes("顧忘生提過的灰線刀手")
       ? "懷裡的膏藥尚帶餘溫，你也記著顧忘生提過的灰線刀手。"
       : "懷裡的膏藥封口尚未拆開，黑泥街的腥氣已撲面而來。";
@@ -53,6 +54,7 @@ function hardboiledFallbackCore(event: string, state: GameState, reply?: { speak
   }
   if (state.questStep === "market_collection" && state.currentLocation === "黑泥街"
     && state.flags.visitedYung && event.startsWith("你趕到黑泥街市集肉檔")) {
+    if (!state.inventory.includes("【金創散】")) return event.trim();
     const warning = event.includes("容晚秋提過的灰線刀手")
       ? "袖裡的金創散貼著手腕，容晚秋提過的灰線刀手仍在你心上。"
       : "袖裡的金創散尚未拆封，黑泥街肉檔的腥氣已迎面撲來。";
@@ -68,27 +70,23 @@ function hardboiledFallbackCore(event: string, state: GameState, reply?: { speak
     return `${arrival}顧忘生把膏藥封口轉到燈下，指著繩結叫你辨清；藥煙貼著桌面，藥罐仍開著。`;
   }
   if (state.flags.alleyWall && state.currentLocation === "黑泥街") {
-    return /早有防備|偏頭躲開/.test(event)
-      ? "暗手落空，刀手偏頭避開。你被逼回牆頭，追兵踩著竹籮爬上來；牆背的刀手還守著落腳處，眼前只剩半步可挪。"
-      : "餿水桶翻倒，追兵腳下一滑。你借竹籮蹬上矮牆，手背又添刀痕；牆背另一名刀手卡住落腳處，身後的人正踩著竹籮追上來。";
+    return `${event.trim()}牆背仍有刀手守著落腳處，追兵正向牆頭逼近。`;
   }
   if (state.flags.alleyEscape && state.currentLocation === "黑泥街") {
-    return state.flags.alleyAllyPresent
-      ? "刀口擦過後頸，血滴進泥裡。你拽陸千帆退入死巷，刀手封住肉檔前的路。陸千帆抓住你：「他媽的，先翻牆，回頭剁了那幫狗！」"
-      : "刀口擦過後頸，血滴進泥裡。你獨自退入死巷，刀手封住肉檔前的路；餿水桶和廢竹籮堵在巷尾，追兵正踏進泥水。";
+    return `${event.trim()}巷尾竹籮仍未挪到牆邊，刀手守住肉檔前的路。`;
   }
   if (state.flags.marketAftermath && state.currentLocation === "黑泥街") {
+    if (state.flags.marketAftermathKind === "truce")
+      return `${event.trim()}刀手已收刀，肉檔前仍須收拾。`;
     if (state.flags.marketAftermathKind === "defeat") {
       return `${event.trim()}${state.flags.alleyAllyPresent ? "陸千帆扶著肉案退到你身旁；刀手仍守著街口。" : "刀手仍守著肉檔街口，你只能先沿後巷撤走。"}`;
     }
     if (state.flags.marketAftermathKind === "escape") {
-      return `${event.trim()}${state.flags.alleyAllyPresent
-        ? "陸千帆的傷還未止住；牆那邊仍有腳步，先收拾傷口再撤離。"
-        : "牆那邊仍有腳步；先裹住刀口、封好退路，再離開黑泥街。"}`;
+      return `${event.trim()}牆那邊仍有腳步，後巷尚須警戒。`;
     }
     const brokenStick = /木棍.*(?:折斷|打裂)/.test(event) ? "案邊木棍裂開，" : "";
     return `${brokenStick}${event.trim()}${state.flags.alleyAllyPresent
-      ? "陸千帆按住肋下，盯著尚未散去的巷口眼線。"
+      ? "陸千帆留在肉案旁，盯著尚未散去的巷口眼線。"
       : "張斷骨仍躲在肉案後，巷口眼線未散。"}`;
   }
   const eventSentences = completeSentences(event.trim(), `你仍在${state.currentLocation}，眼前局勢沒有改變。`)

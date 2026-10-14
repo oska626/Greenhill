@@ -101,7 +101,7 @@ export function normalizeCombat(raw: unknown): CombatState | undefined {
 }
 
 export function combatOptions(combat: CombatState, weapon: WeaponId, knownMoves: KnownMoves, mp: number, canTakeStick = true,
-  darkHand?: DarkHandItem): string[] {
+  darkHand?: DarkHandItem | DarkHandItem[]): string[] {
   const shortPunch = weapon === "fists" && (knownMoves.short_punch || 0) > 0 && mp >= 4;
   const mudStep = (knownMoves.mud_step || 0) > 0 && mp >= 3;
   const softParry = (knownMoves.soft_parry || 0) > 0 && mp >= 3;
@@ -131,9 +131,10 @@ export function combatOptions(combat: CombatState, weapon: WeaponId, knownMoves:
     pointStrike ? "D. [辨穴陰招] 指探對手臂肘關節" : "D. [佯攻破綻] 誘對手露出破綻",
     combat.allyPresent ? "E. [護人撤離] 扶陸千帆撤入巷口"
       : atMarket ? "E. [抽身退走] 退入黑泥街窄巷" : "E. [抽身退走] 翻過圍欄退出擂台",
-    ...(darkHand && mp >= 1 ? [darkHand === "【生石灰包】"
-      ? "I. [撒生石灰] 揚出生石灰迷眼"
-      : `I. [施放暗手] ${dirtyHandOptionMove(darkHand)}`] : []),
+    ...(mp >= 1 ? (Array.isArray(darkHand) ? darkHand : darkHand ? [darkHand] : [])
+      .slice(0, 2).map((item, index) => item === "【生石灰包】"
+        ? `${index ? "J" : "I"}. [撒生石灰] 揚出生石灰迷眼`
+        : `${index ? "J" : "I"}. [施放暗手] ${dirtyHandOptionMove(item)}`) : []),
   ];
 }
 
@@ -161,13 +162,16 @@ export function resolveCombatRound(input: CombatInput): CombatResolution {
     mp = Math.max(0, mp - (input.dirtyHand.guaranteed ? 2 : 1));
     const move = dirtyHandVerb(input.dirtyHand.item);
     const enemy = combat.scenario === "arena" ? "對手" : "刀手";
-    const retreat = combat.scenario === "arena" ? "翻過圍欄退出擂台" : "帶人撤進巷口";
     if (input.dirtyHand.tier !== "failed") {
       const great = input.dirtyHand.tier === "great";
       if (!great) hp = Math.max(1, hp - 2);
-      return { combat, outcome: "fled", event: great
-        ? `你${move}，${enemy}遮眼失步；你趁空檔${retreat}。`
-        : `你${move}，${enemy}亂了一步，反手仍劃中你；你${retreat}。`,
+      combat.enemyGuard = Math.max(0, combat.enemyGuard - (great ? 2 : 1));
+      combat.opening = Math.min(3, combat.opening + (great ? 3 : 2));
+      combat.round = Math.min(4, combat.round + 1);
+      combat.enemyIntent = intentAt(combat.scenario, combat.round, combat.allyPresent);
+      return { combat, outcome: "ongoing", event: great
+        ? `你${move}，${enemy}遮眼失步，露出空門。`
+        : `你${move}，${enemy}亂了一步，反手仍劃中你；你趁勢搶出空門。`,
         playerHp: hp, playerMp: mp, weapon, weaponDurability: durability };
     }
     hp = Math.max(1, hp - 6);

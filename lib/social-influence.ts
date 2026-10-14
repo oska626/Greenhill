@@ -72,7 +72,8 @@ export function socialTargets(state: GameState): string[] {
       || state.questStep === "sandbox" && !awayFromStall && !state.flags.marketAftermath
         && !["棄下陸千帆", "出賣陸千帆", "市集伏擊戰敗"].some((flag) => state.worldFlags.includes(flag)))
       && !state.relationships["陸千帆"].estranged) targets.push("陸千帆");
-    if (state.combat?.scenario === "market_ambush" || state.flags.alleyEscape) targets.push("刀手");
+    if (state.combat?.scenario === "market_ambush" || state.flags.alleyEscape
+      || state.flags.marketAftermath && state.flags.marketAftermathKind === "truce") targets.push("刀手");
   }
   if (state.questStep === "chapter_one" && state.flags.chapterOne?.selectedCompanion)
     targets.push(state.flags.chapterOne.selectedCompanion);
