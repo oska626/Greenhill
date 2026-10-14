@@ -121,7 +121,7 @@ function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker
 function validNarrative(value: unknown, opening = false): value is string {
   if (typeof value !== "string" || !value.trim()) return false;
   const length = Array.from(value.trim()).length;
-  return length >= 30 && length <= (opening ? 180 : 90)
+  return length >= 30 && length <= (opening ? 220 : 90)
     && !containsGraphicWording(value) && !containsSettlementLog(value)
     && !/系統錯誤|服務錯誤|伺服器錯誤|請稍後再試|無法生成|生成失敗|internal server error|service unavailable|error code|微風|落葉|靜謐|平靜/i.test(value);
 }
@@ -295,7 +295,7 @@ async function narrate(state: GameState, _action: string, event: string, moneyCh
   event = withoutSettlementLog(event);
   npcReply = localNpcReply(state, npcReply);
   if (npcReply) npcReply = { ...npcReply, line: sectMemberAddress(npcReply.speaker, npcReply.line) };
-  const fallback = opening ? event : hardboiledFallback(event, state, npcReply);
+  const fallback = opening ? "" : hardboiledFallback(event, state, npcReply);
   const fallbackResult = (reason: string) => ({ text: fallback, source: "fallback" as const, reason });
   if (state.questStep === "kuyan_medicine" && state.currentLocation === "苦煙館"
     && event.startsWith("你踏進苦煙館")) return fallbackResult("authored_clinic_handoff");
@@ -327,24 +327,34 @@ async function narrate(state: GameState, _action: string, event: string, moneyCh
   const line = completeSentences(npcReply?.line || "", defaultLine)[0];
   const npcStatus = cleanNarrativeContext(`${speaker}，立場：${stance}；預設台詞：「${line}」`);
   const prompt = opening
-    ? `序章首回合。地點與狀態：${locationStatus}\n場景與任務目標：${settledEvent}\n請以第二人稱寫開場敘事，並讓何不歸親口下達任務；對白須自然揉入 [玩家人物設定]。任務順序與五十文規費必須清楚。不要把任務目標文字照抄成旁白。`
+    ? `序章首回合。地點與狀態：${locationStatus}\n場景與任務目標：${settledEvent}\n請以第二人稱寫開場敘事，並以 何不歸：「對白」 的格式標示他親口下達任務的話；對白須自然揉入 [玩家人物設定]。任務順序與五十文規費必須清楚。不要把任務目標文字照抄成旁白。`
     : `地點與狀態：${locationStatus}\n當前結算事實：${settledEvent}\n目標 NPC 當前立場與預設台詞：${npcStatus}`;
-  try {
-    const response = await fetch(azureUrl(endpoint, deployment), {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "api-key": key, Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model: deployment, messages: [{ role: "system", content: withNpcContext(SYSTEM_PROMPT + (opening ? "\n序章首回合例外：敘事可用三十至一百八十字，必須含何不歸的原創對白。" : ""), state, lastTurn, playerState) }, { role: "user", content: prompt }], temperature: 0.3, response_format: { type: "json_object" } }),
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!response.ok) return fallbackResult(`azure_http_${response.status}`);
-    const data = await response.json();
-    const parsed = JSON.parse(data.choices?.[0]?.message?.content || "{}");
-    return validNarrative(parsed.narrative, opening) && (!opening || /何不歸[：:]/.test(parsed.narrative)) && !hasOffSceneDirectSpeech(state, parsed.narrative)
-      ? { text: appendRelationshipFeedback(parsed.narrative, event), source: "azure" as const }
-      : fallbackResult("invalid_narrative");
-  } catch {
-    return fallbackResult("azure_request_or_parse_error");
+  let failureReason = "invalid_narrative";
+  for (let attempt = 0; attempt < (opening ? 2 : 1); attempt++) {
+    try {
+      const response = await fetch(azureUrl(endpoint, deployment), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "api-key": key, Authorization: `Bearer ${key}` },
+        body: JSON.stringify({ model: deployment, messages: [{ role: "system", content: withNpcContext(SYSTEM_PROMPT + (opening ? "\n序章首回合例外：敘事可用三十至二百二十字，必須含何不歸的原創對白。" : ""), state, lastTurn, playerState) }, { role: "user", content: attempt === 0 ? prompt : `${prompt}\n上次生成未符合格式或內容要求。請寫完整敘事與何不歸的廣東話對白，只回 JSON 物件。` }], temperature: 0.3, response_format: { type: "json_object" } }),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!response.ok) {
+        failureReason = `azure_http_${response.status}`;
+        if (response.status === 401 || response.status === 403) break;
+        continue;
+      }
+      const data = await response.json();
+      const parsed = JSON.parse(data.choices?.[0]?.message?.content || "{}");
+      if (validNarrative(parsed.narrative, opening)
+        && (!opening || /何不歸/.test(parsed.narrative) && /[「『][^」』]+[」』]/.test(parsed.narrative))
+        && !hasOffSceneDirectSpeech(state, parsed.narrative))
+        return { text: appendRelationshipFeedback(parsed.narrative, event), source: "azure" as const };
+      failureReason = "invalid_narrative";
+    } catch {
+      failureReason = "azure_request_or_parse_error";
+    }
   }
+  return fallbackResult(failureReason);
 }
 
 export async function POST(req: NextRequest) {
@@ -464,6 +474,11 @@ export async function POST(req: NextRequest) {
   if (turn.state.questStep === "chapter_one" || turn.state.flags.ending)
     return NextResponse.json({ narrative: appendDangerCue(hardboiledFallback(turn.event, turn.state), turn.state), options: turn.options, state: turn.state, narrativeSource: turn.state.questStep === "chapter_one" ? "chapter_one" : "ending" });
   const narration = await narrate(turn.state, payload.action, turn.event, Boolean(turn.moneyNote), Boolean(state.combat || turn.state.combat), turn.npcReply, lastTurn, false, state);
+  if (opening && narration.source === "fallback")
+    return NextResponse.json({ error: narration.reason === "missing_azure_config"
+      ? "AI 開場服務尚未設定，暫時無法開始遊戲。"
+      : "開場對白暫時未能生成，請按「重新嘗試」。",
+      narrativeFallbackReason: narration.reason }, { status: 503 });
   return NextResponse.json({
     narrative: appendDangerCue(narration.text, turn.state), options: turn.options, state: turn.state,
     narrativeSource: narration.source,

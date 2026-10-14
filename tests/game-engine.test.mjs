@@ -18,7 +18,7 @@ import { npcPromptContext } from "../lib/npc-prompt-context.ts";
 import { playerStatusContext } from "../lib/player-status-context.ts";
 import { carriedSelfCareOption, hasOffSceneActionReference, unneededSelfCare } from "../lib/custom-action.ts";
 import { lastTurnContext } from "../lib/last-turn-context.ts";
-import { containsGraphicWording, GRAPHIC_ACTION_FALLBACK, screenCustomAction } from "../lib/content-filter.ts";
+import { checkContent, containsGraphicWording, GRAPHIC_ACTION_FALLBACK, screenCustomAction } from "../lib/content-filter.ts";
 
 function newGame() {
   const stats = aptitude("阿七", "賭坊收帳人", "察言觀色");
@@ -220,12 +220,21 @@ test("free self-treatment uses carried medicine and rejects an absent item", () 
   assert.equal(carriedSelfCareOption(state, "我不拿出止血膏藥處理傷口", availableOptions(state)), undefined);
 });
 
-test("Edge Case: 白名單豁免與惡意字眼攔截並行", () => {
+test("Edge Case: 日常江湖用語通過，具象血腥詞組仍被攔截", () => {
   const legitimate = "我查看氣血，並敷上止血膏藥";
   const graphic = "我一刀砍斷他的手，血肉模糊，鮮血狂噴";
   assert.equal(containsGraphicWording(legitimate), false);
   assert.equal(screenCustomAction(legitimate), undefined);
   assert.equal(containsGraphicWording("你取出止血膏藥，敷妥傷處後呼吸漸穩。"), false);
+  assert.equal(containsGraphicWording("張斷骨欠堂口五十文規費。"), false);
+  for (const ordinary of ["我退到死角，判斷形勢", "殺價之後照價交數", "先尋死路旁的退路", "收起殺氣，果斷抽身", "你打斷張斷骨右手。", "水從破管狂噴出來"]) {
+    assert.equal(checkContent(ordinary), true, ordinary);
+    assert.equal(screenCustomAction(ordinary), undefined, ordinary);
+  }
+  for (const graphicPhrase of ["血肉模糊", "鮮血直噴", "血肉橫飛", "斬首", "砍頭", "斷肢", "分屍", "肢解", "爆頭", "屠殺"]) {
+    assert.equal(checkContent(graphicPhrase), false, graphicPhrase);
+    assert.equal(containsGraphicWording(graphicPhrase), true, graphicPhrase);
+  }
 
   const state = normalizeState({ ...newGame(), questStep: "sandbox", currentLocation: "晚秋茶寮",
     playerHp: 10, inventory: ["【止血膏藥】"] });

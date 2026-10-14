@@ -38,6 +38,7 @@ interface SavedGameData {
 
 const SAVE_KEY = "qingshan_game_save_v1";
 const READ_KEY = "qingshan_read_narratives_v1";
+const RAW_OPENING_PREFIX = "青鋒堂總壇，何不歸在場，桌上有陸千帆的傷勢記錄。任務目標：";
 function recordDisplayedHistory(state: GameState, previous: GameState, action: string, narrative: string,
   source?: string): GameState {
   const history = [...(state.history || [])];
@@ -215,8 +216,13 @@ export default function GamePage() {
     if (!savedGame) return;
     setSilverDelta(0);
     setGameState(savedGame.state);
-    setNarrative(savedGame.narrative);
-    setOptions(savedGame.options);
+    const rawOpening = savedGame.state.turn === 1 && savedGame.state.questStep === "prologue_briefing"
+      && savedGame.narrative.startsWith(RAW_OPENING_PREFIX);
+    setNarrative(rawOpening ? "" : savedGame.narrative);
+    setOptions(rawOpening ? [] : savedGame.options);
+    setErrorMsg(rawOpening ? "舊存檔的開場對白未能生成，請按「重新嘗試」。" : "");
+    if (rawOpening) lastActionRef.current = savedGame.state.history?.find((entry) => entry.action.startsWith("[初入堂口]"))?.action
+      || `[初入堂口] ${savedGame.state.playerName}`;
     setView("game");
   };
 
@@ -253,6 +259,41 @@ export default function GamePage() {
       setSelectedDestination(null);
       setErrorMsg("");
       setView("creation");
+    }
+  };
+
+  const requestOpening = async (initialCharacterState: GameState, action: string) => {
+    const openingState = { ...initialCharacterState, history: [] };
+    setGameState(openingState);
+    setSilverDelta(0);
+    setNarrative("");
+    setOptions([]);
+    setErrorMsg("");
+    setView("game");
+    setLoading(true);
+    lastActionRef.current = action;
+    try {
+      const res = await fetch("/api/turn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, state: openingState }),
+      });
+      let data: ApiResponse;
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error(`伺服器無回應 (HTTP ${res.status})`);
+      }
+      if (!res.ok || data.error) throw new Error(data.error || `開局生成失敗 (HTTP ${res.status})`);
+      const openedState = recordDisplayedHistory(data.state, openingState, action, data.narrative, data.narrativeSource);
+      setGameState(openedState);
+      setNarrative(data.narrative);
+      setOptions(data.options || []);
+      saveToLocalStorage(openedState, data.narrative, data.options || []);
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : "開局連線失敗");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -312,46 +353,8 @@ export default function GamePage() {
       },
     };
 
-    setGameState(initialCharacterState);
-    setSilverDelta(0);
-    setNarrative("");
-    setOptions([]);
-    setView("game");
-    setLoading(true);
-    lastActionRef.current = `[初入堂口] ${trimmedName}（出身：${bg.name}，${selectedBgId === "custom" ? `性別：${customGender.trim()}，技能：${customSkill.trim()}，性格：${customPersonality.trim()}` : `特質：${initialTrait}`}）踏入青鋒堂總壇，向堂主領命。`;
-
-    try {
-      const res = await fetch("/api/turn", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: lastActionRef.current,
-          state: initialCharacterState,
-        }),
-      });
-
-      let data: ApiResponse;
-      try {
-        data = await res.json();
-      } catch (err) {
-        throw new Error(`伺服器無回應 (HTTP ${res.status})`);
-      }
-
-      if (!res.ok || data.error) {
-        throw new Error(data.error || `開局生成失敗 (HTTP ${res.status})`);
-      }
-
-      const openedState = recordDisplayedHistory(data.state, initialCharacterState, lastActionRef.current, data.narrative, data.narrativeSource);
-      setGameState(openedState);
-      setNarrative(data.narrative);
-      setOptions(data.options || []);
-      saveToLocalStorage(openedState, data.narrative, data.options || []);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "開局連線失敗";
-      setErrorMsg(msg);
-    } finally {
-      setLoading(false);
-    }
+    const action = `[初入堂口] ${trimmedName}（出身：${bg.name}，${selectedBgId === "custom" ? `性別：${customGender.trim()}，技能：${customSkill.trim()}，性格：${customPersonality.trim()}` : `特質：${initialTrait}`}）踏入青鋒堂總壇，向堂主領命。`;
+    await requestOpening(initialCharacterState, action);
   };
 
   const handleAction = async (actionText: string) => {
@@ -659,7 +662,8 @@ export default function GamePage() {
               <div className="p-4 bg-rose-950/40 border border-rose-800 text-rose-300 rounded text-sm">
                 ⚠️ {errorMsg}
                 <button
-                  onClick={() => lastActionRef.current.startsWith("[初入堂口]") ? handleStartGame() : handleAction(lastActionRef.current)}
+                  onClick={() => lastActionRef.current.startsWith("[初入堂口]") && gameState
+                    ? requestOpening(gameState, lastActionRef.current) : handleAction(lastActionRef.current)}
                   className="ml-4 underline text-rose-200 hover:text-white"
                 >
                   重新嘗試
