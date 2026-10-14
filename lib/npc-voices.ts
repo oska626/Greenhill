@@ -102,7 +102,7 @@ export function hasSectAddressViolation(narrative: string): boolean {
   return Array.from(narrative.matchAll(dialogue)).some((match) => isSectMember(match[1]) && /何不歸|何仔/.test(match[2]));
 }
 
-const SHARED_VOICE_STYLE = "全用繁體中文書面語，不用廣東話。先回應當下所見，再說利害；句子長短錯落，語意自然轉進，避免逐項報事。";
+const SHARED_VOICE_STYLE = "直接對白用自然的香港廣東話，避免逐字翻譯書面語、濫用語氣詞和現代潮語。先回應當下所見，再說利害；句子長短錯落，語意自然轉進，避免逐項報事。";
 
 export function npcVoiceGuide(speaker: string): string {
   const guide = speaker in NPC_VOICES ? NPC_VOICES[speaker as NpcName].guide : "依角色當下利益說話，讓用字顯出性格。";

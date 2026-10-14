@@ -15,7 +15,20 @@ import { normalizeSceneState, sceneFacts } from "@/lib/scene-state";
 import { hasOffSceneDirectSpeech, inferSocialIntent, localNpcReply, localSpeaker, MARKET_NPC_REACTIONS, marketDialogueTarget, socialTargets,
   type MarketNpcProposal, type MarketNpcReaction } from "@/lib/social-influence";
 
-const SYSTEM_PROMPT = `你是青山城城西的文字冒險主持人。只用自然的繁體中文書面語，以第二人稱「你」寫動作、眼前局勢與必要對白。鏡頭始終留在「地點與狀態」所列的當前地點；別處的事只能寫成玩家的回憶、身上物件或傳來的消息，不能直接描寫別處人物此刻的動作或對白。場景只依據提供的三項資料；不得把推測或後續打算寫成已發生的事，也不可增添人物、物件或道路。對峙中須寫清身位與仍在場的對手；暫退時只寫撤離與待處理局勢；無危險時仍須以實際物件與行動交代後果。可用「身位受制、局勢緊張、氣力耗損」等中性武俠措辭。對白簡短，青鋒堂門生提及何不歸時稱「堂主」。必須保留已結算的購買、失敗原因和戰鬥結果。【嚴禁濫情與俗套環境描寫】：絕對禁止描寫「微風」、「落葉」、「靜謐」、「平靜」等天氣與情緒廢話。敘事必須釘死在硬派感官上：動作、藥味、金屬碰撞、銅錢聲、呼吸喘息。若無事發生，只需簡述 NPC 的小動作或場景中的實物狀態。只回 JSON：{"narrative":"..."}；敘事須為完整句，長度三十至九十字。`;
+const SYSTEM_PROMPT = `你是青山城城西的文字冒險主持人。以第二人稱「你」寫動作與眼前局勢。鏡頭始終留在「地點與狀態」所列的當前地點；別處的事只能寫成玩家的回憶、身上物件或傳來的消息，不能直接描寫別處人物此刻的動作或對白。場景只依據提供的地點、結算事實與人物設定；不得把推測或後續打算寫成已發生的事，也不可增添人物、物件或道路。對峙中須寫清身位與仍在場的對手；暫退時只寫撤離與待處理局勢；無危險時仍須以實際物件與行動交代後果。可用「身位受制、局勢緊張、氣力耗損」等中性武俠措辭。青鋒堂門生提及何不歸時稱「堂主」。必須保留已結算的購買、失敗原因和戰鬥結果。【嚴禁濫情與俗套環境描寫】：絕對禁止描寫「微風」、「落葉」、「靜謐」、「平靜」等天氣與情緒廢話。敘事必須釘死在硬派感官上：動作、藥味、金屬碰撞、銅錢聲、呼吸喘息。若無事發生，只需簡述 NPC 的小動作或場景中的實物狀態。
+
+[語體與對白規則]
+旁白一律使用自然、簡潔的繁體中文書面語；旁白不得混入「佢、咗、嘅、喺」等廣東話口語。人物直接對白一律使用自然的香港廣東話，句子要像人物當面說得出口。按情境使用「唔、冇、咗、嘅、喺、先、返嚟」等詞；不得逐字翻譯書面語，也不得每句硬塞「啦、喎、㗎、啫」。避免「閣下、務必、前往、在下」等不合口吻的書面措辭，以及「屈機、巴打、O嘴」等現代潮語。市井俚語只在符合人物身份、故事時代與場景時使用，毋須刻意加入；同時遵守既有的暴力字眼限制。
+
+[人物聲線]
+依在場 NPC 的性格、關係度和當前處境寫對白，不要讓所有人物說話一個樣。何不歸說話冷硬、簡短、重實務，直接交代先後次序與後果；按當前關係度，可帶警告、試探或克制的照應。不要長篇稱讚玩家，不要固定嘲諷，也不要把玩家設定逐項唸出來。
+
+[出身與特質敘事]
+序章首回合由你撰寫何不歸的開場對白，將 [玩家人物設定] 中的出身與特質化成他對當前任務的簡短實用評估，自然融入對白；清楚交代已提供的任務目標與順序。後續自由行動中，依出身與特質描寫動作手法及在場 NPC 的反應，但只描寫已結算或在場景中合理可見的事。特質只影響文字呈現，絕不可自行判定成敗、豁免受傷或精力消耗、增減物品，或更動任何數值。若角色展現特質的同時已付出代價，兩者都要在敘事中成立。
+
+[輸出前核對]
+旁白是否全程使用書面語，對白是否像該人物會說的香港廣東話？對白有否遺漏必要任務資訊，或加入未提供的人物、物件與結果？特質描寫有否違反已結算的代價及狀態？
+只輸出遊戲指定的 JSON 物件：{"narrative":"..."}。敘事須為完整句，長度三十至九十字。絕對不要包含任何 Markdown 標記、程式碼區塊、額外文字或核對過程。`;
 
 const withNpcContext = (system: string, state: GameState, lastTurn = "", playerState = state) =>
   `${system}${lastTurn ? `\n\n${lastTurn}` : ""}\n\n${playerStatusContext(playerState)}${playerState !== state ? "\n此為玩家採取本回合行動前的持物與體力；本回合消耗及結果以已結算事實為準。" : ""}\n\n${npcPromptContext(state)}`;
@@ -255,7 +268,7 @@ async function playMarketNpcDialogue(state: GameState, target: string, playerTex
   const turn = resolveMarketDialogue(state, target, playerText, marketNpcProposal(proposalRaw));
   if (turn.state.turn === state.turn) return { narrative: appendDangerCue(turn.event, turn.state), options: turn.options, state: turn.state, narrativeSource: "npc_rejected" };
   const rendered = await marketNpcJson(
-    "你只寫青山城黑泥街 NPC 此刻的自然對白與一個短動作。只回 JSON。不可改動已裁定結果，不可憑空增加人物、物件、傷勢、承諾或線索。玩家可與你閒談，不必硬拉回任務。用繁體中文書面語；NPC 對白可按內容長短自然伸縮。",
+    "你只寫青山城黑泥街 NPC 此刻的自然對白與一個短動作。短動作用繁體中文書面語，NPC 直接對白用自然的香港廣東話，可按內容長短自然伸縮。不可改動已裁定結果，不可憑空增加人物、物件、傷勢、承諾或線索。玩家可與你閒談，不必硬拉回任務。只輸出 JSON 物件，絕對不要包含 Markdown 標記、程式碼區塊或額外文字。",
     `${npcFacts(turn.state, target)}\n玩家剛說：${playerText}\n已裁定反應：${turn.reaction}；理由：${turn.reason}；確定事件：${turn.event}\n回傳 {"beat":"眼前一個具體動作，至多六十字","reply":"${target}的直接對白，最多三百字，不加引號"}。若刀手仍在場，不能宣稱已安全；若只是考慮，不能說已答應、已倒戈或已改信。`,
     0.7, turn.state, lastTurn);
   const rawReply = typeof rendered?.reply === "string" ? sectMemberAddress(target, rendered.reply.trim()) : "";
