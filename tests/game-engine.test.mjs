@@ -179,6 +179,9 @@ test("NPC prompt context uses current local scores and excludes off-scene people
   assert.match(teaContext, /合理性判定/);
   assert.match(teaContext, /禁止報數/);
   assert.match(teaContext, /具象描寫代替數值/);
+  assert.match(teaContext, /動態開場對白（首回合專用）/);
+  assert.match(teaContext, /特質專屬敘事（常駐）/);
+  assert.match(teaContext, /特質只作文字包裝，絕不可據此豁免代價/);
 
   const arena = npcPromptContext(normalizeState({ ...base, currentLocation: "裂石擂" }));
   assert.match(arena, /衛沉岳 \(關係度: 15\)/);
@@ -197,7 +200,10 @@ test("player status prompt binds current vitals, inventory and displayed weapon"
   assert.match(context, /精力: 9 \/ 50/);
   assert.match(context, /行囊物品: 【止血膏藥】, 【行醫薄刃】/);
   assert.match(context, /裝備兵器: 行醫薄刃/);
+  assert.match(context, /\[玩家人物設定\]\n出身背景: 賭坊收帳人\n特質: 察言觀色/);
   assert.match(playerStatusContext({ ...state, inventory: [], equippedWeapon: "fists" }), /行囊物品: 無\n裝備兵器: 徒手/);
+  assert.match(playerStatusContext({ ...state, background: "", trait: "", skill: "", personality: "" }), /出身背景: 未設定\n特質: 未設定/);
+  assert.match(playerStatusContext({ ...state, background: "自定義市井流民", trait: "辨藥", skill: "辨藥", personality: "嘴硬心軟" }), /特質: 辨藥, 嘴硬心軟/);
 });
 
 test("free self-treatment uses carried medicine and rejects an absent item", () => {
@@ -612,25 +618,21 @@ test("zero-energy combat keeps basic moves and invalid commands spend nothing", 
   assert.equal(refused.state.playerMp, scene.playerMp);
 });
 
-test("opening gives each created background a concrete character detail", () => {
-  const portraits = [
-    ["賭坊收帳人", "察言觀色", "骰繭"],
-    ["城西街童扒手", "手疾眼快", "後門"],
-    ["落魄武館棄徒", "皮糙肉厚", "舊傷"],
-    ["黑市醫道學徒", "辨毒識藥", "藥色"],
-    ["自定義市井流民", "見風使舵", "何不歸的臉色"],
+test("opening hands mission facts to narration without a profile-based script", () => {
+  const profiles = [
+    ["賭坊收帳人", "察言觀色"],
+    ["城西街童扒手", "手疾眼快"],
+    ["落魄武館棄徒", "皮糙肉厚"],
+    ["黑市醫道學徒", "辨毒識藥"],
+    ["自定義市井流民", "見風使舵"],
   ];
-  for (const [background, trait, detail] of portraits) {
+  for (const [background, trait] of profiles) {
     const opening = resolveTurn({ ...newGame(), background, trait }, "[初入堂口] 阿七", true);
-    assert.ok(opening.event.includes(detail), `${background} should show ${detail}`);
-    assert.ok(opening.event.startsWith("你踩過城西泥巷"), "the player enters the hall after the city overview");
-    assert.equal(opening.npcReply.speaker, "何不歸");
-    assert.ok(opening.npcReply.line.includes("阿七，你"), `${background} needs He Bugui's assessment`);
-    assert.ok(opening.npcReply.line.includes("陸千帆那道傷，是玄武樓的人砍的"));
-    assert.ok(!opening.npcReply.line.includes("城南金冊莊"), "the city overview stays in narration");
-    assert.ok(opening.npcReply.line.includes("黑泥街"));
-    assert.ok(opening.npcReply.line.includes("五十文"));
-    assert.ok(!opening.event.includes("打量你的出身"));
+    assert.match(opening.event, /青鋒堂總壇.*何不歸在場.*任務目標/);
+    assert.match(opening.event, /苦煙館找顧忘生.*黑泥街市集救陸千帆.*五十文/);
+    assert.equal(opening.npcReply, undefined);
+    assert.doesNotMatch(opening.event, /你說會|至於|骰繭|後門|藥色/);
+    assert.match(playerStatusContext(opening.state), new RegExp(`出身背景: ${background}\\n特質: ${trait}`));
   }
 });
 
@@ -643,11 +645,11 @@ test("opening narration names the five powers and their leaders", () => {
   assert.match(OPENING_CITY_NARRATION, /同門與街坊在此共存/);
 });
 
-test("custom opening turns profile details into He Bugui's judgement rather than a checklist", () => {
+test("custom opening preserves profile for AI narration without authored dialogue", () => {
   const profiles = [
-    { gender: "女", skill: "開鎖", personality: "多疑", address: "阿七姑娘", skillCue: "鎖眼", personalityCue: "防人" },
-    { gender: "男子", skill: "使短刀", personality: "脾氣暴躁", address: "阿七兄弟", skillCue: "護人", personalityCue: "脾氣" },
-    { gender: "非二元", skill: "辨藥", personality: "嘴硬心軟", address: "阿七", skillCue: "認得藥", personalityCue: "心軟" },
+    { gender: "女", skill: "開鎖", personality: "多疑" },
+    { gender: "男子", skill: "使短刀", personality: "脾氣暴躁" },
+    { gender: "非二元", skill: "辨藥", personality: "嘴硬心軟" },
   ];
   for (const profile of profiles) {
     const state = normalizeState({ ...newGame(), background: "自定義市井流民", trait: profile.skill, ...profile });
@@ -655,12 +657,9 @@ test("custom opening turns profile details into He Bugui's judgement rather than
     assert.equal(opening.state.gender, profile.gender);
     assert.equal(opening.state.skill, profile.skill);
     assert.equal(opening.state.personality, profile.personality);
-    assert.ok(opening.npcReply.line.startsWith(profile.address));
-    assert.ok(opening.npcReply.line.includes(profile.skillCue));
-    assert.ok(opening.npcReply.line.includes(profile.personalityCue));
-    assert.ok(!opening.npcReply.line.includes("性子"));
-    assert.ok(opening.npcReply.line.includes("陸千帆"));
-    assert.ok(opening.npcReply.line.includes("五十文"));
+    assert.equal(opening.npcReply, undefined);
+    assert.match(playerStatusContext(opening.state), new RegExp(`特質: ${profile.skill}, ${profile.personality}`));
+    assert.match(opening.event, /陸千帆.*五十文/);
     assert.equal(opening.state.maxHp, aptitude("阿七", "自定義市井流民", profile.skill).hp);
   }
   assert.ok(aptitude("阿七", "自定義市井流民", "辨藥").hp < aptitude("阿七", "自定義市井流民", "摸鎖").hp);
@@ -701,7 +700,7 @@ test("story channel drops legacy settlement logs while state keeps the actual co
 test("tutorial choices advance one scene while preserving their different costs", () => {
   const opening = resolveTurn(newGame(), "[初入堂口] 阿七", true);
   assert.equal(opening.state.turn, 1);
-  assert.match(opening.npcReply.line, /苦煙館找顧忘生領止血膏藥.*黑泥街市集救陸千帆/);
+  assert.match(opening.event, /苦煙館找顧忘生領止血膏藥.*黑泥街市集救陸千帆/);
   for (const prologue of opening.options) {
     const clinic = resolveTurn(opening.state, prologue, false);
     assert.equal(clinic.state.questStep, "kuyan_medicine");

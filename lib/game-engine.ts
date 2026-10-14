@@ -345,30 +345,6 @@ export function aptitude(name: string, background: string, trait: string) {
   return { hp, mp: MAX_ENERGY };
 }
 
-function openingPortrait(background: string, trait: string) {
-  if (background === "賭坊收帳人" || background === "爛賭收數佬") return "你指腹的骰繭還未褪去。";
-  if (background === "城西街童扒手") return "你先看見後門，再看見堂主。";
-  if (background === "落魄武館棄徒" || background === "濕鳩武館棄徒") return "肩上的舊傷讓你的步子慢了半拍。";
-  if (background === "黑市醫道學徒") return "你指縫的藥色仍洗不乾淨。";
-  if (/醫|毒|藥/.test(trait)) return "你指縫的藥色仍洗不乾淨。";
-  if (/偷|巧|快|扒/.test(trait)) return "你先看見後門，再看見堂主。";
-  if (/拳|壯|狠|勇/.test(trait)) return "你拳骨上的繭被雨水浸得發白。";
-  if (/見風|察言|口才|機靈/.test(trait)) return "你先看何不歸的臉色，才肯往前一步。";
-  return "你鞋底的泥在門檻上留下了印子。";
-}
-
-function openingAssessment(background: string, trait: string) {
-  if (background === "賭坊收帳人" || background === "爛賭收數佬") return "你會收帳，想必也看得出人命比銀錢難還";
-  if (background === "城西街童扒手") return "你腳快，別只顧逃命";
-  if (background === "落魄武館棄徒" || background === "濕鳩武館棄徒") return "你骨頭硬，別只護自己";
-  if (background === "黑市醫道學徒") return "你認得藥，別讓我收屍";
-  if (/醫|毒|藥/.test(trait)) return "你認得藥，別讓我收屍";
-  if (/偷|巧|快|扒/.test(trait)) return "你腳快，別只顧逃命";
-  if (/拳|壯|狠|勇/.test(trait)) return "你骨頭硬，別只護自己";
-  if (/見風|察言|口才|機靈/.test(trait)) return "你會看人臉色，今日看人命";
-  return "你腳下站得穩，別叫我失望";
-}
-
 export const OPENING_CITY_NARRATION = `明末年間，青山城城主燕鎮嶽手握重兵，以兵權壓制城東、城南、城西三方勢力。
 
 城東玄武樓樓主裴無鋒正逐漸侵奪城西，圖謀吞併青鋒堂與城南金冊莊，獨掌城中地下秩序；
@@ -378,30 +354,8 @@ export const OPENING_CITY_NARRATION = `明末年間，青山城城主燕鎮嶽�
 城西青鋒堂堂主何不歸堅守地盤，不願靠掠奪與傷害無辜壯大堂口，誓要讓同門與街坊在此共存。
 
 城北官衙的玄渡奉朝廷密旨坐鎮，表面維持法度，暗中監視燕鎮嶽與城中各方勢力。`;
-const OPENING_WORLD_BRIEFING = "陸千帆那道傷，是玄武樓的人砍的；他們要的，是黑泥街。堂口要守住這條街，也要讓街坊相信我們肯護人。";
-const OPENING_ERRAND = "先到苦煙館找顧忘生領止血膏藥，再去黑泥街市集救陸千帆。張斷骨那五十文，回來時也別忘了。";
-
-function customOpeningAssessment(state: GameState, address: string): string {
-  const gender = state.gender || "不願透露";
-  const skill = state.skill || state.trait;
-  const personality = state.personality || "寡言";
-  const skillName = skill.replace(/^(擅長|熟悉|懂得|會)/, "") || "這門手藝";
-  const greeting = /^(女|女子|女性)$/.test(gender) && address !== "小子" ? `${address}姑娘`
-    : /^(男|男子|男性)$/.test(gender) && address !== "小子" ? `${address}兄弟` : address;
-  const judgement = /鎖|扒|偷|盜/.test(skill) ? "鎖眼你看得明白，人心可沒那麼好撬。"
-    : /醫|藥|毒|療|止血/.test(skill) ? "你認得藥，陸千帆那道傷就交你看。"
-    : /刀|劍|棍|武|拳|打/.test(skill) ? "你會動手，先拿這本事護人。"
-    : /帳|算|賭|收數|口才/.test(skill) ? "你會算帳，先把同門的命算進去。"
-    : /跑|身法|探路|輕功/.test(skill) ? "你腳步快，記得替同門留條路。"
-    : `你說會${skillName}。先用來護人。`;
-  const caution = /多疑|疑心|不信人/.test(personality) ? "你防人防得緊，自己人總得信一回。"
-    : /心軟|善良|重情|仁慈/.test(personality) ? "你心軟，我知道；該收的帳還是得收。"
-    : /衝動|暴躁|急性|莽撞/.test(personality) ? "脾氣先壓住，別替刀手省事。"
-    : /謹慎|小心|怕事/.test(personality) ? "你看得仔細，別把人耽誤了。"
-    : /冷酷|無情|冷漠|狠/.test(personality) ? "心硬可以，別把同門丟下。"
-    : `至於${personality}，回來再讓我見識。`;
-  return `${greeting}，${judgement}${caution}${OPENING_WORLD_BRIEFING}${OPENING_ERRAND}`;
-}
+// Opening facts are handed to the narrator; the engine does not write dialogue.
+export const OPENING_MISSION_FACTS = "陸千帆被玄武樓的人所傷；玄武樓正逼近黑泥街。青鋒堂要守住街坊。先到苦煙館找顧忘生領止血膏藥，再到黑泥街市集救陸千帆；張斷骨的五十文規費也須帶回。";
 
 function legacyRelationships(worldFlags: string[]): CompanionRelationships {
   const relationships = newRelationships();
@@ -1073,18 +1027,7 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
       state.maxHp = stats.hp; state.playerHp = state.background === "落魄武館棄徒" ? stats.hp - 2 : stats.hp;
       state.hpScaleVersion = 2;
       state.maxMp = stats.mp; state.playerMp = stats.mp;
-      const cleanName = state.playerName.replace(/[「」\r\n]/g, "").trim();
-      const address = cleanName && Array.from(cleanName).length <= 8 ? cleanName : "小子";
-      const customProfile = state.background === "自定義市井流民" && Boolean(state.gender && state.skill && state.personality);
-      event = customProfile
-        ? "你踩過城西泥巷，進了青鋒堂。雨水沿著衣角滴下；何不歸指著桌上記有陸千帆傷勢的紙。"
-        : `你踩過城西泥巷，進了青鋒堂。${openingPortrait(state.background, state.trait)}堂外有人為規費爭吵；何不歸沒有抬頭，只把記有陸千帆傷勢的紙推到你面前。`;
-      npcReply = {
-        speaker: "何不歸",
-        line: customProfile
-          ? customOpeningAssessment(state, address)
-          : `${address}，${openingAssessment(state.background, state.trait)}。${OPENING_WORLD_BRIEFING}${OPENING_ERRAND}`,
-      };
+      event = `青鋒堂總壇，何不歸在場，桌上有陸千帆的傷勢記錄。任務目標：${OPENING_MISSION_FACTS}`;
     } else {
       event += flavor("prologue_briefing");
       if (choice === 0) {
