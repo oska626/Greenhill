@@ -7,7 +7,7 @@ import { claimsUnacquiredObject, hasOffSceneActionReference, interpretGroundedOb
 import { playerStatusContext } from "../lib/player-status-context.ts";
 import { lastTurnContext } from "../lib/last-turn-context.ts";
 import { createCombat } from "../lib/combat-engine.ts";
-import { inferSocialIntent, marketDialogueTarget } from "../lib/social-influence.ts";
+import { asksLuForDoctorMoney, composeNpcDialogue, inferSocialIntent, marketDialogueTarget } from "../lib/social-influence.ts";
 import { objectStatus, sceneFacts } from "../lib/scene-state.ts";
 import { appendDangerCue, explicitActionSteps, resolveActionSequence, sceneDangerCue, validatedActionSteps } from "../lib/action-sequence.ts";
 import { hardboiledFallback } from "../lib/narrative-style.ts";
@@ -713,6 +713,27 @@ test("Blackmud NPC keeps an open conversation without a fixed persuasion goal", 
   assert.equal(turn.state.flags.marketNpcHistory[0].reply.includes("有話就講"), true);
   assert.equal(normalizeState(turn.state).flags.marketNpcHistory[0].memory, "玩家曾向他傾訴難處");
   assert.equal(marketDialogueTarget(scene, "我同容晚秋講兩句"), undefined);
+});
+
+test("named or selected NPC hears a money request as one line without inventing payment", () => {
+  const scene = { ...state(), questStep: "sandbox", turn: 14, playerHp: 60 };
+  const direct = "陸千帆俾20文我去睇大夫";
+  const withComma = "向陸千帆講, 俾20文我去睇大夫";
+  const composed = composeNpcDialogue("陸千帆", "俾20文我去睇大夫");
+  assert.equal(marketDialogueTarget(scene, direct), "陸千帆");
+  assert.equal(marketDialogueTarget(scene, composed), "陸千帆");
+  assert.equal(marketDialogueTarget(scene, composeNpcDialogue("陸千帆", "張斷骨欠我錢")), "陸千帆");
+  assert.equal(marketDialogueTarget(scene, "俾20文我去睇大夫"), undefined);
+  assert.deepEqual(explicitActionSteps(withComma), [withComma]);
+  assert.equal(validatedActionSteps(withComma, ["向陸千帆講", "俾20文我去睇大夫"]), null);
+  assert.equal(asksLuForDoctorMoney("陸千帆", composed), true);
+  assert.equal(asksLuForDoctorMoney("陸千帆", "我唔會俾20文陸千帆去睇大夫"), false);
+  const turn = resolveMarketDialogue(scene, "陸千帆", composed,
+    { reaction: "cooperate", reason: "願意幫忙", memory: "玩家想去看大夫" });
+  assert.equal(turn.state.turn, scene.turn + 1);
+  assert.equal(turn.state.silver, scene.silver);
+  assert.equal(turn.reaction, "talk");
+  assert.match(turn.event, /沒有當場交錢.*苦煙館/);
 });
 
 test("Blackmud dialogue cannot instantly force a new belief or allegiance", () => {

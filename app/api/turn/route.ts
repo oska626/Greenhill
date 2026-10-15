@@ -13,7 +13,7 @@ import { containsGraphicWording, screenCustomAction } from "@/lib/content-filter
 import { resolveChapterPetition } from "@/lib/chapter-one";
 import { appendRelationshipFeedback, completeSentences, containsSettlementLog, hardboiledFallback, withoutSettlementLog } from "@/lib/narrative-style";
 import { normalizeSceneState, sceneFacts } from "@/lib/scene-state";
-import { hasOffSceneDirectSpeech, inferSocialIntent, localNpcReply, localSpeaker, MARKET_NPC_REACTIONS, marketDialogueTarget, socialTargets,
+import { asksLuForDoctorMoney, hasOffSceneDirectSpeech, inferSocialIntent, localNpcReply, localSpeaker, MARKET_NPC_REACTIONS, marketDialogueTarget, socialTargets,
   type MarketNpcProposal, type MarketNpcReaction } from "@/lib/social-influence";
 
 const SYSTEM_PROMPT = `你是青山城城西的文字冒險主持人。以第二人稱「你」寫動作與眼前局勢。鏡頭始終留在「地點與狀態」所列的當前地點；別處的事只能寫成玩家的回憶、身上物件或傳來的消息，不能直接描寫別處人物此刻的動作或對白。場景只依據提供的地點、結算事實與人物設定；不得把推測或後續打算寫成已發生的事，也不可增添人物、物件或道路。對峙中須寫清身位與仍在場的對手；暫退時只寫撤離與待處理局勢；無危險時仍須以實際物件與行動交代後果。可用「身位受制、局勢緊張、氣力耗損」等中性武俠措辭。青鋒堂門生提及何不歸時稱「堂主」。必須保留已結算的購買、失敗原因和戰鬥結果。【嚴禁濫情與俗套環境描寫】：絕對禁止描寫「微風」、「落葉」、「靜謐」、「平靜」等天氣與情緒廢話。敘事必須釘死在硬派感官上：動作、藥味、金屬碰撞、銅錢聲、呼吸喘息。若無事發生，只需簡述 NPC 的小動作或場景中的實物狀態。
@@ -230,6 +230,7 @@ async function marketNpcJson(system: string, prompt: string, temperature: number
 
 async function planActionSteps(state: GameState, playerText: string): Promise<string[]> {
   const fallback = explicitActionSteps(playerText);
+  if (fallback.length === 1 && marketDialogueTarget(state, playerText)) return fallback;
   if (fallback.length === 1 && (interpretGroundedObjectHandling(state, playerText)
     || carriedSelfCareOption(state, playerText, availableOptions(state)))) return fallback;
   const proposed = await marketNpcJson(
@@ -276,6 +277,12 @@ async function playMarketNpcDialogue(state: GameState, target: string, playerTex
     0.6, state, lastTurn);
   const turn = resolveMarketDialogue(state, target, playerText, marketNpcProposal(proposalRaw));
   if (turn.state.turn === state.turn) return { narrative: appendDangerCue(turn.event, turn.state), options: turn.options, state: turn.state, narrativeSource: "npc_rejected" };
+  if (asksLuForDoctorMoney(target, playerText)) {
+    const reply = "你要睇大夫就先去苦煙館搵顧忘生。我而家唔會亂應承畀錢，等佢驗咗傷再講。";
+    recordMarketNpcReply(turn.state, target, reply);
+    return { narrative: appendDangerCue(`${turn.event}\n${target}：「${reply}」`, turn.state),
+      options: turn.options, state: turn.state, narrativeSource: "market_npc_fallback" };
+  }
   const rendered = await marketNpcJson(
     "你只寫青山城黑泥街 NPC 此刻的自然對白與一個短動作。短動作用繁體中文書面語，NPC 直接對白用自然的香港廣東話，可按內容長短自然伸縮。不可改動已裁定結果，不可憑空增加人物、物件、傷勢、承諾或線索。玩家可與你閒談，不必硬拉回任務。只輸出 JSON 物件，絕對不要包含 Markdown 標記、程式碼區塊或額外文字。",
     `${npcFacts(turn.state, target)}\n玩家剛說：${playerText}\n已裁定反應：${turn.reaction}；理由：${turn.reason}；確定事件：${turn.event}\n回傳 {"beat":"眼前一個具體動作，至多六十字","reply":"${target}的直接對白，最多三百字，不加引號"}。若刀手仍在場，不能宣稱已安全；若只是考慮，不能說已答應、已倒戈或已改信。`,
@@ -397,9 +404,11 @@ export async function POST(req: NextRequest) {
   if (payload.action.startsWith("F. [自訂手段]")) {
     const playerText = payload.action.slice("F. [自訂手段]".length).trim();
     const marketMode = isMarketIntentScene(state);
-    const maxCustomLength = 300;
-    if (Array.from(playerText).length > maxCustomLength)
-      return NextResponse.json({ narrative: `這段行動須在${maxCustomLength === 300 ? "三百" : "一百"}字內；請刪短再試。`, options: availableOptions(state), state, narrativeSource: "custom_rejected" });
+    const framedDialogue = /^向(.{1,12})講：「([\s\S]*)」$/.exec(playerText);
+    const lengthText = framedDialogue && socialTargets(state).includes(framedDialogue[1])
+      ? framedDialogue[2] : playerText;
+    if (Array.from(lengthText).length > 300)
+      return NextResponse.json({ narrative: "這段行動須在三百字內；請刪短再試。", options: availableOptions(state), state, narrativeSource: "custom_rejected" });
     const screened = screenCustomAction(playerText);
     if (screened)
       return NextResponse.json({ narrative: screened, options: availableOptions(state), state, narrativeSource: "custom_rejected" });
@@ -504,7 +513,9 @@ export async function POST(req: NextRequest) {
         : decision.reason === "impossible" ? "眼前的人手、物件或局勢做不到這件事；你可以換一個合乎當下情況的做法。"
           : /(?:唔|不|冇|無|沒有|毋)[^，。；]{0,8}(?:會|要|想|問|做|去|攞|拿|借)/.test(playerText)
             ? "這句話尚未說清你真正要做的事；請換個講法，尤其要說明否定之後打算採取的行動。"
-            : "這句話尚未說清你要問誰，或想查甚麼；請換個講法。";
+            : /(?:俾|畀|給|借).{0,12}(?:文|銀|錢)/.test(playerText) && socialTargets(state).length > 1
+              ? `請先揀一位在場人物說話（${socialTargets(state).join("、")}），或喺句首寫明對象。`
+              : "這句話尚未說清你要問誰，或想查甚麼；請換個講法。";
       return NextResponse.json({ narrative, options: availableOptions(state), state, narrativeSource: "custom_rejected" });
     }
     const turn = decision.kind === "scene_attempt" ? resolveSceneAttempt(state, decision.plan)

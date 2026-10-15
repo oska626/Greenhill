@@ -27,6 +27,9 @@ export function validatedActionSteps(text: string, proposed: unknown): string[] 
     // a separate later task unless the player explicitly orders it afterward.
     if (cursor > 0 && /^(?:備戰|戒備|防備|準備迎敵|作好準備|伺機而動)$/.test(step)
       && !/(?:再|然後|跟住|之後)/.test(connector)) return null;
+    // A comma after "talk to X" introduces the line spoken to X, not another action.
+    if (cursor > 0 && /(?:講|說|問|話畀)$/.test(previousStep)
+      && !/(?:再|然後|跟住|之後)/.test(connector)) return null;
     cursor = index + step.length;
     previousStep = step;
   }

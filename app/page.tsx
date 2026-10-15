@@ -5,6 +5,7 @@ import { aptitude, availableOptions, CUSTOM_ACTION_START, LANDMARKS, normalizeSt
 import { guardLayersForLifeline, missionDone, MISSIONS, travelChoices } from "@/lib/city-progression";
 import { SPY_CASE_FLAG, SPY_LEADS, spyEvidenceCount, hasSpyProof } from "@/lib/spy-investigation";
 import { newRelationships } from "@/lib/companion-relations";
+import { composeNpcDialogue, socialTargets } from "@/lib/social-influence";
 import { renameLegacyWorldNames } from "@/lib/npc-voices";
 import { createPrologueHandoff, type PrologueHandoff } from "@/lib/prologue-handoff";
 import { MapModal } from "@/components/game/map-modal";
@@ -121,6 +122,7 @@ export default function GamePage() {
   const [options, setOptions] = useState<string[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [customInput, setCustomInput] = useState<string>("");
+  const [selectedDialogueTarget, setSelectedDialogueTarget] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [selectedDestination, setSelectedDestination] = useState<Landmark | null>(null);
   const [mapOpen, setMapOpen] = useState(false);
@@ -225,6 +227,7 @@ export default function GamePage() {
   const handleLoadSavedGame = () => {
     if (!savedGame) return;
     setSilverDelta(0);
+    setSelectedDialogueTarget(null);
     setGameState(savedGame.state);
     const rawOpening = savedGame.state.turn === 1 && savedGame.state.questStep === "prologue_briefing"
       && savedGame.narrative.startsWith(RAW_OPENING_PREFIX);
@@ -245,6 +248,7 @@ export default function GamePage() {
     setSavedGame(restored);
     setGameState(restored.state);
     setSilverDelta(0);
+    setSelectedDialogueTarget(null);
     setNarrative(restored.narrative);
     setOptions(restored.options);
     setSelectedDestination(null);
@@ -266,6 +270,7 @@ export default function GamePage() {
       setNarrative("");
       setOptions([]);
       setCustomInput("");
+      setSelectedDialogueTarget(null);
       setSelectedDestination(null);
       setErrorMsg("");
       setView("creation");
@@ -414,6 +419,7 @@ export default function GamePage() {
       setNarrative(nextNarrative);
       setOptions(nextOptions);
       setCustomInput("");
+      setSelectedDialogueTarget(null);
       setSelectedDestination(null);
 
       saveToLocalStorage(nextState, nextNarrative, nextOptions);
@@ -428,7 +434,9 @@ export default function GamePage() {
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!customInput.trim()) return;
-    handleAction(`F. [自訂手段] ${customInput.trim()}`);
+    const target = gameState && selectedDialogueTarget && socialTargets(gameState).includes(selectedDialogueTarget)
+      ? selectedDialogueTarget : null;
+    handleAction(`F. [自訂手段] ${target ? composeNpcDialogue(target, customInput) : customInput.trim()}`);
   };
 
   const handoff = gameState?.flags.ending && savedGame?.state.flags.ending === gameState.flags.ending
@@ -439,6 +447,9 @@ export default function GamePage() {
   const treasuryChange = gameState?.flags.treasuryChange?.turn === gameState?.turn
     ? gameState?.flags.treasuryChange : undefined;
   const chapterForecast = gameState ? chapterPressureForecast(gameState) : null;
+  const dialogueTargets = gameState ? socialTargets(gameState) : [];
+  const activeDialogueTarget = selectedDialogueTarget && dialogueTargets.includes(selectedDialogueTarget)
+    ? selectedDialogueTarget : null;
   const darkHandOptions = gameState && (gameState.combat || gameState.flags.alleyEscape)
     ? options.filter((option) => /^[IJ]\. \[(?:撒生石灰|施放暗手|袖藏暗手|全力陰手)\]/.test(option)) : [];
   const primaryOptions = darkHandOptions.length
@@ -848,13 +859,26 @@ export default function GamePage() {
                 <span>F. [自由行動]</span>
                 <span className="text-[11px] text-stone-400 font-normal">可寫多件有先後的事；局勢改變時，餘下行動可能被打斷。限 300 字。</span>
               </div>
+              {dialogueTargets.length > 0 && <div role="group" aria-label="選擇對話對象"
+                className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                <span className="text-stone-400">對話對象：</span>
+                {dialogueTargets.map((name) => <button key={name} type="button" disabled={loading || Boolean(gameState.pendingEncounter)}
+                  aria-pressed={activeDialogueTarget === name}
+                  onClick={() => setSelectedDialogueTarget(activeDialogueTarget === name ? null : name)}
+                  className={`rounded-sm border px-2 py-1 transition disabled:opacity-50 ${activeDialogueTarget === name
+                    ? "border-amber-500 bg-amber-950/50 text-amber-200"
+                    : "border-[#59432e] bg-[#17130f] text-stone-300 hover:border-[#a68150]"}`}>
+                  {name}
+                </button>)}
+                {activeDialogueTarget && <span className="text-amber-300/80">會向{activeDialogueTarget}講出輸入內容</span>}
+              </div>}
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={customInput}
                   disabled={loading || !gameState || Boolean(gameState.pendingEncounter)}
                   onChange={(e) => setCustomInput(e.target.value)}
-                  placeholder={gameState.currentLocation === "黑泥街" ? "直接說話，或寫出你要做的事。" : "寫明眼前人物或物件，以及你要做的事。"}
+                  placeholder={activeDialogueTarget ? `對${activeDialogueTarget}講乜？例如：俾20文我去睇大夫` : gameState.currentLocation === "黑泥街" ? "直接說話，或寫出你要做的事。" : "寫明眼前人物或物件，以及你要做的事。"}
                   maxLength={300}
                   className="flex-1 bg-[#17130f] border border-[#59432e] rounded-sm px-3 py-2 text-xs md:text-sm focus:outline-none focus:border-[#a68150] text-stone-200 placeholder:text-stone-500 disabled:opacity-50"
                 />

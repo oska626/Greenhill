@@ -21,9 +21,13 @@ export type MarketNpcExchange = { turn: number; target: string; player: string; 
 export function marketDialogueTarget(state: GameState, playerText: string): string | undefined {
   if (state.currentLocation !== "黑泥街" || state.questStep === "chapter_one" || state.flags.pendingIncident) return;
   const present = socialTargets(state);
+  const explicitlyAddressed = present.find((name) => new RegExp(`^(?:我)?(?:向|同|對|跟)${name}(?:講|說|問|談|傾)`).test(playerText.trim()));
+  if (explicitlyAddressed) return explicitlyAddressed;
   const mentioned = present.find((name) => textMentions(name, playerText));
+  const directName = mentioned === "陸千帆" ? "(?:陸千帆|千帆)" : mentioned;
+  const directRequest = Boolean(directName && new RegExp(`^\\s*${directName}[，,:：\\s]*(?:俾|畀|給|借|幫|可唔可以|可不可以|能否)`).test(playerText));
   const addressed = /講|說|問|談|勸|叫|請|告訴|話畀|解釋|傾|辯|嘲|鬧|罵|威脅|承諾|「|“|\bNPC\b/i.test(playerText)
-    || mentioned && new RegExp(`(?:^|[，。！!])\\s*${mentioned}[，：:！!]`).test(playerText);
+    || directRequest || mentioned && new RegExp(`(?:^|[，。！!])\\s*${mentioned}[，：:！!]`).test(playerText);
   if (mentioned) return addressed ? mentioned : undefined;
   // A spoken line need not name its listener or describe an additional physical action.
   // In a fight, the active knife man is the listener unless the line points to a wounded ally.
@@ -35,6 +39,17 @@ export function marketDialogueTarget(state: GameState, playerText: string): stri
     return present.includes("刀手") ? "刀手" : undefined;
   }
   return present.length === 1 ? present[0] : undefined;
+}
+
+export function composeNpcDialogue(target: string, spokenLine: string): string {
+  return `向${target}講：「${spokenLine.trim()}」`;
+}
+
+export function asksLuForDoctorMoney(target: string, text: string): boolean {
+  return target === "陸千帆" && /(?:俾|畀|給|借)[^，。！？?]{0,10}(?:\d+|一|二|三|十|幾)(?:文|兩)/.test(text)
+    && /我(?:去|睇|想|要|可否|可唔可以)|(?:畀|俾|給|借)我/.test(text)
+    && /大夫|醫館|看病|睇病|睇大夫|療傷|醫治/.test(text)
+    && !/(?:唔|不|冇|無|未)[^，。！？]{0,5}(?:俾|畀|給|借)/.test(text);
 }
 
 function textMentions(name: string, text: string): boolean {

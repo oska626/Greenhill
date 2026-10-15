@@ -7,7 +7,7 @@ import { COMPANION_IDS, applyMissionRelationship, changeTrust, companionLeads, n
 import { CREATIVE_GOALS, CUSTOM_ACTION_MAX, claimsUnacquiredObject, isMarketIntentScene, marketIntentTargets, negatesIrreversibleAction,
   sceneAttemptObjects, type CreativeAction, type MarketIntent, type SceneAttempt } from "./custom-action.ts";
 import { RAID_TARGETS, advanceChapterSocialTurn, chapterOneOptions, finishChapterTurn, resolveChapterOne, type Business, type ChapterOneState } from "./chapter-one.ts";
-import { localNpcReply, MARKET_NPC_REACTIONS, marketDialogueTarget, normalizeMarketNpcHistory, normalizeSocialMemory, socialTargets, socialTopic,
+import { asksLuForDoctorMoney, localNpcReply, MARKET_NPC_REACTIONS, marketDialogueTarget, normalizeMarketNpcHistory, normalizeSocialMemory, socialTargets, socialTopic,
   type MarketNpcExchange, type MarketNpcProposal, type MarketNpcReaction, type SocialIntent, type SocialMemory } from "./social-influence.ts";
 import { PACKED_MEDICINE, USE_PACKED_MEDICINE, USE_HEMOSTATIC_POWDER,
   canUsePackedMedicine, canUseHemostaticPowder, consumePackedMedicine, consumeHemostaticPowder,
@@ -1848,6 +1848,8 @@ export function resolveMarketDialogue(rawState: GameState, target: string, utter
   if (reaction === "defect" && target === "陸千帆") reaction = "cooperate";
   if (reaction === "cooperate" && target === "刀手" && prior.length === 0 && !concreteLeverage)
     reaction = "consider";
+  const medicalMoneyRequest = asksLuForDoctorMoney(target, utterance);
+  if (medicalMoneyRequest && reaction === "cooperate") reaction = "talk";
 
   let pressure = "";
   if (state.combat?.scenario === "market_ambush") {
@@ -1875,7 +1877,8 @@ export function resolveMarketDialogue(rawState: GameState, target: string, utter
   let event = `你在${state.currentLocation}向${target}說了話。`;
   if (reaction === "refuse") { person.stance = person.stance === "neutral" ? "wary" : person.stance;
     event += `${target}不肯照辦，卻記住了你說的話。`; }
-  if (reaction === "consider") event += `${target}沒有當場答應，要求你把話說實在。`;
+  if (reaction === "consider" && !medicalMoneyRequest) event += `${target}沒有當場答應，要求你把話說實在。`;
+  if (medicalMoneyRequest) event += "陸千帆聽明你想借錢看大夫，沒有當場交錢，叫你先到苦煙館驗傷。";
   if (reaction === "reveal") {
     remember(state, "張斷骨避談眼線");
     event += "張斷骨沒報名字，只朝巷口灰衣人的藏身處斜了一眼。";
