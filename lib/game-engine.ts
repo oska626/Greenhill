@@ -24,7 +24,7 @@ import { startingWeaponItem } from "./character-creation.ts";
 import { withoutSettlementLog } from "./narrative-style.ts";
 import { getPseudoRandom } from "./state-random.ts";
 import { WEN_PER_TAEL } from "./currency.ts";
-import { SPY_CASE_FLAG, resolveSpyAction, spyOptions, type SpySuspect } from "./spy-investigation.ts";
+import { SPY_BRIEFING_OPTION, SPY_CASE_FLAG, SPY_SUMMONS_FLAG, resolveSpyAction, spyOptions, type SpySuspect } from "./spy-investigation.ts";
 export { getPseudoRandom } from "./state-random.ts";
 
 export const PROLOGUE_LANDMARKS = [
@@ -436,7 +436,7 @@ export function normalizeState(raw: unknown): GameState | null {
   if (legacyLoanRefund) worldFlags.push("舊私貸已退本");
   if (value.questStep === "sandbox" && worldFlags.includes("市集殘局已定") && flags.marketAftermath !== true
     && !flags.finalCrisis && !flags.ending
-    && !worldFlags.includes(SPY_CASE_FLAG)) worldFlags.push(SPY_CASE_FLAG);
+    && !worldFlags.includes(SPY_CASE_FLAG) && !worldFlags.includes(SPY_SUMMONS_FLAG)) worldFlags.push(SPY_SUMMONS_FLAG);
   for (const [oldClue, missionId] of [
     ["城東假契證據", "forged_deed"], ["前線守備有序", "arena_probe"],
     ["傷藥來源已查", "tainted_medicine"], ["城東耳目已識破", "hidden_spy"],
@@ -1429,9 +1429,12 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
     const spyFinding = resolveSpyAction(state, action);
     if (spyFinding) {
       event += spyFinding;
-      npcReply = state.currentLocation === "青鋒堂總壇"
-        ? { speaker: "何不歸", line: state.flags.spyExposed ? "令牌我已收回。今夜，我們守得住。" : "人我會查，但城門先得守住。" }
-        : undefined;
+      if (action === SPY_BRIEFING_OPTION) restoreVitals(state, 0.2);
+      npcReply = action === SPY_BRIEFING_OPTION
+        ? { speaker: "何不歸", line: "先歇一口氣。陳彪、老馬、白冷，我只疑這三人；查到實證，再回來見我。" }
+        : state.currentLocation === "青鋒堂總壇"
+          ? { speaker: "何不歸", line: state.flags.spyExposed ? "令牌我已收回。今夜，我們守得住。" : "人我會查，但城門先得守住。" }
+          : undefined;
     } else if (state.currentLocation === "黑泥街" && action.startsWith("M. [請陸千帆指路]")
       && state.relationships["陸千帆"].trust >= 2 && !state.relationships["陸千帆"].wounded
       && !state.relationships["陸千帆"].estranged && !state.worldFlags.includes("熟記市集暗巷")) {
@@ -1718,7 +1721,9 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
       remember(state, "何不歸查出私吞");
       event += "你見何不歸查出私吞規費，堂口眾人面色鐵青。";
     }
-    if (!state.combat && !pendingIncident && incidentDue(state)) {
+    if (!state.combat && !pendingIncident && action !== SPY_BRIEFING_OPTION
+      && !(state.currentLocation === "青鋒堂總壇" && state.worldFlags.includes(SPY_SUMMONS_FLAG)
+        && !state.worldFlags.includes(SPY_CASE_FLAG)) && incidentDue(state)) {
       const incident = INCIDENTS[(state.flags.incidentCount || 0) % INCIDENTS.length];
       state.flags.pendingIncident = incident;
       state.flags.lastIncidentTurn = state.turn;
@@ -1737,7 +1742,9 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
     && !opening && !wasInCombat && !wasInIncident && !wasInEncounter && !wasInAftermath
     && !state.combat && !state.pendingEncounter && !state.flags.pendingIncident
     && !state.flags.alleyEscape && !state.flags.alleyWall && !state.flags.marketAftermath
-    && !state.flags.finalCrisis) {
+    && !state.flags.finalCrisis && action !== SPY_BRIEFING_OPTION
+    && !(state.currentLocation === "青鋒堂總壇" && state.worldFlags.includes(SPY_SUMMONS_FLAG)
+      && !state.worldFlags.includes(SPY_CASE_FLAG))) {
     const encounter = drawEncounter(state);
     if (encounter) {
       state.pendingEncounter = encounter.id;
@@ -1754,8 +1761,8 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
   }
   if (wasInAftermath && state.worldFlags.includes("市集殘局已定")
     && !state.flags.marketAftermath && !state.flags.alleyEscape) {
-    remember(state, SPY_CASE_FLAG);
-    event += "同門帶來何不歸的密信：堂口有人向玄武樓洩露城防，他要你暗查陳彪、老馬與白冷。天黑前查訪各處，城外貨流可從鬼骰坊暗帳追起；握有物證便回總壇指認。";
+    remember(state, SPY_SUMMONS_FLAG);
+    event += "收隊時，同門送來何不歸封好的急信。封面是堂主親筆：『速返總壇，當面議事。』送信同門不知內情；你得回總壇面見何不歸。";
   }
   event += settleCustomEchoes(state);
   if (state.questStep === "sandbox" && (state.sectLifeline === 0 || state.turn >= 70)) {

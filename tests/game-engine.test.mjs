@@ -1388,8 +1388,12 @@ test("old mission acceptance and completion flags load without offering errands"
   assert.ok(!availableOptions(oldClue).some((option) => option.includes("查扣假帳")));
   const midgame = normalizeState({ ...newGame(), questStep: "sandbox", turn: 25,
     worldFlags: ["市集殘局已定", "同門守街名冊"] });
-  assert.ok(midgame.worldFlags.includes("何不歸密令暗查內鬼"));
-  assert.ok(availableOptions({ ...midgame, currentLocation: "青鋒堂總壇" }).some((option) => option.includes("[指認內鬼]")));
+  assert.ok(midgame.worldFlags.includes("何不歸急召回總壇"));
+  assert.ok(!midgame.worldFlags.includes("何不歸密令暗查內鬼"));
+  assert.ok(availableOptions({ ...midgame, currentLocation: "青鋒堂總壇" }).some((option) => option.includes("[面見堂主]")));
+  assert.ok(!availableOptions({ ...midgame, currentLocation: "青鋒堂總壇" }).some((option) => option.includes("[指認內鬼]")));
+  const briefed = normalizeState({ ...midgame, worldFlags: [...midgame.worldFlags, "何不歸密令暗查內鬼"] });
+  assert.ok(availableOptions({ ...briefed, currentLocation: "青鋒堂總壇" }).some((option) => option.includes("[指認內鬼]")));
 });
 
 test("new martial arts alter existing combat actions", () => {
@@ -1447,18 +1451,46 @@ test("high lifeline grants one guard layer per ten points from sixty", () => {
   assert.equal(cede.state.flags.finalGuardLayers, undefined);
 });
 
-test("rescuing Lu opens exploration with Ho's nightfall deadline", () => {
+test("rescuing Lu summons the player to Ho before the spy investigation starts", () => {
   const base = newGame();
   const aftermath = { ...base, questStep: "sandbox", currentLocation: "黑泥街", turn: 8,
-    worldFlags: ["救下陸千帆", "擊退伏擊刀手"],
+    playerHp: base.maxHp - 20, playerMp: base.maxMp - 10,
+    worldFlags: ["救下陸千帆", "擊退伏擊刀手"], lastEncounterTurn: 8,
     flags: { ...base.flags, marketAftermath: true, marketAftermathKind: "victory", lastIncidentTurn: 8 } };
   const settled = resolveTurn(aftermath,
     availableOptions(aftermath).find((option) => option.includes("[安頓收隊]")), false);
   assert.equal(settled.state.flags.marketAftermath, false);
-  assert.match(settled.event, /何不歸的密信/);
-  assert.match(settled.event, /暗查陳彪、老馬與白冷/);
-  assert.ok(settled.state.worldFlags.includes("何不歸密令暗查內鬼"));
+  assert.match(settled.event, /同門送來何不歸封好的急信/);
+  assert.doesNotMatch(settled.event, /陳彪|老馬|白冷|內鬼/);
+  assert.ok(settled.state.worldFlags.includes("何不歸急召回總壇"));
+  assert.ok(!settled.state.worldFlags.includes("何不歸密令暗查內鬼"));
+  assert.ok(!settled.options.some((option) => /\[(?:速查|細查|指認內鬼)\]/.test(option)));
   assert.equal(hasOffSceneDirectSpeech(settled.state, settled.event), false);
+  let state = { ...settled.state, lastEncounterTurn: settled.state.turn,
+    flags: { ...settled.state.flags, lastIncidentTurn: settled.state.turn } };
+  const toTea = travelChoices(state, "晚秋茶寮")[0];
+  state = resolveTurn(state, toTea.label, false).state;
+  state = { ...state, lastEncounterTurn: state.turn, flags: { ...state.flags, lastIncidentTurn: state.turn } };
+  const toHall = travelChoices(state, "青鋒堂總壇")[0];
+  const arrived = resolveTurn(state, toHall.label, false);
+  assert.equal(arrived.state.currentLocation, "青鋒堂總壇");
+  assert.ok(!arrived.state.worldFlags.includes("何不歸密令暗查內鬼"));
+  assert.ok(arrived.options.some((option) => option.includes("[面見堂主]")));
+  const hpBefore = arrived.state.playerHp;
+  const mpBefore = arrived.state.playerMp;
+  const meetingState = { ...arrived.state, lastEncounterTurn: 0,
+    flags: { ...arrived.state.flags, lastIncidentTurn: 0 } };
+  const briefing = resolveTurn(meetingState,
+    arrived.options.find((option) => option.includes("[面見堂主]")), false);
+  assert.match(briefing.event, /何不歸.*陳彪、賬房老馬、總哨白冷/);
+  assert.ok(briefing.state.worldFlags.includes("何不歸密令暗查內鬼"));
+  assert.ok(!briefing.state.worldFlags.includes("何不歸急召回總壇"));
+  assert.ok(briefing.state.playerHp > hpBefore);
+  assert.ok(briefing.state.playerMp > mpBefore);
+  assert.equal(briefing.state.flags.pendingIncident, undefined);
+  assert.equal(briefing.state.pendingEncounter, undefined);
+  assert.ok(briefing.options.some((option) => option.includes("[指認內鬼]")));
+  assert.ok(!briefing.options.some((option) => option.includes("[面見堂主]")));
 });
 
 test("spy investigation distinguishes rumors from evidence and resolves the accusation", () => {

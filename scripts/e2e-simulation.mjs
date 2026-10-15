@@ -5,7 +5,7 @@ import { hasOffSceneDirectSpeech, socialTargets } from "../lib/social-influence.
 import { MISSIONS, ROAD_ADJACENCY, travelChoices } from "../lib/city-progression.ts";
 import { hardboiledFallback } from "../lib/narrative-style.ts";
 import { ENCOUNTERS, encounterOptions } from "../lib/encounters.ts";
-import { SPY_CASE_FLAG } from "../lib/spy-investigation.ts";
+import { SPY_CASE_FLAG, SPY_SUMMONS_FLAG } from "../lib/spy-investigation.ts";
 
 // Deterministic engine-level journeys. No network narration is involved.
 const visited = new Set();
@@ -69,6 +69,7 @@ function step(state, action, route, opening = false) {
 
 function walkTo(state, destination, route) {
   for (let count = 0; count < 40; count++) {
+    if (state.flags.finalCrisis) return state;
     if (state.pendingEncounter) {
       state = step(state, availableOptions(state)[0], route);
       continue;
@@ -172,22 +173,16 @@ function reachChapter(state, route) {
     }
     assert.fail(`Could not perform ${marker} at ${place}`);
   };
-  if (state.worldFlags.includes(SPY_CASE_FLAG)) {
-    runAt("苦煙館", "[細查] 驗傷者兵刃");
-    runAt("黑泥街", "[細查] 追問撤哨命令");
-    runAt("醉春樓後巷", "[細查] 截玄武樓線人");
-    assert.ok(["軟筋散調撥總哨", "黑泥街總哨撤令", "總哨城防盲區圖"].every((flag) => state.worldFlags.includes(flag)));
-    runAt("青鋒堂總壇", "指認白冷");
-    assert.equal(state.flags.spyExposed, true);
-  } else {
-    runAt("青鋒堂總壇", "[領差] 守街名冊");
-    runAt("黑泥街", "[辦差] 守街名冊");
-    runAt("黑泥街", "[領差] 雙重勒索");
-    runAt("晚秋茶寮", "[辦差] 雙重勒索");
-    runAt("晚秋茶寮", "[領差] 失蹤腳夫");
-    runAt("夜雨樓", "[辦差] 失蹤腳夫");
-    assert.ok(["同門守街名冊", "街坊願意守街", "刀手進城路線"].every((flag) => state.worldFlags.includes(flag)));
-  }
+  assert.ok(state.worldFlags.includes(SPY_SUMMONS_FLAG));
+  assert.ok(!state.worldFlags.includes(SPY_CASE_FLAG));
+  runAt("青鋒堂總壇", "[面見堂主]");
+  assert.ok(state.worldFlags.includes(SPY_CASE_FLAG));
+  runAt("苦煙館", "[細查] 驗傷者兵刃");
+  runAt("黑泥街", "[細查] 追問撤哨命令");
+  runAt("醉春樓後巷", "[細查] 截玄武樓線人");
+  assert.ok(["軟筋散調撥總哨", "黑泥街總哨撤令", "總哨城防盲區圖"].every((flag) => state.worldFlags.includes(flag)));
+  runAt("青鋒堂總壇", "指認白冷");
+  assert.equal(state.flags.spyExposed, true);
   for (let i = 0; i < 90 && !state.flags.finalCrisis; i++) {
     if (state.flags.pendingIncident) state = settlePending(state, route);
     else if (state.currentLocation !== "青鋒堂總壇") state = walkTo(state, "青鋒堂總壇", route);
@@ -198,8 +193,9 @@ function reachChapter(state, route) {
   assert.equal(state.flags.ending, "守住城西");
   state = step(state, "[踏入第一章]", route);
   assert.equal(state.questStep, "chapter_one");
-  for (let i = 0; i < 3 && state.flags.chapterOne.stage === "rest"; i++)
-    state = step(state, "[核對貨帳]", route);
+  for (let i = 0; i < 6 && state.flags.chapterOne.stage === "rest"; i++)
+    state = step(state, availableOptions(state).some((option) => option.includes("[核對貨帳]"))
+      ? "[核對貨帳]" : "[療傷調息]", route);
   assert.equal(state.flags.chapterOne.stage, "shortage");
   while (state.playerMp < 10) state = step(state, "[總壇休養]", route);
   state = walkTo(state, state.flags.chapterOne.affectedBusiness, route);

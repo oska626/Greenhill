@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { aptitude, availableOptions, CUSTOM_ACTION_START, LANDMARKS, normalizeState, OPENING_CITY_NARRATION, STARTING_FACTION_FUNDS, type GameState, type Landmark } from "@/lib/game-engine";
 import { guardLayersForLifeline, missionDone, MISSIONS, travelChoices } from "@/lib/city-progression";
-import { SPY_CASE_FLAG, SPY_LEADS, spyEvidenceCount, hasSpyProof } from "@/lib/spy-investigation";
+import { SPY_CASE_FLAG, SPY_SUMMONS_FLAG, SPY_LEADS, spyEvidenceCount, hasSpyProof } from "@/lib/spy-investigation";
 import { newRelationships } from "@/lib/companion-relations";
 import { composeNpcDialogue, socialTargets } from "@/lib/social-influence";
 import { renameLegacyWorldNames } from "@/lib/npc-voices";
@@ -765,6 +765,12 @@ export default function GamePage() {
               <div className="text-[11px] text-stone-400">{gameState.flags.finalCrisis
                 ? "入夜了，玄武樓已向七處據點同時進攻。"
                 : `距離入夜玄武樓大舉進攻：尚餘 ${Math.max(0, 70 - gameState.turn)} 回合。行路與查證都會耗時。`}</div>
+            )}
+            {gameState?.questStep === "sandbox" && !gameState.flags.finalCrisis
+              && gameState.worldFlags.includes(SPY_SUMMONS_FLAG) && !gameState.worldFlags.includes(SPY_CASE_FLAG) && (
+              <div className="rounded border border-amber-800/60 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
+                何不歸急召：返回青鋒堂總壇面見堂主；換藥休養後，由他親自交代。
+              </div>
             )}
             {gameState?.questStep === "sandbox" && gameState.flags.checkpointReady && !gameState.flags.midpointBriefed && (
               <div className="rounded border border-amber-800/60 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">{gameState.worldFlags.includes(SPY_CASE_FLAG)

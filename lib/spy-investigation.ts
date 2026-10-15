@@ -1,6 +1,8 @@
 import type { GameState, Landmark } from "./game-engine.ts";
 
 export const SPY_CASE_FLAG = "何不歸密令暗查內鬼";
+export const SPY_SUMMONS_FLAG = "何不歸急召回總壇";
+export const SPY_BRIEFING_OPTION = "N. [面見堂主] 聽何不歸交代急召";
 export const SPY_SUSPECTS = ["陳彪", "老馬", "白冷"] as const;
 export type SpySuspect = typeof SPY_SUSPECTS[number];
 
@@ -29,7 +31,9 @@ export const spyEvidenceCount = (state: GameState) => SPY_EVIDENCE.filter((clue)
 export const hasSpyProof = (state: GameState) => SPY_CORE_EVIDENCE.every((clue) => state.worldFlags.includes(clue));
 
 export function spyOptions(state: GameState): string[] {
-  if (state.questStep !== "sandbox" || !state.worldFlags.includes(SPY_CASE_FLAG) || state.flags.spyAccusation) return [];
+  if (state.questStep !== "sandbox" || state.flags.spyAccusation) return [];
+  if (!state.worldFlags.includes(SPY_CASE_FLAG)) return state.currentLocation === "青鋒堂總壇"
+    && state.worldFlags.includes(SPY_SUMMONS_FLAG) ? [SPY_BRIEFING_OPTION] : [];
   const options: string[] = [];
   const lead = SPY_LEADS.find((item) => item.location === state.currentLocation);
   if (lead && !state.worldFlags.includes(lead.evidence)) {
@@ -44,7 +48,14 @@ export function spyOptions(state: GameState): string[] {
 }
 
 export function resolveSpyAction(state: GameState, action: string): string | undefined {
-  if (!state.worldFlags.includes(SPY_CASE_FLAG) || state.flags.spyAccusation || state.turn > 70) return undefined;
+  if (state.questStep !== "sandbox" || state.flags.spyAccusation || state.turn > 70) return undefined;
+  if (action === SPY_BRIEFING_OPTION && state.currentLocation === "青鋒堂總壇"
+    && state.worldFlags.includes(SPY_SUMMONS_FLAG) && !state.worldFlags.includes(SPY_CASE_FLAG)) {
+    state.worldFlags = state.worldFlags.filter((flag) => flag !== SPY_SUMMONS_FLAG);
+    state.worldFlags.push(SPY_CASE_FLAG);
+    return "你依急信回到總壇，何不歸先命醫徒替你換藥，讓你坐下喘口氣，才屏退旁人。他攤開城防圖：「堂口有人向玄武樓洩露佈防。我只疑三人：刑堂陳彪、賬房老馬、總哨白冷。你暗中查訪各處，分清傳聞與物證；天黑前帶證據回來，親自向我指認。」";
+  }
+  if (!state.worldFlags.includes(SPY_CASE_FLAG)) return undefined;
   const allowed = spyOptions(state);
   if (!allowed.includes(action)) return undefined;
   const lead = SPY_LEADS.find((item) => item.location === state.currentLocation);
