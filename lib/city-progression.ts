@@ -1,19 +1,20 @@
 import type { GameState, Landmark } from "./game-engine.ts";
-import { CUSTOM_ACTION_MAX } from "./custom-action.ts";
-import { applyMissionRelationship, companionLeads } from "./companion-relations.ts";
-import { normalizeSceneState, revealEntrance } from "./scene-state.ts";
-import { conciseOption } from "./option-text.ts";
+import { companionLeads } from "./companion-relations.ts";
+import { SPY_CASE_FLAG, spyEvidenceCount } from "./spy-investigation.ts";
 
 type Route = { from: Landmark; to: Landmark; turns: number };
 // Ordinary streets are traversed one edge at a time. Hidden passages below are separate, unlockable edges.
 export const ROAD_ADJACENCY: Readonly<Record<Exclude<Landmark, "碼頭">, readonly Landmark[]>> = {
-  "青鋒堂總壇": ["晚秋茶寮", "鬼骰坊"],
+  "青鋒堂總壇": ["晚秋茶寮", "鬼骰坊", "堂口舊賬房"],
   "晚秋茶寮": ["青鋒堂總壇", "苦煙館", "黑泥街"],
-  "鬼骰坊": ["青鋒堂總壇", "苦煙館", "夜雨樓"],
+  "鬼骰坊": ["青鋒堂總壇", "苦煙館", "夜雨樓", "堂口舊賬房", "醉春樓後巷"],
   "苦煙館": ["晚秋茶寮", "鬼骰坊", "裂石擂", "夜雨樓"],
-  "黑泥街": ["晚秋茶寮", "裂石擂"],
-  "裂石擂": ["黑泥街", "苦煙館"],
-  "夜雨樓": ["鬼骰坊", "苦煙館"],
+  "黑泥街": ["晚秋茶寮", "裂石擂", "廢棄更樓"],
+  "裂石擂": ["黑泥街", "苦煙館", "廢棄更樓"],
+  "夜雨樓": ["鬼骰坊", "苦煙館", "醉春樓後巷"],
+  "堂口舊賬房": ["青鋒堂總壇", "鬼骰坊"],
+  "廢棄更樓": ["黑泥街", "裂石擂"],
+  "醉春樓後巷": ["夜雨樓", "鬼骰坊"],
 };
 const ROADS: Route[] = [
   { from: "青鋒堂總壇", to: "晚秋茶寮", turns: 1 },
@@ -26,6 +27,12 @@ const ROADS: Route[] = [
   { from: "苦煙館", to: "裂石擂", turns: 1 },
   { from: "黑泥街", to: "裂石擂", turns: 1 },
   { from: "黑泥街", to: "碼頭", turns: 1 },
+  { from: "青鋒堂總壇", to: "堂口舊賬房", turns: 1 },
+  { from: "鬼骰坊", to: "堂口舊賬房", turns: 1 },
+  { from: "黑泥街", to: "廢棄更樓", turns: 1 },
+  { from: "裂石擂", to: "廢棄更樓", turns: 1 },
+  { from: "夜雨樓", to: "醉春樓後巷", turns: 1 },
+  { from: "鬼骰坊", to: "醉春樓後巷", turns: 1 },
 ];
 const SHORTCUTS: (Route & { flag: string; danger: string; riskPeriod: number; riskDamage: number; riskLifeline: number })[] = [
   { from: "青鋒堂總壇", to: "黑泥街", turns: 1, flag: "熟記市集暗巷", danger: "玄武樓刀手可能埋伏", riskPeriod: 3, riskDamage: 6, riskLifeline: 0 },
@@ -98,10 +105,6 @@ const missionFlag = (mission: Mission, stage: "已領" | "完成") => `${mission
 const legacyTitles: Partial<Record<MissionId, string>> = {
   forged_deed: "假借據", arena_probe: "踢館試探", tainted_medicine: "換封傷藥", hidden_spy: "陌生恩客",
 };
-export function missionCompleted(state: GameState, mission: Mission): boolean {
-  return missionDone(state.worldFlags, mission);
-}
-
 export function missionDone(worldFlags: readonly string[], mission: Mission): boolean {
   return worldFlags.includes(mission.clue) || worldFlags.includes(missionFlag(mission, "完成"))
     || Boolean(legacyTitles[mission.id] && worldFlags.includes(`${legacyTitles[mission.id]}完成`));
@@ -112,58 +115,6 @@ export function acceptedMissionIds(worldFlags: readonly string[]): MissionId[] {
     && (worldFlags.includes(missionFlag(mission, "已領"))
       || Boolean(legacyTitles[mission.id] && worldFlags.includes(`${legacyTitles[mission.id]}已領`))))
     .map((mission) => mission.id);
-}
-
-export function missionOptions(state: GameState): string[] {
-  const options: string[] = [];
-  for (const mission of MISSIONS) {
-    if (mission.id === "double_dues" && state.relationships["陸千帆"].estranged) continue;
-    if (missionCompleted(state, mission)) continue;
-    const accepted = state.activeMissions?.includes(mission.id) || acceptedMissionIds(state.worldFlags).includes(mission.id);
-    if (!accepted && state.currentLocation === mission.origin) {
-      options.push(`G. [領差] ${mission.title}`);
-    } else if (accepted && state.currentLocation === mission.target) {
-      options.push(`G. [辦差] ${mission.title}`);
-      options.push(`H. [速辦] ${mission.title}`);
-    }
-  }
-  return options;
-}
-
-export function resolveMission(state: GameState, action: string): { event: string; speaker: string; line: string } | undefined {
-  const allowed = missionOptions(state);
-  action = allowed.find((option) => option === action || conciseOption(option) === action) || "";
-  if (!action) return undefined;
-  const mission = MISSIONS.find((item) => action.includes(item.title));
-  if (!mission) return undefined;
-  if (action.startsWith("G. [領差]")) {
-    state.activeMissions.push(mission.id);
-    state.worldFlags.push(missionFlag(mission, "已領"));
-    return { event: `${mission.giver}把「${mission.title}」拍到你手上，要你親自走到${mission.target}辦妥；賞錢${mission.pay}文。`,
-      speaker: mission.giver, line: "親自走一趟。辦妥再領錢。" };
-  }
-  const careful = action.startsWith("G. [辦差]");
-  state.activeMissions = state.activeMissions.filter((id) => id !== mission.id);
-  state.worldFlags.push(missionFlag(mission, "完成"));
-  if (careful) state.worldFlags.push(mission.clue);
-  state.silver += mission.pay;
-  state.customActionUses = Math.min(CUSTOM_ACTION_MAX, state.customActionUses + 1);
-  if (careful) state.sectLifeline = Math.min(100, state.sectLifeline + 5);
-  else state.sectLifeline = Math.max(0, state.sectLifeline - 3);
-  if (mission.id === "double_dues" && !careful) state.factionFunds += 10;
-  if (mission.id === "missing_courier" && careful) {
-    state.worldFlags.push("茶寮暗道已知");
-    state.sceneState = normalizeSceneState(state.sceneState, state.worldFlags);
-    revealEntrance(state.sceneState, "晚秋茶寮");
-    revealEntrance(state.sceneState, "夜雨樓");
-  }
-  if (mission.id === "hidden_spy" && careful) state.worldFlags.push("賭坊後巷已知");
-  applyMissionRelationship(state.relationships, mission.id, careful);
-  const contact: Partial<Record<Landmark, string>> = { "青鋒堂總壇": "何不歸", "晚秋茶寮": "容晚秋",
-    "黑泥街": state.relationships["陸千帆"].estranged ? "張斷骨" : "陸千帆", "鬼骰坊": "祁觀衡",
-    "苦煙館": "顧忘生", "裂石擂": "衛沉岳", "夜雨樓": "柳照霜" };
-  return { event: `${careful ? mission.good : mission.bad}你在${mission.target}收妥賞錢。${mission.id === "double_dues" && !careful ? "另有規費記入公帳。" : ""}`,
-    speaker: contact[mission.target] || mission.giver, line: careful ? "這事辦得實在。日後用得上。" : "眼前過得去，後頭的帳還得算。" };
 }
 
 export const ENDING_OPTIONS = [
@@ -178,7 +129,8 @@ export function guardLayersForLifeline(lifeline: number): number {
 
 export function resolveEnding(state: GameState, action: string): string {
   const secured = MISSIONS.filter((mission) => state.worldFlags.includes(mission.clue));
-  const support = secured.length;
+  const spyCase = state.worldFlags.includes(SPY_CASE_FLAG);
+  const support = spyCase ? Math.max(Math.min(3, spyEvidenceCount(state)), Math.min(3, secured.length)) : secured.length;
   if (action.startsWith("B.")) {
     state.flags.ending = "割地求存";
     state.flags.prologueCompanionLeads = companionLeads(state.relationships, state.flags.ending);
@@ -191,13 +143,23 @@ export function resolveEnding(state: GameState, action: string): string {
   }
   const guardLayers = guardLayersForLifeline(state.sectLifeline);
   const damageBlocked = guardLayers * 5;
-  const assaultDamage = 25 - damageBlocked;
+  const assaultDamage = (spyCase && !state.flags.spyExposed ? 40 : 25) - damageBlocked;
   state.sectLifeline = Math.max(0, state.sectLifeline - assaultDamage);
   state.flags.finalGuardLayers = guardLayers;
   state.flags.finalSupport = support;
-  const battleReport = `玄武樓攻勢原可削去二十五點命脈；守備${guardLayers}層抵銷${damageBlocked}點，戰後命脈餘${state.sectLifeline}點。`;
+  const battleReport = `玄武樓攻勢原可削去${spyCase && !state.flags.spyExposed ? "四十" : "二十五"}點命脈；守備${guardLayers}層抵銷${damageBlocked}點，戰後命脈餘${state.sectLifeline}點。`;
   state.flags.ending = support >= 3 && state.sectLifeline + support * 10 >= 65 ? "守住城西" : "城西陷落";
   state.flags.prologueCompanionLeads = companionLeads(state.relationships, state.flags.ending);
+  if (spyCase) {
+    const spyReport = state.flags.spyExposed
+      ? "白冷被提前截住，陳彪帶刑堂守正門，老馬把追回的物資送上城樓。"
+      : state.flags.spyAccusation
+        ? `你早前指認${state.flags.spyAccusation}，白冷乘隙打開城門，玄武樓由暗哨缺口直入。`
+        : "你未及指認內鬼，白冷入夜時撤走暗哨、打開城門。";
+    return state.flags.ending === "守住城西"
+      ? `${spyReport}你憑已查得的物證與殘部補防。${battleReport}玄武樓被迫退去，城西暫時守住。`
+      : `${spyReport}${battleReport}玄武樓逐巷插旗，城西陷落。何不歸帶傷者撤走。`;
+  }
   const supportReports: Record<MissionId, string> = {
     roll_call: "你據名冊封死黑泥街暗巷，令偷襲部隊撲空。",
     missing_courier: "腳夫指出刀手入城的窄巷，同門趕在敵人前頭設伏。",

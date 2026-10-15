@@ -30,10 +30,10 @@ test("fallback uses complete sentences and a full default when punctuation is ab
   assert.equal(prose.includes("你沿街追了很久卻始終沒有看到巷口任何人影"), false);
 });
 
-test("all forty-eight landmark props have physical rules and the new market props are reachable only at the stall", () => {
+test("all landmark props have physical rules and the new market props are reachable only at the stall", () => {
   const entries = Object.entries(LANDMARK_SCENES);
-  assert.equal(entries.length, 8);
-  assert.equal(entries.reduce((total, [, scene]) => total + scene.objects.length, 0), 48);
+  assert.equal(entries.length, 11);
+  assert.equal(entries.reduce((total, [, scene]) => total + scene.objects.length, 0), 51);
   for (const [place, scene] of entries) {
     const names = scene.objects.map((object) => object.name);
     assert.equal(new Set(names).size, names.length, `${place} contains a duplicate prop`);
@@ -143,7 +143,7 @@ test("kicking the slop bucket leaves the player on a contested wall", () => {
   assert.equal(validHardboiledNarrative(hardboiledFallback(escaped.event, escaped.state)), true);
   const settled = resolveTurn(escaped.state, escaped.options.find((option) => option.includes("[離巷收隊]")), false);
   assert.equal(settled.state.flags.marketAftermath, false);
-  assert.equal(settled.options.some((option) => option.includes("[搬貨]")), true);
+  assert.equal(settled.options.some((option) => option.includes("[巡街收規]")), true);
   assert.equal(validHardboiledNarrative(hardboiledFallback(settled.event, settled.state)), true);
 });
 
@@ -177,7 +177,7 @@ test("market victory requires one aftermath action before ordinary work resumes"
   assert.equal(cleanup.state.inventory.includes("【碎骨片】"), true);
   assert.equal(cleanup.state.playerHp, won.state.playerHp);
   assert.equal(cleanup.state.sceneState.depletedSources.includes("黑泥街碎骨"), true);
-  assert.equal(cleanup.options.some((option) => option.includes("[搬貨]")), true);
+  assert.equal(cleanup.options.some((option) => option.includes("[巡街收規]")), true);
   assert.equal(cleanup.state.turn, won.state.turn + 1);
 });
 
@@ -367,7 +367,7 @@ test("one combat dark-hand choice switches to a desperate strike at low health",
 
 test("three passage entrances connect only after discovery", () => {
   const scene = normalizeSceneState(undefined);
-  assert.equal(Object.keys(LANDMARK_SCENES).length, 8);
+  assert.equal(Object.keys(LANDMARK_SCENES).length, 11);
   const base = game({ currentLocation: "晚秋茶寮", sceneState: scene });
   assert.equal(travelChoices(base, "鬼骰坊").some((choice) => choice.kind === "shortcut"), false);
   revealEntrance(scene, "晚秋茶寮");
@@ -413,7 +413,7 @@ test("scavenging takes a turn, has a cost and cannot be repeated", () => {
   const found = resolveTurn(base, scavenge, false);
   assert.equal(found.state.inventory.includes("【碎骨片】"), true);
   assert.equal(found.state.playerHp, 50);
-  assert.equal(found.state.sectLifeline, 58);
+  assert.equal(found.state.sectLifeline, 59);
   assert.equal(availableOptions(found.state).some((option) => option.includes("[拾碎骨]")), false);
   assert.equal(found.state.turn, base.turn + 1);
 });

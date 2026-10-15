@@ -18,6 +18,9 @@ export type ObjectRule = {
 // Visibility, distance, control and possession are separate facts. The prose above
 // explains the price of changing any of them; it does not grant instant possession.
 export const OBJECT_RULES: Record<string, ObjectRule> = {
+  "舊賬房暗格": { visibility: "hidden", reach: "move", handling: "fixed" },
+  "破損信號燈籠": { visibility: "visible", reach: "move", handling: "take" },
+  "乞丐破草席": { visibility: "visible", reach: "guarded", handling: "take" },
   "堂口兵器架": { visibility: "visible", reach: "near", handling: "heavy" },
   "牛肉刀": { visibility: "visible", reach: "near", handling: "take" },
   "青銅燭台": { visibility: "visible", reach: "move", handling: "take" },
@@ -77,6 +80,21 @@ export type LandmarkScene = {
 
 // Fixed geography. A visit's people, ownership and spent objects live in SceneState.
 export const LANDMARK_SCENES: Record<Landmark, LandmarkScene> = {
+  "堂口舊賬房": {
+    routes: "總壇側門通舊賬房，後牆窄道接鬼骰坊。",
+    conditions: "今夜守衛異常失蹤，桌面帳頁散亂。",
+    objects: [{ name: "舊賬房暗格", position: "舊櫃後方", access: "須移開櫃板查找", use: "存放真正的物資調撥單" }],
+  },
+  "廢棄更樓": {
+    routes: "黑泥街北端木梯可登樓，外側小道通裂石擂。",
+    conditions: "信號燈籠被毀，暗哨遇害；現場有偽造的搏鬥痕跡。",
+    objects: [{ name: "破損信號燈籠", position: "樓頂欄杆", access: "沿木梯登樓可查", use: "辨認燈號被破壞的先後" }],
+  },
+  "醉春樓後巷": {
+    routes: "窄巷兩端分通夜雨樓與鬼骰坊。",
+    conditions: "玄武樓線人扮成乞丐等待接頭，來人容易看見巷口。",
+    objects: [{ name: "乞丐破草席", position: "後巷牆根", access: "須靠近線人搜查", use: "藏有城防圖與假分贓承諾" }],
+  },
   "青鋒堂總壇": {
     routes: "正門通街，後門暗巷通城西貧民窟；正堂空曠。",
     conditions: "正堂兩側兵器架備有刀、劍、棍與長槍，供堂口守衛和出勤門生使用；須經堂主允許領取。堂主坐在案前時，異常舉動會引來盤問；兩名持刀幫眾守正門。",

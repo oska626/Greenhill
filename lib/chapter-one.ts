@@ -4,10 +4,11 @@ import { PACKED_MEDICINE, USE_PACKED_MEDICINE, USE_HEMOSTATIC_POWDER,
   canUsePackedMedicine, canUseHemostaticPowder, consumePackedMedicine, consumeHemostaticPowder,
   restoreVitals } from "./recovery.ts";
 import { actionEnergyCost, availableWithEnergy, canAffordEnergy, spendEnergy } from "./energy.ts";
-import { missionOptions, travelChoices } from "./city-progression.ts";
+import { travelChoices } from "./city-progression.ts";
 import type { GameState, Landmark, TurnResult } from "./game-engine.ts";
 import { conciseOption } from "./option-text.ts";
 import { getPseudoRandom } from "./state-random.ts";
+import { formatMoney, WEN_PER_TAEL } from "./currency.ts";
 
 export type ChapterOneStage = "rest" | "shortage" | "dock" | "complete" | "failed";
 export const RAID_UNREST_THRESHOLD = 20;
@@ -35,10 +36,17 @@ export interface ChapterOneState {
 
 export const CHAPTER_START = "A. [踏入第一章] 返回總壇盤點生意";
 export const CHAPTER_RECAP = "A. [回顧結局] 查看本章收局";
-export const CHAPTER_OPENING = `你回到青鋒堂總壇，衣上血污未乾，見市販捧著銅錢踏進堂門。眾人說黑泥街的攤位已重新架好，願加繳半個月規費；何不歸當面致謝，逐筆列入公帳。
+export const CHAPTER_OPENING = `你回到青鋒堂總壇，衣上血污未乾。老馬把黑泥街、鬼骰坊、苦煙館與夜雨樓的帳簿攤開：幾處生意照常進帳，本期三兩結餘已入公匣。黑泥街的攤販也重新架好攤位，向何不歸道謝。
 
-你站在公匣旁，聽腳夫說貨車已重新上路，傷者也有人照料。街口安靜得反常，裴無鋒始終沒有現身；碼頭貨路仍須有人盯守。何不歸把帳簿推到你面前，叫你趁這幾日休整，盤點下一步。`;
-export const GRATITUDE_DUES = 45;
+你站在公匣旁，聽腳夫說貨車已重新上路，傷者也有人照料。堂口有五十多兩周轉現銀；若碼頭斷航，何不歸仍得按日賠付受損市販，守住青鋒堂收規費護人的承諾。街口安靜得反常，裴無鋒始終沒有現身；他把帳簿推到你面前，叫你趁這幾日休整，盤點下一步。`;
+export const ROUTINE_BUSINESS_RECEIPTS = 3 * WEN_PER_TAEL;
+export const CHAPTER_TRIBUTE = 2 * WEN_PER_TAEL;
+export const GUARD_COST = WEN_PER_TAEL;
+export const CREW_COST = 1500;
+const CARE_COST = 500;
+export function dailyVendorCompensation(day: number): number {
+  return (day <= 3 ? 1 : day <= 7 ? 2 : 3) * WEN_PER_TAEL;
+}
 const BUSINESSES: Business[] = ["黑泥街", "鬼骰坊", "苦煙館", "夜雨樓"];
 export const RAID_TARGETS = ["黑泥街", "鬼骰坊", "苦煙館", "夜雨樓", "晚秋茶寮", "裂石擂"] as const satisfies readonly Landmark[];
 const RAID_SCENES: Record<(typeof RAID_TARGETS)[number], string> = {
@@ -73,11 +81,12 @@ const companionChoices = (state: GameState): string[] => {
 export function chapterPressureForecast(state: GameState): { loss: number; tributeIn: number | null; tributeCost: number; unrestGain: number } | null {
   const chapter = state.flags.chapterOne;
   if (state.questStep !== "chapter_one" || !chapter || chapter.stage === "complete" || chapter.stage === "failed") return null;
-  const loss = chapter.stage === "rest" ? chapter.turns === 2 ? 6 : 0 : chapter.stage === "shortage" ? 6 : 4;
+  const loss = chapter.stage === "rest" && chapter.turns < 2 ? 0
+    : dailyVendorCompensation(chapter.foodShortageDays + 1);
   return { loss,
     tributeIn: chapter.tribute === "pending" ? Math.max(1, 7 - chapter.turns) : null,
-    tributeCost: 20, unrestGain: chapter.stage === "rest" && chapter.turns < 2 ? 0
-      : 1 + Math.floor(chapter.foodShortageDays / 4) + (state.factionFunds <= loss ? 1 : 0) };
+    tributeCost: CHAPTER_TRIBUTE, unrestGain: chapter.stage === "rest" && chapter.turns < 2 ? 0
+      : state.factionFunds >= loss ? 1 : 2 + Math.floor(chapter.foodShortageDays / 4) };
 }
 const REST_OPTIONS = [
   "A. [療傷調息] 在總壇休養調息",
@@ -136,9 +145,9 @@ function rawChapterOneOptions(state: GameState): string[] {
       .flatMap((destination) => travelChoices(state, destination).map((route) => route.label)));
     return availableWithEnergy(state, [
       ...(state.currentLocation === "青鋒堂總壇" ? [chapter.foundShortageLocation ? SUBMIT_SHORTAGE : SHORTAGE_OPTIONS[4],
-        ...(state.factionFunds >= 8 ? [DEFEND_OPTION] : []), RECOVER_OPTION] : []),
+        ...(state.factionFunds >= GUARD_COST ? [DEFEND_OPTION] : []), RECOVER_OPTION] : []),
       ...(state.currentLocation === "晚秋茶寮" ? [TEA_INTEL] : []),
-      ...local, ...missionOptions(state), ...travel, ...medicineOptions,
+      ...local, ...travel, ...medicineOptions,
     ]);
   }
   const directAssault = chapter.selectedCompanion === "衛沉岳" || chapter.selectedCompanion === "霍破陣";
@@ -149,7 +158,7 @@ function rawChapterOneOptions(state: GameState): string[] {
   if (state.currentLocation !== "碼頭") return availableWithEnergy(state, [
     ...companionChoices(state),
     "C. [僱船工] 僱船工探水路",
-    ...(state.factionFunds >= 8 ? [DEFEND_OPTION] : []),
+    ...(state.factionFunds >= GUARD_COST ? [DEFEND_OPTION] : []),
     RECOVER_OPTION,
     ...travel,
     ...medicineOptions,
@@ -171,17 +180,24 @@ export function chapterOneOptions(state: GameState): string[] {
   return rawChapterOneOptions(state).map(conciseOption);
 }
 
-function collectPressure(state: GameState, chapter: ChapterOneState, amount: number): string {
-  addFunds(state, -amount, "碼頭斷貨，地標生意入帳不足");
+function collectPressure(state: GameState, chapter: ChapterOneState): string {
+  const day = chapter.foodShortageDays + 1;
+  const compensation = dailyVendorCompensation(day);
+  const paid = Math.min(state.factionFunds, compensation);
+  const compensationPaid = paid === compensation;
+  addFunds(state, -compensation, compensationPaid
+    ? `斷貨第${day}日賠付城西市販${formatMoney(compensation)}`
+    : `斷貨第${day}日應賠${formatMoney(compensation)}，公款僅付${formatMoney(paid)}`);
   chapter.deficitStreak += 1;
-  let report = state.factionFunds === 0 ? "碼頭斷貨令各地標生意欠收，公帳已見底。"
-    : "碼頭斷貨令各地標生意入帳不足。";
+  let report = compensationPaid
+    ? `青鋒堂從公款賠付受斷貨影響的市販${formatMoney(compensation)}，今日仍未復航。${state.factionFunds === 0 ? "可調度公款亦已見底。" : ""}`
+    : `青鋒堂今日應賠市販${formatMoney(compensation)}，公款僅付${formatMoney(paid)}，尚欠${formatMoney(compensation - paid)}；可調度公款已見底。`;
   if (chapter.deficitStreak >= 3 && chapter.deficitStreak % 3 === 0) {
     state.sectLifeline = Math.max(0, state.sectLifeline - 3);
     report += "公帳接連入不敷支，堂口守勢漸弱。";
-  } else if (chapter.deficitStreak === 2) report += "公款已接連欠收，堂口防線開始鬆動。";
+  } else if (chapter.deficitStreak === 2) report += "營運接連入不敷支，堂口防線開始鬆動。";
   chapter.foodShortageDays += 1;
-  chapter.unrest += 1 + Math.floor((chapter.foodShortageDays - 1) / 4) + (state.factionFunds === 0 ? 1 : 0);
+  chapter.unrest += compensationPaid ? 1 : 2 + Math.floor((day - 1) / 4);
   while (chapter.unrest >= RAID_UNREST_THRESHOLD && chapter.lostLandmarks.length < MAX_LOST_LANDMARKS) {
     chapter.unrest -= RAID_UNREST_THRESHOLD;
     const target = [chapter.affectedBusiness, ...RAID_TARGETS.filter((place) => place !== chapter.affectedBusiness)]
@@ -196,15 +212,15 @@ function collectPressure(state: GameState, chapter: ChapterOneState, amount: num
 
 function settleTribute(state: GameState, chapter: ChapterOneState): string {
   if (chapter.tribute !== "pending" || chapter.turns < 7) return "";
-  if (state.factionFunds >= 20) {
-    addFunds(state, -20, "向城主繳納本期貢款");
+  if (state.factionFunds >= CHAPTER_TRIBUTE) {
+    addFunds(state, -CHAPTER_TRIBUTE, "向城主繳納本期貢款");
     chapter.tribute = "paid";
     remember(state, "第一章貢款已繳");
-    return "堂主從公款繳出二十文貢款，城主收帳，卻尚未答應調停碼頭之爭。";
+    return "堂主從公款繳出二兩貢款，城主收帳，卻尚未答應調停碼頭之爭。";
   }
   chapter.tribute = "missed";
   remember(state, "第一章貢款逾期");
-  return "公款不足二十文，青鋒堂未能如期繳納貢款；城主以此為由，拒絕調停碼頭之爭。";
+  return "公款不足二兩，青鋒堂未能如期繳納貢款；城主以此為由，拒絕調停碼頭之爭。";
 }
 
 function finishRestTurn(state: GameState, chapter: ChapterOneState, event: string): string {
@@ -212,7 +228,7 @@ function finishRestTurn(state: GameState, chapter: ChapterOneState, event: strin
     chapter.stage = "shortage";
     return `${event}堂口傳來急報：玄武樓趁城西休整，奪下青山城碼頭並扣住送往城西的糧藥。據報，${BUSINESS_HINTS[chapter.affectedBusiness]}`
       + (chapter.selectedCompanion === "容晚秋" ? `容晚秋說${chapter.affectedBusiness}的貨路先斷，叫你從那裏查起。` : "")
-      + collectPressure(state, chapter, 6)
+      + collectPressure(state, chapter)
       + "\n\n市販見貨車不來，開始問青鋒堂能否再護住生意。你須查出哪處地標先受衝擊，才能追到截貨的路。";
   }
   return `${event}\n\n城西今日尚能開市，苦煙館仍替傷者備藥。裴無鋒沒有露面，碼頭那邊也遲遲未傳來貨車消息；你趁這短暫喘息再作準備。`;
@@ -256,8 +272,8 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
     state.customActionUses = CUSTOM_ACTION_MAX;
     // The chapter now requires a round trip on the road before the dock opens.
     state.sectLifeline = Math.min(100, Math.max(50, state.sectLifeline + 8));
-    addFunds(state, GRATITUDE_DUES, "市販自願加繳半個月規費");
-    remember(state, "第一章市販加繳規費");
+    addFunds(state, ROUTINE_BUSINESS_RECEIPTS, "四處生意本期結餘入帳");
+    remember(state, "第一章四處生意結餘入帳");
     return finishTurn(state, CHAPTER_OPENING);
   }
   const chapter = state.flags.chapterOne;
@@ -271,7 +287,7 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
     for (let turn = 0; turn < route.turns; turn++) {
       state.turn += 1;
       chapter.turns += 1;
-      event += collectPressure(state, chapter, chapter.stage === "shortage" ? 6 : 4) + settleTribute(state, chapter);
+      event += collectPressure(state, chapter) + settleTribute(state, chapter);
       travelledTurns += 1;
       if (chapter.lostLandmarks.length >= MAX_LOST_LANDMARKS || state.sectLifeline === 0) break;
     }
@@ -298,15 +314,15 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
     state.currentLocation = "青鋒堂總壇";
     restoreVitals(state, 0.2);
     event = "你返回總壇休養，調勻呼吸，傷處也重新包紮。"
-      + collectPressure(state, chapter, chapter.stage === "shortage" ? 6 : 4)
+      + collectPressure(state, chapter)
       + settleTribute(state, chapter);
     return finishTurn(state, event);
   }
   if (action === DEFEND_OPTION) {
-    addFunds(state, -8, "增派守街人手安撫飢民");
+    addFunds(state, -GUARD_COST, "增派守街人手安撫飢民");
     chapter.unrest = Math.max(0, chapter.unrest - 8);
-    event = "堂主撥出八文公款，讓同門護住米攤與藥車，暫時壓住街口衝突。"
-      + collectPressure(state, chapter, chapter.stage === "shortage" ? 6 : 4)
+    event = "堂主撥出一兩公款，讓同門護住米攤與藥車，暫時壓住街口衝突。"
+      + collectPressure(state, chapter)
       + settleTribute(state, chapter);
     return finishTurn(state, event + spendEnergy(state, energyCost));
   }
@@ -315,7 +331,7 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
     if (!restored) return finishTurn(state, "療傷藥已用完，或氣血與精力都已充足。");
     event = `你拆開行囊裏一包${PACKED_MEDICINE}，服下後慢慢調勻呼吸。`;
     if (chapter.stage === "rest") event = finishRestTurn(state, chapter, event);
-    else event += collectPressure(state, chapter, chapter.stage === "shortage" ? 6 : 4)
+    else event += collectPressure(state, chapter)
       + settleTribute(state, chapter);
     return finishTurn(state, event);
   }
@@ -324,7 +340,7 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
     if (!healed) return finishTurn(state, "止血散未在行囊，或眼下沒有傷口。");
     event = "你將止血散按進傷口，重新紮緊布條，血終於止住。";
     if (chapter.stage === "rest") event = finishRestTurn(state, chapter, event);
-    else event += collectPressure(state, chapter, chapter.stage === "shortage" ? 6 : 4)
+    else event += collectPressure(state, chapter)
       + settleTribute(state, chapter);
     return finishTurn(state, event);
   }
@@ -335,12 +351,12 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
     }
     if (choice === 1) event = selectCompanion(state, chapter, action);
     if (choice === 2) { chapter.evidence += 1; event = "你對照城西貨帳，記下糧米與傷藥應到的日期。"; }
-    if (choice === 3) { if (state.factionFunds >= 5) { addFunds(state, -5, "堂主撥公款照料傷者"); state.sectLifeline = Math.min(100, state.sectLifeline + 2); event = "何不歸從公帳撥錢照料傷者，街坊見青鋒堂仍肯護人。"; } else event = "堂口一時拿不出藥錢，何不歸只得先把現有傷藥分給街坊。"; }
+    if (choice === 3) { if (state.factionFunds >= CARE_COST) { addFunds(state, -CARE_COST, "堂主撥公款照料傷者"); state.sectLifeline = Math.min(100, state.sectLifeline + 2); event = "何不歸從公帳撥五百文照料傷者，街坊見青鋒堂仍肯護人。"; } else event = "堂口一時拿不出藥錢，何不歸只得先把現有傷藥分給街坊。"; }
     if (choice === 4) { chapter.evidence += 1; event = "你巡過城西街口，記下兩輛本該入城的糧車尚未出現。"; }
     event = finishRestTurn(state, chapter, event);
   } else if (chapter.stage === "shortage") {
     const chosen = choice < 4 ? BUSINESSES[choice] : undefined;
-    const pressure = collectPressure(state, chapter, 6);
+    const pressure = collectPressure(state, chapter);
     const tribute = settleTribute(state, chapter);
     if (action === SUBMIT_SHORTAGE && state.currentLocation === "青鋒堂總壇" && chapter.foundShortageLocation) {
       chapter.stage = "dock";
@@ -370,13 +386,13 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
       event = `${chapter.selectedCompanion ? `${chapter.selectedCompanion}指出${chapter.affectedBusiness}的入帳最不對勁。` : "你尚未選定同行同伴，只能再核對各地標的貨運記錄。"}${pressure}${tribute}\n\n城西的糧藥仍未到，你須親自去查出缺口。`;
     }
   } else if (chapter.stage === "dock") {
-    const pressure = collectPressure(state, chapter, 4);
+    const pressure = collectPressure(state, chapter);
     if (chapter.lostLandmarks.length >= MAX_LOST_LANDMARKS || state.sectLifeline === 0)
       return finishTurn(state, pressure + settleTribute(state, chapter)
         + spendEnergy(state, energyCost, Math.max(0, startingEnergy - state.playerMp)));
     if (choice === 0) { if (!chapter.manifestFound) { chapter.evidence += chapter.selectedCompanion === "祁觀衡" ? 2 : 1; chapter.manifestFound = true; event = chapter.selectedCompanion === "祁觀衡" ? "祁觀衡眼快，連貨單上的偽造印記也查出來；船次與玄武樓所報不符，足以拿去對質。" : "你查到碼頭貨單上的船次與玄武樓所報不符，留下一份可對質的證據。"; } else event = "你重查貨單，沒有找到新船次。"; }
     if (choice === 1) event = selectCompanion(state, chapter, action);
-    if (choice === 2) { if (!chapter.crewHired && state.factionFunds >= 15) { addFunds(state, -15, "堂主僱船工查碼頭水路"); chapter.crewHired = true; chapter.dockRouteKnown = true; event = "你向堂主呈上帳目，何不歸從公款支十五文僱船工，摸清通向碼頭的水路。"; } else event = chapter.crewHired ? "船工已在碼頭外候命，重付錢也不會多一條路。" : "堂口公款不足十五文，何不歸暫無法僱船工。"; }
+    if (choice === 2) { if (!chapter.crewHired && state.factionFunds >= CREW_COST) { addFunds(state, -CREW_COST, "堂主僱船工查碼頭水路"); chapter.crewHired = true; chapter.dockRouteKnown = true; event = "你向堂主呈上帳目，何不歸從公款支一兩五百文僱船工，摸清通向碼頭的水路。"; } else event = chapter.crewHired ? "船工已在碼頭外候命，重付錢也不會多一條路。" : "堂口公款不足一兩五百文，何不歸暫無法僱船工。"; }
     if (choice === 3 || choice === 8) {
       if (!chapter.dockRouteKnown) {
         const focused = choice === 8;
@@ -395,7 +411,7 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
         if (focused) state.playerMp -= 6;
         chapter.stage = "complete"; chapter.result = "奪回碼頭"; chapter.deficitStreak = 0;
         remember(state, "第一章碼頭復航");
-        addFunds(state, focused ? 12 : 8, "碼頭復航後首批地標收入");
+        addFunds(state, focused ? 1200 : 800, "碼頭復航後首批地標收入");
         const help = choice === 9 ? "你沿已查明的水路獨自打開貨閘，腳夫接走被扣的糧藥"
           : chapter.selectedCompanion === "衛沉岳" ? "衛沉岳守住堤口，同你接住被扣的糧藥"
           : chapter.selectedCompanion === "霍破陣" ? "霍破陣衝開刀手，同你接住被扣的糧藥"
@@ -407,7 +423,7 @@ export function resolveChapterOne(state: GameState, action: string, spendCustomU
         if (chapter.selectedCompanion === "祁觀衡") event += "祁觀衡當場重核貨單，堵住玄武樓再藏一車的破綻。";
         if (chapter.selectedCompanion === "顧忘生") event += "顧忘生留在岸邊照料負傷腳夫，讓卸貨沒有因傷停下。";
         if (chapter.selectedCompanion === "柳照霜") event += "柳照霜說服猶豫的碼頭腳夫繼續卸貨，免得貨船再次空等。";
-        if (chapter.selectedCompanion === "霍破陣") { addFunds(state, -6, "霍破陣冒進損壞碼頭貨物"); event += "霍破陣衝得太急，貨箱撞裂，堂口還得出錢修補。"; }
+        if (chapter.selectedCompanion === "霍破陣") { addFunds(state, -600, "霍破陣冒進損壞碼頭貨物"); event += "霍破陣衝得太急，貨箱撞裂，堂口還得出錢修補。"; }
       } else { const damage = chapter.selectedCompanion === "衛沉岳" ? 3 : 6; state.playerHp = Math.max(1, state.playerHp - damage); event = "你未摸清船次與退路便衝向碼頭，被守衛逼退；你踉蹌半步，強忍劇痛。貨仍被扣住，你還須補足證據與接應。"; }
     }
     event += pressure + settleTribute(state, chapter);
@@ -425,7 +441,7 @@ export function advanceChapterSocialTurn(state: GameState, energyCost = 1): stri
   chapter.turns += 1;
   const cost = spendEnergy(state, energyCost);
   if (chapter.stage === "rest") return finishRestTurn(state, chapter, "") + cost;
-  return collectPressure(state, chapter, chapter.stage === "shortage" ? 6 : 4)
+  return collectPressure(state, chapter)
     + settleTribute(state, chapter) + cost;
 }
 
@@ -445,13 +461,13 @@ export function resolveChapterPetition(state: GameState, playerText: string): Tu
   if (!canAffordEnergy(state, energyCost)) return finishTurn(state, `精力不足，呈報須${energyCost}點精力。`);
   state.turn += 1;
   chapter.turns += 1;
-  const pressure = collectPressure(state, chapter, 4);
+  const pressure = collectPressure(state, chapter);
   const tribute = settleTribute(state, chapter);
   if (chapter.evidence >= (chapter.selectedCompanion === "柳照霜" ? 2 : 3) && chapter.tribute === "paid"
     && (state.worldFlags.includes("城東耳目已識破") || state.worldFlags.includes("刀手進城路線") || chapter.manifestFound)) {
     chapter.stage = "complete"; chapter.result = "城主有條件介入"; chapter.deficitStreak = 0;
     remember(state, "第一章城主介入復航");
-    addFunds(state, 8, "城主派員督促碼頭復航後收入");
+    addFunds(state, 800, "城主派員督促碼頭復航後收入");
     const leverage = state.worldFlags.includes("城東耳目已識破") ? "城東耳目線索"
       : state.worldFlags.includes("刀手進城路線") ? "刀手進城路線" : "船次與玄武樓報帳不符的證據";
     return finishTurn(state, `${pressure}${tribute}你託堂主把貨單、${leverage}與已繳貢款的帳遞到城主案前。${chapter.selectedCompanion === "柳照霜" ? "柳照霜替你向書吏逐項說清截貨與稅收的關係。" : ""}玄武樓截貨已妨礙城主稅收，燕鎮嶽派人到碼頭查驗，命貨船復航；青鋒堂須容官府核對其後每筆運費。\n\n糧藥重回城西，公帳重新有了進項，碼頭仍有官府的人盯著。你換來一條貨路，也欠下日後受查的代價。` + spendEnergy(state, energyCost));

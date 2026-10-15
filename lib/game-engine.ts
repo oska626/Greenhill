@@ -1,7 +1,7 @@
 import { renameLegacyWorldNames, repeatedNpcLine } from "./npc-voices.ts";
 import { combatOptions, createCombat, normalizeCombat, resolveCombatRound, trainMove, WEAPONS,
   type CombatState, type KnownMoves, type WeaponId } from "./combat-engine.ts";
-import { ENDING_OPTIONS, MISSIONS, acceptedMissionIds, missionDone, missionOptions, resolveEnding, resolveMission, travelChoices } from "./city-progression.ts";
+import { ENDING_OPTIONS, MISSIONS, acceptedMissionIds, missionDone, resolveEnding, travelChoices } from "./city-progression.ts";
 import { COMPANION_IDS, applyMissionRelationship, changeTrust, companionLeads, newRelationships, normalizeRelationships,
   type CompanionId, type CompanionRelationships } from "./companion-relations.ts";
 import { CREATIVE_GOALS, CUSTOM_ACTION_MAX, claimsUnacquiredObject, isMarketIntentScene, marketIntentTargets, negatesIrreversibleAction,
@@ -23,18 +23,21 @@ import { applyActionTags, normalizeRelationshipScores, type RelationshipScores }
 import { startingWeaponItem } from "./character-creation.ts";
 import { withoutSettlementLog } from "./narrative-style.ts";
 import { getPseudoRandom } from "./state-random.ts";
+import { WEN_PER_TAEL } from "./currency.ts";
+import { SPY_CASE_FLAG, resolveSpyAction, spyOptions, type SpySuspect } from "./spy-investigation.ts";
 export { getPseudoRandom } from "./state-random.ts";
 
 export const PROLOGUE_LANDMARKS = [
   "青鋒堂總壇", "晚秋茶寮", "黑泥街", "鬼骰坊", "裂石擂", "苦煙館", "夜雨樓",
 ] as const;
-export const LANDMARKS = [...PROLOGUE_LANDMARKS, "碼頭"] as const;
+export const LANDMARKS = [...PROLOGUE_LANDMARKS, "堂口舊賬房", "廢棄更樓", "醉春樓後巷", "碼頭"] as const;
 
 export type Landmark = typeof LANDMARKS[number];
 export type QuestStep = "prologue_briefing" | "kuyan_medicine" | "yung_tea_stall" | "market_collection" | "huizhi_ambush" | "sandbox" | "chapter_one";
 export type Incident = "market_raid" | "missing_ledger" | "tainted_medicine";
 type CustomEcho = CreativeAction & { location: Landmark; dueTurn: number };
 export const CUSTOM_ACTION_START = CUSTOM_ACTION_MAX;
+export const STARTING_FACTION_FUNDS = 50 * WEN_PER_TAEL;
 
 export interface HistoryEntry {
   turn: number;
@@ -97,12 +100,13 @@ export interface GameState {
     finalCrisis?: boolean;
     finalGuardLayers?: number;
     finalSupport?: number;
+    spyAccusation?: SpySuspect;
+    spyExposed?: boolean;
     prologueCompanionLeads?: CompanionId[];
     chapterOne?: ChapterOneState;
     treasuryChange?: { delta: number; reason: string; turn: number };
     checkpointReady?: boolean;
     midpointBriefed?: boolean;
-    lastJobTurn?: number;
     loanDueTurn?: number;
     customEchoes?: CustomEcho[];
     darkHandInitialized?: boolean;
@@ -241,11 +245,14 @@ const TUTORIAL_FLAVOR: Record<Exclude<QuestStep, "sandbox" | "huizhi_ambush" | "
 const SANDBOX_OPTIONS: Record<Landmark, string[]> = {
   "青鋒堂總壇": ["A. [休整] 休養一回合，氣血與精力各回復上限的20%。", "B. [捐銀固防] 捐二十文私銀入公帳，由堂主安排固防；命脈升十。", "C. [盤點] 清點堂口帳目。", "D. [問堂主] 問堂主近日玄武樓動靜。", "E. [習泥鰍步] 向堂主學保命步法；耗精力與一回合。"],
   "晚秋茶寮": ["A. [買消息] 付十文私銀，向容晚秋買城西街口情報。", "B. [買暗道] 付十五文私銀，向容晚秋買通往夜雨樓的暗道走法。"],
-  "黑泥街": ["A. [巡街收規] 催收十文規費，記入公款。", "B. [搬貨] 替商販搬貨照料騾車；每隔三回合可賺六文私銀。", "C. [找陸千帆] 問陸千帆傷勢。", "D. [盯梢] 留意玄武樓眼線。", "E. [問張斷骨] 問肉檔近日有誰來過。"],
-  "鬼骰坊": ["A. [押小] 押十文私銀賭一局。", "B. [看盤] 觀察骰盤，尋找莊家的破綻。", "C. [問祁觀衡] 問祁觀衡堂口欠帳。", "D. [查老千] 查出藏籌碼的賭客，替堂口追回銀錢。", "E. [核暗帳] 核對賭坊暗帳，替堂口追回錯漏。"],
+  "黑泥街": ["A. [巡街收規] 催收十文規費，記入公款。", "C. [找陸千帆] 問陸千帆傷勢。", "D. [盯梢] 留意玄武樓眼線。", "E. [問張斷骨] 問肉檔近日有誰來過。"],
+  "鬼骰坊": ["C. [問祁觀衡] 問祁觀衡堂口欠帳。", "E. [核暗帳] 核對賭坊暗帳，替堂口追回錯漏。"],
   "裂石擂": ["A. [打黑拳] 上擂迎敵；打贏可得二十文私銀，受傷自行承擔。", "B. [習裂石短拳] 向衛沉岳習拳；耗精力與一回合。", "C. [觀擂] 觀察擂台對手。", "D. [問霍破陣] 問霍破陣拳館近況。", "E. [整備兵器] 花四十文私銀買生鏽鐵刀，或花十文修刀。"],
   "苦煙館": ["A. [買藥療傷] 付十文私銀、用一回合，氣血與精力各回復上限的35%。", "B. [看人] 觀察館內客人。", "C. [問顧忘生] 問顧忘生黑市傳聞。", "D. [拒藥] 拒絕來路不明的丹藥。", "E. [買藥帶走] 付十文私銀買一包療傷藥，佔一格行囊。"],
   "夜雨樓": ["A. [問柳照霜] 問柳照霜城西消息。", "B. [聽曲] 聽曲時留心席間動靜。", "C. [查客] 留意陌生客人。", "D. [問路] 問清附近暗巷。", "E. [斷開跟梢] 費些氣力甩開盯梢的人。"],
+  "堂口舊賬房": ["A. [察看四周] 留意舊櫃與帳頁。"],
+  "廢棄更樓": ["A. [察看四周] 留意燈籠與地面痕跡。"],
+  "醉春樓後巷": ["A. [察看四周] 留意巷口來人。"],
   "碼頭": [],
 };
 
@@ -295,17 +302,13 @@ const SANDBOX_REACTIONS: Record<Landmark, Record<string, Reaction>> = {
   },
   "黑泥街": {
     "巡街收規": { event: "", line: "錢由你收。若有人從後面跟來，我會先讓你知道。" },
-    "搬貨": { event: "", line: "搬貨賺的錢是你的，規費可得另外記帳。" },
     "找陸千帆": { event: "你問陸千帆肋下刀傷。你見他按住舊布條，呼吸仍穩，刀口卻未合。", line: "小傷，走得動。你先看巷口，別讓人抄後路。" },
     "盯梢": { event: "你退到肉檔陰影，盯住巷口來往的灰衣人。", line: "那兩個人走得太齊。我往左，你替我看右邊。", speaker: "陸千帆" },
     "問張斷骨": { event: "你問張斷骨近日誰在肉檔前打轉，他朝巷口努了努嘴。", line: "幾張生面孔盯我的肉檔，真有本事就替我趕走。", speaker: "張斷骨" },
     "查眼線": { event: "你沿肉檔外圍查眼線，發現有人見你便轉入窄巷。", line: "又來看我的攤？那筆帳還在，你不提，我也不會忘。", speaker: "張斷骨" },
   },
   "鬼骰坊": {
-    "押小": { event: "", line: "十文放上桌，便算你認了這局。輸了別來改帳。" },
-    "看盤": { event: "你盯住骰盅落桌，記下莊家左手收回時的停頓。", line: "莊家的左手收得太快。那一下，少說值十文。" },
     "問祁觀衡": { event: "你問祁觀衡堂口欠帳，聽見他只肯談帳面，不肯報人名。", line: "欠帳的有兩頁，肯認帳的一個也沒有。名字自己去查。" },
-    "查老千": { event: "你盯住桌邊換籌碼的手，見有人袖口藏得太緊。", line: "抓住那隻藏在袖裏的手，這桌輸掉的錢才有處討。" },
     "核暗帳": { event: "你陪祁觀衡核對賭坊暗帳，查出一筆被人壓住的舊款。", line: "帳藏得再深，數目總有對不上的一天。這筆錢記回堂口。" },
   },
   "裂石擂": {
@@ -330,13 +333,16 @@ const SANDBOX_REACTIONS: Record<Landmark, Record<string, Reaction>> = {
     "問路": { event: "你問清附近暗巷的出口，記住轉角那道窄門。", line: "側門可以借你走。只是身後那條尾巴，別帶進夜雨樓。" },
     "斷開跟梢": { event: "你在夜雨樓側門甩開身後尾巴，回身守住樓內的退路。", line: "側門借你走。下一次，別把人帶到我樓前。" },
   },
+  "堂口舊賬房": { "察看四周": { event: "你看見桌上帳頁散亂，舊櫃後方的灰卻有新指印。", line: "此處早已不派人值夜，今日卻有人進過。" } },
+  "廢棄更樓": { "察看四周": { event: "你見信號燈籠被拆，樓板血跡旁另有拖曳痕。", line: "暗哨昨夜尚在，今晨已沒了聲息。" } },
+  "醉春樓後巷": { "察看四周": { event: "你看見乞丐在巷口停得太久，眼睛只盯接頭的小門。", line: "今夜來往的人，怕是都認得這條巷。" } },
   "碼頭": {},
 };
 
 const SANDBOX_CLUES: Record<string, string> = {
   "青鋒堂總壇:盤點": "帳目有據", "青鋒堂總壇:問堂主": "街面有備",
   "黑泥街:問價": "傷藥有據", "黑泥街:找陸千帆": "街面有備", "黑泥街:盯梢": "街面有備", "黑泥街:問張斷骨": "街面有備", "黑泥街:查眼線": "街面有備",
-  "鬼骰坊:看盤": "已看透骰局", "鬼骰坊:問祁觀衡": "帳目有據", "鬼骰坊:查老千": "帳目有據", "鬼骰坊:核暗帳": "帳目有據",
+  "鬼骰坊:問祁觀衡": "帳目有據", "鬼骰坊:核暗帳": "帳目有據",
   "裂石擂:觀擂": "街面有備", "裂石擂:問霍破陣": "街面有備",
   "苦煙館:問藥": "傷藥有據", "苦煙館:看人": "街面有備", "苦煙館:問顧忘生": "傷藥有據", "苦煙館:拒藥": "傷藥有據",
   "夜雨樓:問柳照霜": "街面有備", "夜雨樓:查客": "街面有備", "夜雨樓:問路": "街面有備",
@@ -426,6 +432,11 @@ export function normalizeState(raw: unknown): GameState | null {
   const worldFlags = Array.isArray(value.worldFlags) ? value.worldFlags.filter((flag): flag is string => typeof flag === "string")
     .filter((flag) => !oldDeadlineFailure || flag !== "第一章城西斷供")
     .slice(0, 100).map((flag) => renameLegacyWorldNames(flag).slice(0, 30)) : [];
+  const legacyLoanRefund = Boolean(flags.loanDueTurn && !worldFlags.includes("舊私貸已退本"));
+  if (legacyLoanRefund) worldFlags.push("舊私貸已退本");
+  if (value.questStep === "sandbox" && worldFlags.includes("市集殘局已定") && flags.marketAftermath !== true
+    && !flags.finalCrisis && !flags.ending
+    && !worldFlags.includes(SPY_CASE_FLAG)) worldFlags.push(SPY_CASE_FLAG);
   for (const [oldClue, missionId] of [
     ["城東假契證據", "forged_deed"], ["前線守備有序", "arena_probe"],
     ["傷藥來源已查", "tainted_medicine"], ["城東耳目已識破", "hidden_spy"],
@@ -509,7 +520,7 @@ export function normalizeState(raw: unknown): GameState | null {
     maxInventory,
     playerHp, maxHp, hpScaleVersion: 2,
     playerMp, maxMp,
-    silver: finite(value.silver, 0, 0, Number.MAX_SAFE_INTEGER - 1000), factionFunds: finite(value.factionFunds, 10, 0, Number.MAX_SAFE_INTEGER - 1000),
+    silver: finite(value.silver, 0, 0, Number.MAX_SAFE_INTEGER - 1000) + (legacyLoanRefund ? 20 : 0), factionFunds: finite(value.factionFunds, STARTING_FACTION_FUNDS, 0, Number.MAX_SAFE_INTEGER - 1000),
     customActionUses: finite(value.customActionUses, CUSTOM_ACTION_START, 0, CUSTOM_ACTION_MAX),
     sectLifeline: finite(value.sectLifeline ?? (value as Partial<GameState> & { hozaiDefense?: unknown }).hozaiDefense, 60, 0, 100),
     worldFlags,
@@ -536,8 +547,7 @@ export function normalizeState(raw: unknown): GameState | null {
       lastIncidentTurn: finite(flags.lastIncidentTurn, 0, 0, 100000),
       lastSandboxTag: typeof flags.lastSandboxTag === "string" ? renameLegacyWorldNames(flags.lastSandboxTag).slice(0, 40) : undefined,
       repeatedActionCount: finite(flags.repeatedActionCount, 0, 0, 100000),
-      lastJobTurn: finite(flags.lastJobTurn, 0, 0, 100000),
-      loanDueTurn: finite(flags.loanDueTurn, 0, 0, 100000),
+      loanDueTurn: 0,
       customEchoes: Array.isArray(flags.customEchoes) ? flags.customEchoes
         .filter((echo): echo is CustomEcho => Boolean(echo && typeof echo === "object"
           && CREATIVE_GOALS.some((goal) => goal === echo.goal)
@@ -570,6 +580,9 @@ export function normalizeState(raw: unknown): GameState | null {
       finalCrisis: flags.finalCrisis === true,
       finalGuardLayers: flags.finalGuardLayers === undefined ? undefined : finite(flags.finalGuardLayers, 0, 0, 5),
       finalSupport: flags.finalSupport === undefined ? undefined : finite(flags.finalSupport, 0, 0, 7),
+      spyAccusation: flags.spyAccusation === "陳彪" || flags.spyAccusation === "老馬" || flags.spyAccusation === "白冷"
+        ? flags.spyAccusation : undefined,
+      spyExposed: flags.spyAccusation === "白冷" && flags.spyExposed === true,
       prologueCompanionLeads: prologueLeads,
       ending: typeof flags.ending === "string" && ["守住城西", "城西陷落", "割地求存", "獨自撤走"].includes(flags.ending) ? flags.ending : undefined,
       chapterOne: flags.ending === "守住城西" && flags.chapterOne
@@ -858,18 +871,14 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
       state.pendingEncounter = undefined;
       return finishChapterTurn(state, resolved + advanceChapterSocialTurn(state, actionEnergyCost(state, action)));
     }
-    const mission = missionOptions(state).includes(action) ? resolveMission(state, action) : undefined;
-    if (mission) {
-      const result = finishChapterTurn(state, mission.event + advanceChapterSocialTurn(state, actionEnergyCost(state, action)));
-      result.npcReply = localNpcReply(state, { speaker: mission.speaker, line: mission.line });
-      return result;
-    }
   }
   if (state.questStep === "chapter_one" || state.flags.ending) {
     return resolveChapterOne(state, action, false);
   }
   if (state.flags.finalCrisis) {
-    const endingAction = ENDING_OPTIONS.find((option) => option === action || conciseOption(option) === action);
+    const offered = availableOptions(state);
+    const endingAction = ENDING_OPTIONS.find((option) => option === action || conciseOption(option) === action
+      || offered.includes(action) && action.startsWith("A. [固守城西]") && option.startsWith("A."));
     if (!endingAction) return { state, options: availableOptions(state), event: "玄武樓已壓到城西門前。你須決定青鋒堂最後的去路。", moneyNote: "" };
     const event = resolveEnding(state, endingAction);
     return { state, options: chapterOneOptions(state), event, moneyNote: "" };
@@ -1255,7 +1264,6 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
       state.flags.marketAftermath = true;
       state.flags.marketAftermathKind = action.includes("[硬闖街口]") ? "victory" : "escape";
     }
-    state.sectLifeline = Math.max(0, state.sectLifeline - 1);
   } else if (state.flags.marketAftermath) {
     if (state.flags.marketAftermathKind === "truce") {
       if (action.includes("[檢視傷勢]")) {
@@ -1307,7 +1315,6 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
       if (event) {
         state.flags.marketAftermath = false;
         remember(state, "市集殘局已定");
-        state.sectLifeline = Math.max(0, state.sectLifeline - 1);
       }
     } else {
     if (action.includes("[檢視傷勢]")) {
@@ -1344,7 +1351,6 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
     if (event) {
       state.flags.marketAftermath = false;
       remember(state, "市集殘局已定");
-      state.sectLifeline = Math.max(0, state.sectLifeline - 1);
     } else event = "肉檔前的血還沒乾。先把傷者、眼線或街口手尾處理妥當。";
     }
   } else {
@@ -1363,14 +1369,19 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
       travelTurns = resolved.turns;
       if (pendingIncident === "tainted_medicine" && state.flags.incidentCount === 3 && !state.flags.midpointBriefed) {
         state.flags.checkpointReady = true;
-        event += "三件城西急事暫告一段落。你應回總壇向堂主交代，再商量守城後半程。";
+        event += state.worldFlags.includes(SPY_CASE_FLAG)
+          ? "三處突發事暫告一段落。你可回總壇向何不歸核對內鬼線索，留下備戰記錄。"
+          : "三件城西急事暫告一段落。你應回總壇向堂主交代，再商量守城後半程。";
       }
     } else if (state.flags.checkpointReady && state.currentLocation === "青鋒堂總壇"
       && action.startsWith("O. [向堂主交代]")) {
       state.flags.checkpointReady = false;
       state.flags.midpointBriefed = true;
-      event += "你將市集插旗、規費帳失頁與換封傷藥逐件交代。何不歸為你倒了杯茶：「最難捱的硬仗快到了，坐下回氣。」他攤開七處據點的守街名冊，與你逐一商量缺口。";
-      npcReply = { speaker: "何不歸", line: "後半程，把沒查完的差事補上。" };
+      event += state.worldFlags.includes(SPY_CASE_FLAG)
+        ? "你將市集插旗、缺頁帳目與換封傷藥逐件交代。何不歸記下已查到的物證，提醒你別憑傳聞扣人；入夜前仍可追查其餘線索。"
+        : "你將市集插旗、規費帳失頁與換封傷藥逐件交代。何不歸為你倒了杯茶：「最難捱的硬仗快到了，坐下回氣。」他攤開七處據點的守街名冊，與你逐一商量缺口。";
+      npcReply = { speaker: "何不歸", line: state.worldFlags.includes(SPY_CASE_FLAG)
+        ? "把物證攤開來看。人可以疑，不能憑半句話定罪。" : "後半程，把沒查完的差事補上。" };
     } else if (creative && customAction(action)) {
       const flag = `${state.currentLocation}機變${creative.goal}`;
       if (state.worldFlags.includes(flag)) {
@@ -1415,10 +1426,12 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
         } satisfies Record<CreativeAction["goal"], string>)[creative.goal];
       }
     } else {
-    const mission = resolveMission(state, action);
-    if (mission) {
-      event += mission.event;
-      npcReply = { speaker: mission.speaker, line: mission.line };
+    const spyFinding = resolveSpyAction(state, action);
+    if (spyFinding) {
+      event += spyFinding;
+      npcReply = state.currentLocation === "青鋒堂總壇"
+        ? { speaker: "何不歸", line: state.flags.spyExposed ? "令牌我已收回。今夜，我們守得住。" : "人我會查，但城門先得守住。" }
+        : undefined;
     } else if (state.currentLocation === "黑泥街" && action.startsWith("M. [請陸千帆指路]")
       && state.relationships["陸千帆"].trust >= 2 && !state.relationships["陸千帆"].wounded
       && !state.relationships["陸千帆"].estranged && !state.worldFlags.includes("熟記市集暗巷")) {
@@ -1435,48 +1448,6 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
         event += "你在苦煙館自掏十文請顧忘生調藥，託腳夫送往黑泥街。回信報陸千帆已換下舊布，傷勢漸穩。";
         npcReply = { speaker: "顧忘生", line: "傷口能合上。你若還叫他帶傷硬撐，這藥便白用了。" };
       } else event += "你拿不出十文私銀替陸千帆求藥，顧忘生先替你記下方子。";
-    } else if (state.currentLocation === "夜雨樓" && action.startsWith("J. [接暗殺令]") && state.worldFlags.filter((flag) => flag.endsWith("完成")).length >= 3 && !state.worldFlags.includes("暗殺令已接")) {
-      remember(state, "暗殺令已接");
-      event += "柳照霜交你一張沒有署名的契紙：玄武樓的刀手頭目今晚會到黑泥街。事成付四十文私銀。";
-      npcReply = { speaker: "柳照霜", line: "認清人再出手。錯一刀，錢救不了你。" };
-    } else if (state.currentLocation === "黑泥街" && action.startsWith("J. [執行暗殺令]") && state.worldFlags.includes("暗殺令已接") && !state.worldFlags.includes("暗殺令已結")) {
-      remember(state, "暗殺令已結");
-      const skill = (state.knownMoves?.short_punch || 0) + (state.knownMoves?.point_strike || 0);
-      if (skill >= 2 && state.playerHp >= 8) {
-        state.silver += 40; state.playerHp -= 6; state.sectLifeline = Math.max(0, state.sectLifeline - 6);
-        remember(state, "城東記恨暗殺");
-        event += "你在肉檔後巷截住刀手頭目，帶傷領了酬勞；城東也認出你的手法。";
-      } else {
-        state.playerHp = Math.max(1, state.playerHp - 8); state.sectLifeline = Math.max(0, state.sectLifeline - 8);
-        event += "你伏擊刀手卻未能壓住對方，帶傷撤回，酬勞落空。";
-      }
-    } else if (state.currentLocation === "鬼骰坊" && action.startsWith("J. [私銀放貸]") && state.worldFlags.filter((flag) => flag.endsWith("完成")).length >= 3 && !state.flags.loanDueTurn) {
-      if (state.silver >= 20) {
-        state.silver -= 20; state.flags.loanDueTurn = state.turn + 5;
-        event += "你用二十文私銀自行放貸，祁觀衡替你立下五回合後還二十六文的借據。";
-      } else event += "你拿不出二十文私銀作本。";
-      npcReply = { speaker: "祁觀衡", line: "借出去的是你的錢，催回來也得你自己面對人。" };
-    } else if (state.currentLocation === "鬼骰坊" && action.startsWith("J. [收回私貸]") && state.flags.loanDueTurn && state.turn >= state.flags.loanDueTurn) {
-      state.silver += 26; state.flags.loanDueTurn = 0;
-      state.sectLifeline = Math.max(0, state.sectLifeline - 3);
-      remember(state, "街坊怨貸");
-      event += "你在鬼骰坊收回私貸與利錢；門外街坊傳來怨言。";
-      npcReply = { speaker: "祁觀衡", line: "錢收齊了。人情這一欄，帳上沒法替你填。" };
-    } else if (state.currentLocation === "鬼骰坊" && action.startsWith("K. [領追債令]") && state.worldFlags.includes("假借據完成") && !state.worldFlags.includes("追債令已領")) {
-      remember(state, "追債令已領");
-      event += "祁觀衡把一張欠條交你，授權你到黑泥街追還堂口舊款；追回款項須入公帳，佣金另計。";
-      npcReply = { speaker: "祁觀衡", line: "公數是公數，你的五文佣金我另記。" };
-    } else if (state.currentLocation === "黑泥街" && action.startsWith("K. [和談追債]") && state.worldFlags.includes("追債令已領") && !state.worldFlags.includes("追債令已結")) {
-      remember(state, "追債令已結"); state.factionFunds += 15; state.silver += 5;
-      changeTrust(state.relationships, "陸千帆", 1);
-      event += "你在黑泥街同欠債攤販商量分期，追回十五文入公帳；祁觀衡託人送來五文私銀佣金。";
-      npcReply = { speaker: "陸千帆", line: "你肯留他一口飯，他下月才交得出餘款。" };
-    } else if (state.currentLocation === "黑泥街" && action.startsWith("L. [強追欠款]") && state.worldFlags.includes("追債令已領") && !state.worldFlags.includes("追債令已結")) {
-      remember(state, "追債令已結"); state.factionFunds += 20; state.silver += 8;
-      changeTrust(state.relationships, "陸千帆", -1);
-      state.sectLifeline = Math.max(0, state.sectLifeline - 5);
-      event += "你在黑泥街強追舊款入公帳，祁觀衡託人送來佣金；攤販閉門。";
-      npcReply = { speaker: "陸千帆", line: "帳是平了。這條街的人可未必肯認你。" };
     } else {
     const travel = /^F\. \[前往\] (.+)$/.exec(action);
     const routeTravel = selectedTravel;
@@ -1512,6 +1483,7 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
       if (reaction) npcReply = { speaker: reaction.speaker || ({
         "青鋒堂總壇": "何不歸", "晚秋茶寮": "容晚秋", "黑泥街": socialTargets(state).includes("陸千帆") ? "陸千帆" : "張斷骨",
         "鬼骰坊": "祁觀衡", "裂石擂": "衛沉岳", "苦煙館": "顧忘生", "夜雨樓": "柳照霜", "碼頭": "碼頭腳夫",
+        "堂口舊賬房": "賬房守衛", "廢棄更樓": "巡哨弟子", "醉春樓後巷": "巷口乞丐",
       } satisfies Record<Landmark, string>)[state.currentLocation], line: reaction.line };
       if (["買石灰包", "買飛蝗石", "買袖藏短刺"].includes(tag)
         && (state.currentLocation === "青鋒堂總壇" || state.currentLocation === "裂石擂")) {
@@ -1668,25 +1640,9 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
           state.factionFunds += 10; state.flags.lastMarketDuesTurn = state.turn;
           event += "你沿黑泥街逐攤收規，十文錢在掌中數清，當場記入青鋒堂公款。";
         } else event += "你巡了一圈，今日規費早已收過，無人再交錢。";
-      } else if (state.currentLocation === "黑泥街" && tag === "搬貨") {
-        if (!state.flags.lastJobTurn || state.turn - state.flags.lastJobTurn >= 3) {
-          state.silver += 6; state.flags.lastJobTurn = state.turn;
-          event += "你替商販搬完一車貨，又照料騾車，領到六文私銀。";
-          npcReply = { speaker: "陸千帆", line: "這錢是你做活賺的，收好。" };
-        } else event += "上一車貨才剛卸下，商販暫時沒有新活。";
-      } else if (state.currentLocation === "鬼骰坊" && tag === "押小") {
-        if (state.silver >= 10) {
-          const readTable = state.worldFlags.includes("已看透骰局");
-          const won = readTable || getPseudoRandom(state) < 50;
-          if (readTable) state.worldFlags = state.worldFlags.filter((flag) => flag !== "已看透骰局");
-          state.silver += won ? 10 : -10;
-          event += won
-            ? `骰盅落桌，你押在小上贏了。${readTable ? "先前看出的手勢讓你避開了莊家的圈套；" : ""}祁觀衡把銅錢撥回你面前。`
-            : "骰盅落桌，你押在小上卻開了大。祁觀衡把銅錢撥到莊家那邊。";
-        } else event += "你掏不出十文私銀，祁觀衡不讓你下注。";
-      } else if (state.currentLocation === "鬼骰坊" && (tag === "查老千" || tag === "核暗帳")) {
-        const recoveredFlag = tag === "查老千" ? "老千贓款已收" : "賭坊錯帳已收";
-        const recovered = tag === "查老千" ? 10 : 5;
+      } else if (state.currentLocation === "鬼骰坊" && tag === "核暗帳") {
+        const recoveredFlag = "賭坊錯帳已收";
+        const recovered = 5;
         event += reaction?.event || "";
         if (!state.worldFlags.includes(recoveredFlag)) {
           state.factionFunds += recovered;
@@ -1741,8 +1697,7 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
         const clue = SANDBOX_CLUES[sandboxTag];
         if (clue && !state.worldFlags.includes(clue)) {
           remember(state, clue);
-          event += clue === "已看透骰局" ? "你看出莊家收手的暗號，下一局押注便有了把握。"
-            : clue === "帳目有據" ? "這筆線索留在帳上，日後若有缺頁便能對照。"
+          event += clue === "帳目有據" ? "這筆線索留在帳上，日後若有缺頁便能對照。"
               : clue === "傷藥有據" ? "你把藥色與封口記牢，日後驗藥便有了憑據。"
                 : "你記下街面異動，往後遇上刀手便可早作防備。";
         }
@@ -1757,8 +1712,7 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
     }
     }
     }
-    state.sectLifeline = Math.max(0, state.sectLifeline - travelTurns);
-    event += "玄武樓趁你趕路向城西施壓。";
+    // Travel consumes the nightfall clock; defense changes only after concrete events.
     if (state.currentLocation === "青鋒堂總壇" && state.worldFlags.includes("私吞五十文規費") && !state.worldFlags.includes("何不歸查出私吞")) {
       state.sectLifeline = Math.max(0, state.sectLifeline - 8);
       remember(state, "何不歸查出私吞");
@@ -1798,9 +1752,10 @@ function resolveTurnCore(rawState: GameState, action: string, opening: boolean, 
     remember(state, "屠戶避讓");
     event += "你見張斷骨避開目光，肉檔再沒人敢當面頂撞。";
   }
-  if (wasInAftermath && state.worldFlags.includes("救下陸千帆") && state.worldFlags.includes("市集殘局已定")
-    && !state.flags.marketAftermath && !state.flags.alleyEscape && state.flags.marketAftermathKind !== "defeat") {
-    event += `同門帶來何不歸的口信。口信寫道：「裴無鋒的人退去了東市，今晚必定大舉反撲。天黑前，尚餘${Math.max(0, 70 - state.turn)}回合，盡快跑勻七處據點穩住陣腳。」`;
+  if (wasInAftermath && state.worldFlags.includes("市集殘局已定")
+    && !state.flags.marketAftermath && !state.flags.alleyEscape) {
+    remember(state, SPY_CASE_FLAG);
+    event += "同門帶來何不歸的密信：堂口有人向玄武樓洩露城防，他要你暗查陳彪、老馬與白冷。天黑前查訪各處，城外貨流可從鬼骰坊暗帳追起；握有物證便回總壇指認。";
   }
   event += settleCustomEchoes(state);
   if (state.questStep === "sandbox" && (state.sectLifeline === 0 || state.turn >= 70)) {
@@ -1906,7 +1861,6 @@ export function resolveMarketDialogue(rawState: GameState, target: string, utter
   } else {
     state.turn += 1;
     spendEnergy(state, cost);
-    state.sectLifeline = Math.max(0, state.sectLifeline - 1);
     if (state.flags.alleyEscape) {
       state.playerHp = Math.max(1, state.playerHp - 2);
       pressure = "你停下來喊話，追兵踏進泥水，刀鋒又擦過手臂。";
@@ -1992,7 +1946,6 @@ export function resolveSocialIntent(rawState: GameState, plan: SocialIntent): Tu
     else {
       state.turn += 1;
       pressure = spendEnergy(state, socialCost);
-      state.sectLifeline = Math.max(0, state.sectLifeline - 1);
       if (state.flags.alleyEscape) {
         state.playerHp = Math.max(1, state.playerHp - 2);
         pressure += "你停步喊話，追兵追近，刀鋒擦過衣袖。";
@@ -2221,7 +2174,6 @@ export function resolveSceneAttempt(rawState: GameState, plan: SceneAttempt): Tu
   if (shortfall) state.playerHp = Math.max(1, state.playerHp - shortfall * 2);
   let event: string;
   if (state.flags.alleyEscape) {
-    state.sectLifeline = Math.max(0, state.sectLifeline - 1);
     const priorWall = Boolean(state.flags.alleyWall);
     if (plan.effect === "move" && priorWall) {
       state.flags.alleyEscape = false;
@@ -2247,7 +2199,6 @@ export function resolveSceneAttempt(rawState: GameState, plan: SceneAttempt): Tu
   } else if (state.flags.marketAftermath) {
     state.flags.marketAftermath = false;
     remember(state, "市集殘局已定");
-    state.sectLifeline = Math.max(0, state.sectLifeline - 1);
     if (plan.effect === "harm" && plan.target === "張斷骨") {
       remember(state, "當街襲擊張斷骨");
       state.sectLifeline = Math.max(0, state.sectLifeline - 2);
@@ -2301,7 +2252,6 @@ export function resolveSceneAttempt(rawState: GameState, plan: SceneAttempt): Tu
       }
       event = `你朝${plan.target}試了一手，肉檔前的人群散開；巷口刀手亮出短刀。`;
     }
-    state.sectLifeline = Math.max(0, state.sectLifeline - 1);
     if (!state.flags.alleyEscape && (["harm", "seize", "move"].includes(plan.effect)
       || (state.flags.marketIntentHistory || []).length >= 2)) {
       state.questStep = "huizhi_ambush";
@@ -2379,7 +2329,6 @@ export function resolveMarketIntent(rawState: GameState, plan: MarketIntent): Tu
       state.playerMp -= guaranteed ? 2 : 1;
       state.inventory.splice(state.inventory.indexOf(item), 1);
       const tier = dirtyHandTier(rollD20(state, plan.method), dirtyHandModifier(state), guaranteed);
-      state.sectLifeline = Math.max(0, state.sectLifeline - 1);
       if (tier === "failed") state.playerHp = Math.max(1, state.playerHp - 5);
       else {
         state.flags.alleyOpening = true;
@@ -2396,7 +2345,6 @@ export function resolveMarketIntent(rawState: GameState, plan: MarketIntent): Tu
       state.turn += 1;
       spendEnergy(state, 1);
       state.playerHp = Math.max(1, state.playerHp - 2);
-      state.sectLifeline = Math.max(0, state.sectLifeline - 1);
       state.combat.round = Math.min(4, state.combat.round + 1);
       if (plan.approach === "查探") state.combat.preparedDefense = Math.min(5, state.combat.preparedDefense + 1);
       const event = plan.approach === "查探"
@@ -2418,7 +2366,6 @@ export function resolveMarketIntent(rawState: GameState, plan: MarketIntent): Tu
       state.turn += 1;
       if (state.playerMp > 0) state.playerMp -= 1;
       else state.playerHp = Math.max(1, state.playerHp - 2);
-      state.sectLifeline = Math.max(0, state.sectLifeline - 1);
       const event = state.flags.alleyWall
         ? "你伏在牆頭看清後巷，刀手守著落腳處；身後追兵踩上竹籮，留給你的空檔更窄了。"
         : "你貼著死巷牆根探頭，肉檔前的刀手仍封住街口。巷尾竹籮尚可墊腳，追兵又逼近一步。";
@@ -2489,7 +2436,6 @@ export function resolveMarketIntent(rawState: GameState, plan: MarketIntent): Tu
   const cost = approach === "借物" || approach === "查探" || object === "厚砧板" ? 2 : 1;
   if (state.playerMp >= cost) state.playerMp -= cost;
   else { state.playerHp = Math.max(1, state.playerHp - 2 * (cost - state.playerMp)); state.playerMp = 0; }
-  state.sectLifeline = Math.max(0, state.sectLifeline - 1);
   let event = "";
   let npcReply: TurnResult["npcReply"];
   let decisive = false;
@@ -2639,7 +2585,9 @@ function rawAvailableOptions(state: GameState): string[] {
     if (state.pendingEncounter) return availableWithEnergy(state, encounterOptions(state.pendingEncounter));
   }
   if (state.questStep === "chapter_one" || state.flags.ending) return chapterOneOptions(state);
-  if (state.flags.finalCrisis) return ENDING_OPTIONS;
+  if (state.flags.finalCrisis) return state.worldFlags.includes(SPY_CASE_FLAG)
+    ? ["A. [固守城西] 集結同門守城；物證與命脈決定守勢，未肅清內鬼將受突襲。", ...ENDING_OPTIONS.slice(1)]
+    : ENDING_OPTIONS;
   if (state.combat || state.questStep === "huizhi_ambush") {
     const combat = state.combat || createCombat("market_ambush", !state.worldFlags.includes("出賣陸千帆")
       && !state.worldFlags.includes("棄下陸千帆"));
@@ -2694,10 +2642,8 @@ function rawAvailableOptions(state: GameState): string[] {
       })
       : state.currentLocation === "鬼骰坊"
         ? SANDBOX_OPTIONS["鬼骰坊"].map((option) =>
-          option.startsWith("D.") && state.worldFlags.includes("老千贓款已收")
-            ? "D. [查老千] 再查賭桌手法；舊贓款已收，未必有新所得。"
-            : option.startsWith("E.") && state.worldFlags.includes("賭坊錯帳已收")
-              ? "E. [核暗帳] 再核暗帳；舊錯帳已清，未必有新所得。" : option)
+          option.startsWith("E.") && state.worldFlags.includes("賭坊錯帳已收")
+            ? "E. [核暗帳] 再核暗帳；舊錯帳已清，未必有新所得。" : option)
       : state.currentLocation === "裂石擂"
         ? SANDBOX_OPTIONS["裂石擂"].map((option) => {
           if (option.startsWith("B.")) return (state.knownMoves?.short_punch || 0) >= 3
@@ -2717,22 +2663,7 @@ function rawAvailableOptions(state: GameState): string[] {
     : state.currentLocation === "鬼骰坊" && state.worldFlags.includes("假借據完成") && (state.knownMoves?.point_strike || 0) < 3
       ? [`I. [習辨穴陰招] 向祁觀衡習招；目前第${state.knownMoves?.point_strike || 0}層，耗精力${[4, 6, 8][state.knownMoves?.point_strike || 0] ?? 0}、私銀${[0, 10, 20][state.knownMoves?.point_strike || 0] ?? 0}文。`]
       : [];
-  const missionCount = state.worldFlags.filter((flag) => flag.endsWith("完成")).length;
   const sideWork: string[] = [];
-  if (missionCount >= 3 && state.currentLocation === "夜雨樓" && !state.worldFlags.includes("暗殺令已接"))
-    sideWork.push("J. [接暗殺令] 柳照霜轉介城西刀手頭目；事成可得四十文私銀，失手會受傷。");
-  if (state.currentLocation === "黑泥街" && state.worldFlags.includes("暗殺令已接") && !state.worldFlags.includes("暗殺令已結"))
-    sideWork.push("J. [執行暗殺令] 伏擊刀手頭目；至少兩層進擊招數及八點氣血較有把握；成功仍傷六點氣血、命脈減六。");
-  if (missionCount >= 3 && state.currentLocation === "鬼骰坊") {
-    if (!state.flags.loanDueTurn) sideWork.push("J. [私銀放貸] 自掏二十文，五回合後可收二十六文；收款時命脈減三。");
-    else if (state.turn >= state.flags.loanDueTurn) sideWork.push("J. [收回私貸] 收回二十六文；欠債人生計受損，命脈減三。");
-  }
-  if (state.currentLocation === "鬼骰坊" && state.worldFlags.includes("假借據完成") && !state.worldFlags.includes("追債令已領"))
-    sideWork.push("K. [領追債令] 祁觀衡授權追黑泥街舊款；公數入帳，另領佣金。");
-  if (state.currentLocation === "黑泥街" && state.worldFlags.includes("追債令已領") && !state.worldFlags.includes("追債令已結")) {
-    sideWork.push("K. [和談追債] 追回十五文公數，領五文私銀佣金；留下餘款欠條。");
-    sideWork.push("L. [強追欠款] 追回二十文公數，領八文私銀佣金；命脈減五。");
-  }
   if (state.currentLocation === "黑泥街" && socialTargets(state).includes("陸千帆")
     && state.relationships["陸千帆"].trust >= 2
     && !state.relationships["陸千帆"].wounded && !state.relationships["陸千帆"].estranged
@@ -2742,7 +2673,9 @@ function rawAvailableOptions(state: GameState): string[] {
     && !state.relationships["陸千帆"].estranged)
     sideWork.push("M. [為陸千帆求藥] 自掏十文私銀請顧忘生療傷；傷勢穩定後可再同行。");
   if (state.currentLocation === "青鋒堂總壇" && state.flags.checkpointReady && !state.flags.midpointBriefed)
-    sideWork.push("O. [向堂主交代] 整理首輪三件城西急事，留下後半程的中期存檔。");
+    sideWork.push(state.worldFlags.includes(SPY_CASE_FLAG)
+      ? "O. [向堂主交代] 核對已得物證，留下中期存檔。"
+      : "O. [向堂主交代] 整理首輪三件城西急事，留下後半程的中期存檔。");
   if (state.currentLocation === "青鋒堂總壇" || state.currentLocation === "裂石擂")
     sideWork.push(...darkHandPurchaseOptions(state));
   const scavenge = SCAVENGE_SOURCES[state.currentLocation as keyof typeof SCAVENGE_SOURCES];
@@ -2766,7 +2699,7 @@ function rawAvailableOptions(state: GameState): string[] {
     if (!state.sceneState?.medicineIdentified)
       sideWork.push("U. [盲用藥粉] 冒險從櫃後取無標瓷瓶；藥性未知，可能反傷自身。");
   }
-  return availableWithEnergy(state, [...base, ...missionOptions(state), ...training, ...sideWork,
+  return availableWithEnergy(state, [...base, ...spyOptions(state), ...training, ...sideWork,
     ...(canUsePackedMedicine(state) ? [USE_PACKED_MEDICINE] : []),
     ...(canUseHemostaticPowder(state) ? [USE_HEMOSTATIC_POWDER] : []),
     ...(state.playerHp < state.maxHp && state.inventory.includes("【止血膏藥】")

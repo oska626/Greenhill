@@ -499,10 +499,10 @@ test("a grounded creative action has bounded one-time consequences", () => {
   const scene = { ...state(), questStep: "sandbox", inventory: [] };
   const action = "F. [自訂手段] 翻肉案底查刀痕";
   const first = resolveTurn(scene, action, false, { goal: "查線索", anchor: "肉案" });
-  assert.equal(first.state.sectLifeline, 61);
+  assert.equal(first.state.sectLifeline, 62);
   assert.ok(first.state.worldFlags.includes("黑泥街機變查線索"));
   const second = resolveTurn(first.state, action, false, { goal: "查線索", anchor: "肉案" });
-  assert.equal(second.state.sectLifeline, 60);
+  assert.equal(second.state.sectLifeline, 62);
   assert.match(second.event, /沒有新的收穫/);
 });
 
@@ -540,7 +540,8 @@ test("unresolved creative echoes do not leak past the prologue crisis", () => {
     flags: { ...state().flags, lastIncidentTurn: 68 } };
   const first = resolveTurn(scene, "F. [自訂手段] 翻肉案底查刀痕", false, { goal: "查線索", anchor: "肉案" });
   assert.equal(first.state.flags.customEchoes.length, 1);
-  const crisis = resolveTurn(first.state, "D. [盯梢] 留意玄武樓眼線。", false);
+  const steady = { ...first.state, pendingEncounter: undefined, lastEncounterTurn: first.state.turn };
+  const crisis = resolveTurn(steady, "D. [盯梢] 留意玄武樓眼線。", false);
   assert.equal(crisis.state.turn, 70);
   assert.equal(crisis.state.flags.finalCrisis, true);
   assert.equal(crisis.state.flags.customEchoes.length, 0);
@@ -743,21 +744,11 @@ test("Blackmud long conversation is interrupted when the waiting knife men strik
   assert.equal(availableOptions(scene).some((option) => /搬貨|領差/.test(option)), false);
 });
 
-test("mission rewards no longer advertise obsolete free-action charges", () => {
+test("retired errands do not gate free actions", () => {
   const hall = { ...state(), questStep: "sandbox", currentLocation: "青鋒堂總壇", customActionUses: 0 };
-  const offer = availableOptions(hall).find((option) => option.includes("守街名冊") && option.startsWith("G. [領差]"));
-  assert.ok(offer);
-  const accepted = resolveTurn(hall, offer, false);
-  assert.equal(accepted.state.customActionUses, 0);
-  const target = { ...accepted.state, currentLocation: "黑泥街" };
-  const finish = availableOptions(target).find((option) => option.includes("守街名冊") && option.startsWith("G. [辦差]"));
-  assert.ok(finish);
-  assert.doesNotMatch(finish, /機變/);
-  const done = resolveTurn(target, finish, false);
-  assert.equal(done.state.customActionUses, 1);
-  const fullTarget = { ...target, customActionUses: 2 };
-  const fullFinish = availableOptions(fullTarget).find((option) => option.includes("守街名冊") && option.startsWith("G. [辦差]"));
-  assert.doesNotMatch(fullFinish, /機變/);
-  const fullDone = resolveTurn(fullTarget, fullFinish, false);
-  assert.equal(fullDone.state.customActionUses, 2);
+  assert.equal(availableOptions(hall).some((option) => /\[(?:領差|辦差|速辦)\]/.test(option)), false);
+  const free = resolveTurn(hall, "F. [自訂手段] 查堂口舊帳", false,
+    { goal: "查線索", anchor: "帳簿" });
+  assert.equal(free.state.turn, hall.turn + 1);
+  assert.ok(free.state.worldFlags.includes("青鋒堂總壇機變查線索"));
 });

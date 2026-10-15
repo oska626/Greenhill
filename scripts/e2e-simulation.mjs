@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { aptitude, availableOptions, LANDMARKS, normalizeState, resolveTurn } from "../lib/game-engine.ts";
+import { aptitude, availableOptions, LANDMARKS, normalizeState, STARTING_FACTION_FUNDS, resolveTurn } from "../lib/game-engine.ts";
 import { newRelationships } from "../lib/companion-relations.ts";
 import { hasOffSceneDirectSpeech, socialTargets } from "../lib/social-influence.ts";
 import { MISSIONS, ROAD_ADJACENCY, travelChoices } from "../lib/city-progression.ts";
 import { hardboiledFallback } from "../lib/narrative-style.ts";
 import { ENCOUNTERS, encounterOptions } from "../lib/encounters.ts";
+import { SPY_CASE_FLAG } from "../lib/spy-investigation.ts";
 
 // Deterministic engine-level journeys. No network narration is involved.
 const visited = new Set();
@@ -121,7 +122,7 @@ function createCharacter({ inventory = ["【灌鉛假骰】", "【生石灰包�
     currentLocation: "青鋒堂總壇", inventory, maxInventory: 4,
     playerHp: stats.hp, maxHp: stats.hp, hpScaleVersion: 2,
     playerMp: mp ?? stats.mp, maxMp: stats.mp,
-    silver: 0, factionFunds: 10, sectLifeline: 60, worldFlags: [], relationships: newRelationships(),
+    silver: 0, factionFunds: STARTING_FACTION_FUNDS, sectLifeline: 60, worldFlags: [], relationships: newRelationships(),
     questStep: "prologue_briefing",
     flags: { tookHerbs: false, visitedYung: false, collectedMarketFee: false,
       marketAmbushTriggered: false, darkHandInitialized: true },
@@ -158,7 +159,7 @@ function settle(state, route) {
   assert.equal(state.flags.alleyEscape, false);
   assert.equal(state.worldFlags.filter((flag) => flag === "市集殘局已定").length, 1);
   assert.ok(state.turn > before);
-  assert.ok(availableOptions(state).some((option) => option.includes("[搬貨]")));
+  assert.ok(availableOptions(state).some((option) => option.includes("[巡街收規]")));
   return state;
 }
 
@@ -171,13 +172,22 @@ function reachChapter(state, route) {
     }
     assert.fail(`Could not perform ${marker} at ${place}`);
   };
-  runAt("青鋒堂總壇", "[領差] 守街名冊");
-  runAt("黑泥街", "[辦差] 守街名冊");
-  runAt("黑泥街", "[領差] 雙重勒索");
-  runAt("晚秋茶寮", "[辦差] 雙重勒索");
-  runAt("晚秋茶寮", "[領差] 失蹤腳夫");
-  runAt("夜雨樓", "[辦差] 失蹤腳夫");
-  assert.ok(["同門守街名冊", "街坊願意守街", "刀手進城路線"].every((flag) => state.worldFlags.includes(flag)));
+  if (state.worldFlags.includes(SPY_CASE_FLAG)) {
+    runAt("苦煙館", "[細查] 驗傷者兵刃");
+    runAt("黑泥街", "[細查] 追問撤哨命令");
+    runAt("醉春樓後巷", "[細查] 截玄武樓線人");
+    assert.ok(["軟筋散調撥總哨", "黑泥街總哨撤令", "總哨城防盲區圖"].every((flag) => state.worldFlags.includes(flag)));
+    runAt("青鋒堂總壇", "指認白冷");
+    assert.equal(state.flags.spyExposed, true);
+  } else {
+    runAt("青鋒堂總壇", "[領差] 守街名冊");
+    runAt("黑泥街", "[辦差] 守街名冊");
+    runAt("黑泥街", "[領差] 雙重勒索");
+    runAt("晚秋茶寮", "[辦差] 雙重勒索");
+    runAt("晚秋茶寮", "[領差] 失蹤腳夫");
+    runAt("夜雨樓", "[辦差] 失蹤腳夫");
+    assert.ok(["同門守街名冊", "街坊願意守街", "刀手進城路線"].every((flag) => state.worldFlags.includes(flag)));
+  }
   for (let i = 0; i < 90 && !state.flags.finalCrisis; i++) {
     if (state.flags.pendingIncident) state = settlePending(state, route);
     else if (state.currentLocation !== "青鋒堂總壇") state = walkTo(state, "青鋒堂總壇", route);
@@ -191,6 +201,7 @@ function reachChapter(state, route) {
   for (let i = 0; i < 3 && state.flags.chapterOne.stage === "rest"; i++)
     state = step(state, "[核對貨帳]", route);
   assert.equal(state.flags.chapterOne.stage, "shortage");
+  while (state.playerMp < 10) state = step(state, "[總壇休養]", route);
   state = walkTo(state, state.flags.chapterOne.affectedBusiness, route);
   state = step(state, `[查${state.flags.chapterOne.affectedBusiness}]`, route);
   assert.equal(state.currentLocation, state.flags.chapterOne.affectedBusiness);
@@ -199,6 +210,7 @@ function reachChapter(state, route) {
   state = walkTo(state, "青鋒堂總壇", route);
   state = step(state, "[交斷貨帳]", route);
   assert.equal(state.flags.chapterOne.stage, "dock");
+  while (state.playerMp < 12) state = step(state, "[總壇休養]", route);
   state = step(state, "[明路前往] 碼頭", route);
   state = step(state, "[查碼頭貨單]", route);
   state = step(state, "[夜探碼頭]", route);
@@ -321,18 +333,9 @@ function main() {
     }
   }
   for (const mission of MISSIONS) {
-    const route = `mission-${mission.id}`;
-    let state = normalizeState({ ...sandboxSeed, questStep: "sandbox", currentLocation: mission.origin, turn: 2 });
-    assert.ok(!availableOptions({ ...state, currentLocation: mission.target }).some((option) =>
-      option === `G. [辦差] ${mission.title}`), `${route}: unaccepted mission offered at target`);
-    state = step(state, `[領差] ${mission.title}`, route);
-    assert.ok(state.activeMissions.includes(mission.id), `${route}: acceptance not saved`);
-    state = walkTo(state, mission.target, route);
-    assert.equal(state.flags.pendingIncident, undefined, `${route}: journey unexpectedly blocked`);
-    state = step(state, `[辦差] ${mission.title}`, route);
-    assert.ok(!state.activeMissions.includes(mission.id), `${route}: completion remained active`);
-    assert.ok(state.worldFlags.includes(mission.clue), `${route}: clue missing`);
-    assert.equal(state.silver, mission.pay, `${route}: private silver reward missing`);
+    const state = normalizeState({ ...sandboxSeed, questStep: "sandbox", currentLocation: mission.origin, turn: 2 });
+    assert.ok(!availableOptions(state).some((option) => /\[(?:領差|辦差|速辦)\]/.test(option)));
+    assert.ok(!availableOptions({ ...state, currentLocation: mission.target }).some((option) => /\[(?:領差|辦差|速辦)\]/.test(option)));
   }
   for (const place of LANDMARKS.filter((landmark) => landmark !== "碼頭")) {
     inspect(normalizeState({ ...sandboxSeed, questStep: "sandbox", currentLocation: place, turn: 12 }),

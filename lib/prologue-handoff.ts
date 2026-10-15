@@ -1,5 +1,6 @@
 import { MISSIONS } from "./city-progression.ts";
 import type { GameState } from "./game-engine.ts";
+import { SPY_CASE_FLAG, SPY_LEADS } from "./spy-investigation.ts";
 
 export interface PrologueHandoff {
   version: 1;
@@ -20,7 +21,10 @@ export function createPrologueHandoff(state: GameState): PrologueHandoff | null 
   const leads = state.flags.prologueCompanionLeads || [];
   const help = leads.length ? `仍可能接應你的人有${leads.join("、")}；他們尚未答應同行。` : "眼下沒有可立即接應你的舊識。";
   const clues = MISSIONS.filter((mission) => state.worldFlags.includes(mission.clue)).map((mission) => mission.title);
-  const evidence = clues.length ? `你在${clues.join("、")}留下可用線索。` : "你未留下足以倚仗的據點線索。";
+  const spyClues = SPY_LEADS.filter((lead) => state.worldFlags.includes(lead.evidence)).map((lead) => lead.location);
+  const evidence = state.worldFlags.includes(SPY_CASE_FLAG)
+    ? `${state.flags.spyExposed ? "白冷已被揭發，陳彪與老馬洗清嫌疑。" : "白冷仍有機會利用城防缺口。"}${spyClues.length ? `你在${spyClues.join("、")}取得物證。` : "你未取得可用物證。"}`
+    : clues.length ? `你在${clues.join("、")}留下可用線索。` : "你未留下足以倚仗的據點線索。";
   const burdens = [
     state.worldFlags.includes("出賣陸千帆") ? "陸千帆與你決裂" : "",
     state.worldFlags.includes("私吞五十文規費") ? "私吞規費的舊帳仍在" : "",

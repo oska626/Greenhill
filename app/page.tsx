@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { aptitude, availableOptions, CUSTOM_ACTION_START, LANDMARKS, normalizeState, OPENING_CITY_NARRATION, type GameState, type Landmark } from "@/lib/game-engine";
+import { aptitude, availableOptions, CUSTOM_ACTION_START, LANDMARKS, normalizeState, OPENING_CITY_NARRATION, STARTING_FACTION_FUNDS, type GameState, type Landmark } from "@/lib/game-engine";
 import { guardLayersForLifeline, missionDone, MISSIONS, travelChoices } from "@/lib/city-progression";
+import { SPY_CASE_FLAG, SPY_LEADS, spyEvidenceCount, hasSpyProof } from "@/lib/spy-investigation";
 import { newRelationships } from "@/lib/companion-relations";
 import { renameLegacyWorldNames } from "@/lib/npc-voices";
 import { createPrologueHandoff, type PrologueHandoff } from "@/lib/prologue-handoff";
@@ -11,6 +12,7 @@ import { FactionsModal } from "@/components/game/factions-modal";
 import { HistoryModal } from "@/components/game/history-modal";
 import { shouldCapturePrologueCheckpoint } from "@/lib/prologue-checkpoint";
 import { chapterPressureForecast } from "@/lib/chapter-one";
+import { formatMoney } from "@/lib/currency";
 import { actionEnergyCost, FATIGUE_THRESHOLD, MAX_ENERGY } from "@/lib/energy";
 import { STARTING_DARK_HAND, readyDarkHand } from "@/lib/dirty-hand";
 import { startingInventory, startingItemOptions, startingWeaponForInventory, type BackgroundId } from "@/lib/character-creation";
@@ -28,7 +30,7 @@ interface ApiResponse {
 }
 
 interface SavedGameData {
-  saveVersion?: 2;
+  saveVersion?: 2 | 3 | 4;
   state: GameState;
   narrative: string;
   options: string[];
@@ -139,9 +141,17 @@ export default function GamePage() {
         const parsed: SavedGameData = JSON.parse(raw);
         const state = normalizeState(parsed?.state);
         if (state && typeof parsed?.narrative === "string") {
+          const rebasedTreasury = parsed.saveVersion !== 4;
+          const treasuryCorrection = STARTING_FACTION_FUNDS - (parsed.saveVersion === 3 ? 100 : 10);
+          if (rebasedTreasury) {
+            state.factionFunds += treasuryCorrection;
+            state.flags.treasuryChange = { delta: treasuryCorrection,
+              reason: "舊存檔補記堂口營運底銀", turn: state.turn };
+          }
           const storedHandoff = parsed.handoff?.version === 1 && parsed.handoff.ending === state.flags.ending
             && typeof parsed.handoff.summary === "string" ? parsed.handoff : undefined;
           const checkpointState = parsed.checkpoint?.version === 1 ? normalizeState(parsed.checkpoint.state) : null;
+          if (rebasedTreasury && checkpointState) checkpointState.factionFunds += treasuryCorrection;
           const checkpoint = checkpointState?.questStep === "sandbox" && !checkpointState.flags.ending
             && !checkpointState.flags.finalCrisis && typeof parsed.checkpoint?.narrative === "string"
             ? { version: 1 as const, state: checkpointState, narrative: parsed.checkpoint.narrative,
@@ -160,13 +170,13 @@ export default function GamePage() {
             if (!state.sceneState!.depletedSources.includes("餿水桶")) state.sceneState!.depletedSources.push("餿水桶");
           }
           const migratedAftermath = state.flags.marketAftermath && parsed.state?.flags?.marketAftermath !== true;
-          const restored: SavedGameData = { saveVersion: 2, state,
+          const restored: SavedGameData = { saveVersion: 4, state,
             narrative: migratedAftermath || migratedAlleyWall ? hardboiledFallback(parsed.narrative, state)
               : renameLegacyWorldNames(parsed.narrative.replace(OPENING_CITY_NARRATION, "").trimStart()),
             options: availableOptions(state),
             handoff, checkpoint };
           setSavedGame(restored);
-          if (state.flags.ending || parsed.state?.maxMp !== MAX_ENERGY || migratedAftermath || migratedAlleyWall)
+          if (rebasedTreasury || state.flags.ending || parsed.state?.maxMp !== MAX_ENERGY || migratedAftermath || migratedAlleyWall)
             localStorage.setItem(SAVE_KEY, JSON.stringify(restored));
         }
       }
@@ -203,7 +213,7 @@ export default function GamePage() {
         ? { version: 1 as const, state, narrative: narr, options: opts } : savedGame?.checkpoint;
       const handoff = savedGame?.handoff?.ending === state.flags.ending
         ? savedGame?.handoff : createPrologueHandoff(state) || undefined;
-      const payload: SavedGameData = { saveVersion: 2, state, narrative: narr, options: opts,
+      const payload: SavedGameData = { saveVersion: 4, state, narrative: narr, options: opts,
         handoff, checkpoint };
       localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
       setSavedGame(payload);
@@ -229,7 +239,7 @@ export default function GamePage() {
   const handleLoadCheckpoint = () => {
     const checkpoint = savedGame?.checkpoint;
     if (!checkpoint || !window.confirm("由序章中期存檔重試？之後的進度會被覆蓋。")) return;
-    const restored: SavedGameData = { saveVersion: 2, state: checkpoint.state,
+    const restored: SavedGameData = { saveVersion: 4, state: checkpoint.state,
       narrative: checkpoint.narrative, options: availableOptions(checkpoint.state), checkpoint };
     localStorage.setItem(SAVE_KEY, JSON.stringify(restored));
     setSavedGame(restored);
@@ -332,7 +342,7 @@ export default function GamePage() {
       maxMp: stats.mp,
       silver: 0,
       customActionUses: CUSTOM_ACTION_START,
-      factionFunds: 10,
+      factionFunds: STARTING_FACTION_FUNDS,
       sectLifeline: 60,
       worldFlags: selectedBgId === "martial_dropout" ? ["武館舊傷"] : [],
       activeMissions: [],
@@ -630,12 +640,12 @@ export default function GamePage() {
                 </span>
               )}
             </div>
-            <div title={treasuryChange?.reason || "青鋒堂公帳結餘"}>
-              <span className="text-stone-400 mr-1">青鋒堂公款:</span>
-              <span className="text-amber-400 font-mono font-medium">{gameState?.factionFunds ?? 0}</span> 文
+            <div title={treasuryChange?.reason || "可即時調度的公款；各處生意與貨物另有帳目"}>
+              <span className="text-stone-400 mr-1">可調度公款:</span>
+              <span className="text-amber-400 font-mono font-medium">{formatMoney(gameState?.factionFunds ?? 0)}</span>
               {treasuryChange && treasuryChange.delta !== 0 && (
                 <span className={`ml-1 text-xs font-semibold ${treasuryChange.delta < 0 ? "text-rose-400" : "text-emerald-400"}`}>
-                  {treasuryChange.delta < 0 ? "↓" : "↑"}{Math.abs(treasuryChange.delta)}
+                  {treasuryChange.delta < 0 ? "↓" : "↑"}{formatMoney(Math.abs(treasuryChange.delta))}
                 </span>
               )}
               {treasuryChange && (
@@ -730,7 +740,7 @@ export default function GamePage() {
           )}
 
           <div className="wood-panel p-4 flex flex-col gap-3">
-            <div className="text-xs font-semibold text-stone-400 tracking-wider">江湖抉擇與據點差事</div>
+            <div className="text-xs font-semibold text-stone-400 tracking-wider">城西調查與江湖抉擇</div>
             {gameState?.combat && (
               <div className="rounded border border-red-900/50 bg-red-950/25 px-3 py-2 text-xs text-red-200">
                 交鋒中 · 對手氣血 {gameState.combat.enemyHp} ·
@@ -743,26 +753,34 @@ export default function GamePage() {
             {gameState?.questStep === "sandbox" && !gameState.flags.ending && (
               <div className="text-[11px] text-stone-400">{gameState.flags.finalCrisis
                 ? "入夜了，玄武樓已向七處據點同時進攻。"
-                : `距離入夜玄武樓大舉進攻：尚餘 ${Math.max(0, 70 - gameState.turn)} 回合。行路與辦差都會耗時。`}</div>
+                : `距離入夜玄武樓大舉進攻：尚餘 ${Math.max(0, 70 - gameState.turn)} 回合。行路與查證都會耗時。`}</div>
             )}
             {gameState?.questStep === "sandbox" && gameState.flags.checkpointReady && !gameState.flags.midpointBriefed && (
-              <div className="rounded border border-amber-800/60 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">三件城西急事已處理；返回總壇與何不歸開戰前會議。</div>
+              <div className="rounded border border-amber-800/60 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">{gameState.worldFlags.includes(SPY_CASE_FLAG)
+                ? "突發事已暫處理；返回總壇與何不歸核對內鬼線索。"
+                : "三件城西急事已處理；返回總壇與何不歸開戰前會議。"}</div>
             )}
             {gameState?.questStep === "sandbox" && savedGame?.checkpoint && (
               <div className="text-[11px] text-emerald-400">（已記錄堂口備戰狀態，若固守失敗可由此重新推演）</div>
             )}
-            {gameState?.questStep === "sandbox" && (gameState.turn >= 20 || gameState.flags.finalCrisis) && (
+            {gameState?.questStep === "sandbox" && (gameState.turn >= 20 || gameState.flags.finalCrisis || gameState.worldFlags.includes(SPY_CASE_FLAG)) && (
               <div className="rounded border border-amber-900/50 bg-amber-950/20 px-3 py-2 text-xs text-amber-200">
-                守城支援：{supportCount}/3 項；命脈 {gameState.sectLifeline}/100。{supportCount < 3 && unfinishedSupport.length > 0
-                  ? `尚可細查：${unfinishedSupport.join("、")}。` : supportCount < 3 ? "現有差事未留下足夠支援。" : "支援已齊，仍須守住足夠命脈。"}
+                {gameState.worldFlags.includes(SPY_CASE_FLAG)
+                  ? `內鬼調查：已核實 ${spyEvidenceCount(gameState)}/7 處；${gameState.flags.spyExposed ? "白冷已被截住，陳彪與老馬協助守城。" : gameState.flags.spyAccusation ? `已指認${gameState.flags.spyAccusation}，仍須守住城門。` : hasSpyProof(gameState) ? "關鍵證據已齊，可回總壇指認。" : "查清物證後回總壇指認。"}命脈 ${gameState.sectLifeline}/100。`
+                  : `守城支援：${supportCount}/3 項；命脈 ${gameState.sectLifeline}/100。${supportCount < 3 && unfinishedSupport.length > 0
+                    ? `尚可細查：${unfinishedSupport.join("、")}。` : supportCount < 3 ? "現有差事未留下足夠支援。" : "支援已齊，仍須守住足夠命脈。"}`}
+                {gameState.worldFlags.includes(SPY_CASE_FLAG) && <span className="block mt-1">嫌疑：陳彪（刑堂）、老馬（賬房）、白冷（總哨）。已核實：{SPY_LEADS.filter((lead) => gameState.worldFlags.includes(lead.evidence)).map((lead) => lead.evidence).join("、") || "暫無"}。</span>}
+                {gameState.worldFlags.includes(SPY_CASE_FLAG) && supportCount > 0 && <span className="block mt-1">舊據點支援 {Math.min(3, supportCount)} 項仍計入守城準備。</span>}
                 {!gameState.flags.finalCrisis && <span className="block mt-1">可到苦煙館買療傷藥放入行囊；進入第一章斷貨後，只能用預先帶備的藥。</span>}
               </div>
             )}
             {gameState?.questStep === "chapter_one" && chapterForecast && (
               <div className="rounded border border-rose-900/60 bg-rose-950/25 px-3 py-2 text-xs text-rose-200 space-y-1">
-                <div>斷貨持續影響公款：接下來預計{chapterForecast.loss ? `減 ${Math.min(gameState.factionFunds, chapterForecast.loss)} 文${gameState.factionFunds < chapterForecast.loss ? `，另欠收 ${chapterForecast.loss - gameState.factionFunds} 文` : ""}` : "暫無欠收"}；行動收支另計。</div>
+                <div>{chapterForecast.loss
+                  ? `青鋒堂明日須賠付受斷貨影響的市販 ${formatMoney(chapterForecast.loss)}；現有公款可付 ${formatMoney(Math.min(gameState.factionFunds, chapterForecast.loss))}${gameState.factionFunds < chapterForecast.loss ? `，尚欠 ${formatMoney(chapterForecast.loss - gameState.factionFunds)}` : ""}。`
+                  : "各處生意照常入帳；目前未有斷貨賠款。"}第一章每回合按一日計，行路可能耗費數日。</div>
                 <div>{chapterForecast.tributeIn === null ? `本期貢款：${gameState.flags.chapterOne?.tribute === "paid" ? "已繳" : "逾期"}`
-                  : `須繳 ${chapterForecast.tributeCost} 文貢款；${chapterForecast.tributeIn <= 2 ? "催繳已迫近" : chapterForecast.tributeIn <= 4 ? "期限漸近" : "尚有緩衝"}`}。{(gameState.flags.chapterOne?.deficitStreak || 0) >= 2 ? "公款接連欠收，堂口防線開始鬆動。" : "公款欠收會削弱堂口防線。"}</div>
+                  : `須繳 ${formatMoney(chapterForecast.tributeCost)}貢款；${chapterForecast.tributeIn <= 2 ? "催繳已迫近" : chapterForecast.tributeIn <= 4 ? "期限漸近" : "尚有緩衝"}`}。{(gameState.flags.chapterOne?.deficitStreak || 0) >= 2 ? "賠款持續支出，堂口防線開始鬆動。" : "賠款持續支出會削弱堂口防線。"}</div>
                 <div className="font-semibold">{(gameState.flags.chapterOne?.foodShortageDays || 0) >= 4 ? "斷糧已久" : "糧藥供應吃緊"}；民怨 {gameState.flags.chapterOne?.unrest || 0}/20，繼續上升會衝擊地標。</div>
                 <div>失守地標：{gameState.flags.chapterOne?.lostLandmarks?.join("、") || "無"}（達 3 處或命脈歸零即敗）。</div>
                 <div>同行同伴：{gameState.flags.chapterOne?.selectedCompanion || "未選；只可選一位"}。</div>

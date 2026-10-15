@@ -1,19 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { availableOptions, normalizeState, resolveSocialIntent, resolveTurn } from "../lib/game-engine.ts";
+import { availableOptions, normalizeState, resolveSocialIntent, resolveTurn, STARTING_FACTION_FUNDS } from "../lib/game-engine.ts";
 import { newRelationships } from "../lib/companion-relations.ts";
-import { CHAPTER_OPENING, GRATITUDE_DUES, MAX_LOST_LANDMARKS, RAID_UNREST_THRESHOLD, chapterPressureForecast, resolveChapterPetition } from "../lib/chapter-one.ts";
+import { CHAPTER_OPENING, CHAPTER_TRIBUTE, CREW_COST, GUARD_COST, ROUTINE_BUSINESS_RECEIPTS, MAX_LOST_LANDMARKS, RAID_UNREST_THRESHOLD, chapterPressureForecast, dailyVendorCompensation, resolveChapterPetition } from "../lib/chapter-one.ts";
 import { PACKED_MEDICINE, USE_PACKED_MEDICINE } from "../lib/recovery.ts";
 import { shouldCapturePrologueCheckpoint } from "../lib/prologue-checkpoint.ts";
 import { ENDING_OPTIONS, MISSIONS, ROAD_ADJACENCY, travelChoices } from "../lib/city-progression.ts";
 import { inferSocialIntent } from "../lib/social-influence.ts";
+import { formatMoney } from "../lib/currency.ts";
 
 function finished(ending = "守住城西") {
   return {
     turn: 70, playerName: "阿七", background: "賭坊收帳人", trait: "察言觀色",
     currentLocation: "青鋒堂總壇", inventory: [], maxInventory: 4,
     playerHp: 75, maxHp: 100, hpScaleVersion: 2, playerMp: 35, maxMp: 50,
-    silver: 30, customActionUses: 0, factionFunds: 12, sectLifeline: 12,
+    silver: 30, customActionUses: 0, factionFunds: STARTING_FACTION_FUNDS, sectLifeline: 12,
     worldFlags: ["帳目有據", "刀手進城路線"], relationships: newRelationships(), questStep: "sandbox",
     flags: { tookHerbs: true, visitedYung: true, collectedMarketFee: true, marketAmbushTriggered: true,
       ending, finalCrisis: true, prologueCompanionLeads: ["容晚秋"] },
@@ -90,8 +91,8 @@ test("only the successful prologue ending unlocks the authored chapter opening",
   assert.match(start.event, /裴無鋒始終沒有現身/);
   assert.equal(start.state.questStep, "chapter_one");
   assert.equal(start.state.flags.chapterOne.stage, "rest");
-  assert.equal(start.state.factionFunds, 12 + GRATITUDE_DUES);
-  assert.equal(start.state.flags.treasuryChange.reason, "市販自願加繳半個月規費");
+  assert.equal(start.state.factionFunds, STARTING_FACTION_FUNDS + ROUTINE_BUSINESS_RECEIPTS);
+  assert.equal(start.state.flags.treasuryChange.reason, "四處生意本期結餘入帳");
   assert.equal(start.state.customActionUses, 2);
   assert.equal(availableOptions(start.state).length, 5);
   assert.equal(resolveTurn(start.state, "A. [踏入第一章]", false).state.factionFunds, start.state.factionFunds);
@@ -186,16 +187,9 @@ test("chapter tea intelligence charges once and refuses an unfunded purchase", (
   assert.match(poor.event, /私銀不足十文/);
 });
 
-test("chapter shortage retains missions and gives urgent incidents priority", () => {
+test("chapter shortage leaves old errands behind and gives urgent incidents priority", () => {
   const base = calmToShortage().state;
-  const mission = availableOptions(base).find((option) => option.includes("[領差] 守街名冊"));
-  assert.ok(mission);
-  const accepted = resolveTurn(base, mission, false);
-  assert.ok(accepted.state.activeMissions.includes("roll_call"));
-  const atMarket = walkTo(accepted.state, "黑泥街");
-  const handoff = availableOptions(atMarket).find((option) => option.includes("[辦差] 守街名冊"));
-  assert.ok(handoff);
-  assert.ok(resolveTurn(atMarket, handoff, false).state.worldFlags.includes("同門守街名冊"));
+  assert.equal(availableOptions(base).some((option) => /\[(?:領差|辦差|速辦)\]/.test(option)), false);
 
   const urgent = { ...base, currentLocation: "晚秋茶寮", flags: { ...base.flags, pendingIncident: "tainted_medicine" } };
   const urgentOptions = availableOptions(urgent);
@@ -214,15 +208,17 @@ test("chapter shortage retains missions and gives urgent incidents priority", ()
 
 test("dock logistics enforce payment and expose a distinct solo approach", () => {
   const dock = inspectAffected(calmToShortage().state).state;
-  const unfunded = { ...dock, factionFunds: 14 };
+  const unfunded = { ...dock, factionFunds: CREW_COST - 1 };
   const hire = availableOptions(unfunded).find((option) => option.includes("[僱船工]"));
   assert.ok(hire);
   const refused = resolveTurn(unfunded, hire, false);
-  assert.equal(refused.state.factionFunds, 10);
+  assert.equal(refused.state.factionFunds,
+    Math.max(0, CREW_COST - 1 - dailyVendorCompensation(dock.flags.chapterOne.foodShortageDays + 1)));
   assert.equal(refused.state.flags.chapterOne.crewHired, false);
-  assert.match(refused.event, /公款不足十五文/);
-  const funded = resolveTurn({ ...dock, factionFunds: 30 }, hire, false);
-  assert.equal(funded.state.factionFunds, 11);
+  assert.match(refused.event, /公款不足一兩五百文/);
+  const fundedCash = CREW_COST + dailyVendorCompensation(dock.flags.chapterOne.foodShortageDays + 1) + 1000;
+  const funded = resolveTurn({ ...dock, factionFunds: fundedCash }, hire, false);
+  assert.equal(funded.state.factionFunds, 1000);
   assert.equal(funded.state.flags.chapterOne.crewHired, true);
 
   const noSilver = { ...dock, silver: 9 };
@@ -253,7 +249,9 @@ test("the dock unlocks as a chapter landmark and travel advances pressure and tr
   assert.equal(arrived.state.turn, found.state.turn + 3);
   assert.equal(arrived.state.flags.chapterOne.turns, found.state.flags.chapterOne.turns + 3);
   assert.equal(arrived.state.playerMp, found.state.playerMp - 3);
-  assert.equal(arrived.state.factionFunds, Math.max(0, found.state.factionFunds - 12));
+  const journeyCompensation = [1, 2, 3].reduce((sum, offset) =>
+    sum + dailyVendorCompensation(found.state.flags.chapterOne.foodShortageDays + offset), 0);
+  assert.equal(arrived.state.factionFunds, Math.max(0, found.state.factionFunds - journeyCompensation));
   assert.equal(arrived.state.flags.chapterOne.tribute, found.state.flags.chapterOne.tribute);
   assert.equal(normalizeState(arrived.state).currentLocation, "碼頭");
   assert.equal(availableOptions(arrived.state).some((option) => option.startsWith("A. [查碼頭貨單]")), true);
@@ -326,7 +324,7 @@ test("companions contribute different strengths and costs", () => {
 test("Wei holds a failed charge while Huo can force a costly early victory", () => {
   const start = choose({ ...finished(), flags: { ...finished().flags,
     prologueCompanionLeads: ["衛沉岳", "霍破陣"] } }, "A");
-  const dockState = (name) => ({ ...start.state, currentLocation: "碼頭", factionFunds: 40,
+  const dockState = (name) => ({ ...start.state, currentLocation: "碼頭", factionFunds: STARTING_FACTION_FUNDS,
     flags: { ...start.state.flags, chapterOne: { ...start.state.flags.chapterOne,
       stage: "dock", turns: 4, evidence: 2, allies: 1, selectedCompanion: name,
       dockRouteKnown: false } } });
@@ -336,12 +334,12 @@ test("Wei holds a failed charge while Huo can force a costly early victory", () 
   const huo = choose(dockState("霍破陣"), "E");
   assert.equal(huo.state.flags.chapterOne.result, "奪回碼頭");
   assert.match(huo.event, /貨箱撞裂/);
-  assert.equal(huo.state.factionFunds, 40 + 8 - 6 - 4);
+  assert.equal(huo.state.factionFunds, STARTING_FACTION_FUNDS + 800 - 600 - dailyVendorCompensation(1));
 });
 
 test("energy buys safer reconnaissance and a cleaner dock victory", () => {
   const start = choose(finished(), "A");
-  const dockState = { ...start.state, currentLocation: "碼頭", factionFunds: 40,
+  const dockState = { ...start.state, currentLocation: "碼頭", factionFunds: STARTING_FACTION_FUNDS,
     flags: { ...start.state.flags, chapterOne: { ...start.state.flags.chapterOne,
       stage: "dock", turns: 4, evidence: 3, dockRouteKnown: false } } };
   const cautious = choose(dockState, "D");
@@ -360,7 +358,7 @@ test("energy buys safer reconnaissance and a cleaner dock victory", () => {
   assert.equal(hard.state.playerMp, ready.playerMp - 2);
   assert.equal(focused.state.playerHp, ready.playerHp);
   assert.equal(hard.state.playerHp, ready.playerHp - 4);
-  assert.equal(focused.state.factionFunds, hard.state.factionFunds + 4);
+  assert.equal(focused.state.factionFunds, hard.state.factionFunds + 400);
 
   const exhausted = { ...ready, playerMp: 0 };
   assert.equal(availableOptions(exhausted).some((option) => option.startsWith("G.")), false);
@@ -370,7 +368,7 @@ test("energy buys safer reconnaissance and a cleaner dock victory", () => {
 test("Liu can persuade the city with two grounded evidence points and paid tribute", () => {
   const start = choose({ ...finished(), flags: { ...finished().flags,
     prologueCompanionLeads: ["柳照霜"] } }, "A");
-  const dock = { ...start.state, customActionUses: 1, factionFunds: 30,
+  const dock = { ...start.state, customActionUses: 1, factionFunds: 10000,
     flags: { ...start.state.flags, chapterOne: { ...start.state.flags.chapterOne,
       stage: "dock", turns: 6, evidence: 2, allies: 1,
       selectedCompanion: "柳照霜", tribute: "pending" } } };
@@ -393,7 +391,8 @@ test("carried medicine remains usable during shortage and counts as a pressured 
   assert.equal(healed.state.playerHp, Math.min(before.maxHp, before.playerHp + 35));
   assert.equal(healed.state.playerMp, Math.min(before.maxMp, before.playerMp + 18));
   assert.equal(healed.state.inventory.includes(PACKED_MEDICINE), false);
-  assert.equal(healed.state.factionFunds, before.factionFunds - 6);
+  assert.equal(healed.state.factionFunds,
+    before.factionFunds - dailyVendorCompensation(before.flags.chapterOne.foodShortageDays + 1));
   assert.equal(healed.state.flags.chapterOne.turns, before.flags.chapterOne.turns + 1);
 });
 
@@ -405,7 +404,8 @@ test("the shortage and dock can recover at zero energy while public funds keep f
   const rested = resolveTurn(shortage, recover, false);
   assert.equal(rested.state.playerMp, 10);
   assert.equal(rested.state.playerHp, 60);
-  assert.equal(rested.state.factionFunds, shortage.factionFunds - 6);
+  assert.equal(rested.state.factionFunds,
+    shortage.factionFunds - dailyVendorCompensation(shortage.flags.chapterOne.foodShortageDays + 1));
   assert.equal(rested.state.flags.chapterOne.turns, shortage.flags.chapterOne.turns + 1);
 
   const dock = { ...rested.state, playerMp: 0, flags: { ...rested.state.flags,
@@ -413,16 +413,38 @@ test("the shortage and dock can recover at zero energy while public funds keep f
   assert.equal(availableOptions(dock).some((option) => option.startsWith("G. [運勁奪港]")), false);
   const dockRest = choose(dock, "R");
   assert.equal(dockRest.state.playerMp, 10);
-  assert.equal(dockRest.state.factionFunds, dock.factionFunds - 4);
+  assert.equal(dockRest.state.factionFunds,
+    dock.factionFunds - dailyVendorCompensation(dock.flags.chapterOne.foodShortageDays + 1));
 });
 
 test("chapter pressure forecast shows escalating unrest and tribute deadline", () => {
   const start = choose(finished(), "A");
-  assert.deepEqual(chapterPressureForecast(start.state), { loss: 0, tributeIn: 7, tributeCost: 20, unrestGain: 0 });
+  assert.deepEqual(chapterPressureForecast(start.state), { loss: 0, tributeIn: 7, tributeCost: CHAPTER_TRIBUTE, unrestGain: 0 });
   const afterTwo = choose(choose(start.state, "C").state, "C");
-  assert.deepEqual(chapterPressureForecast(afterTwo.state), { loss: 6, tributeIn: 5, tributeCost: 20, unrestGain: 1 });
+  assert.deepEqual(chapterPressureForecast(afterTwo.state), { loss: 1000, tributeIn: 5, tributeCost: CHAPTER_TRIBUTE, unrestGain: 1 });
   const shortage = choose(afterTwo.state, "C");
-  assert.deepEqual(chapterPressureForecast(shortage.state), { loss: 6, tributeIn: 4, tributeCost: 20, unrestGain: 1 });
+  assert.deepEqual(chapterPressureForecast(shortage.state), { loss: 1000, tributeIn: 4, tributeCost: CHAPTER_TRIBUTE, unrestGain: 1 });
+});
+
+test("daily vendor compensation rises from one to three taels and payment contains unrest", () => {
+  assert.deepEqual([0, 500, 1500, STARTING_FACTION_FUNDS].map(formatMoney),
+    ["0文", "500文", "1兩500文", "50兩"]);
+  assert.deepEqual([1, 3, 4, 7, 8, 20].map(dailyVendorCompensation),
+    [1000, 1000, 2000, 2000, 3000, 3000]);
+  const base = calmToShortage().state;
+  const due = dailyVendorCompensation(base.flags.chapterOne.foodShortageDays + 1);
+  const paidBase = structuredClone(base);
+  paidBase.factionFunds = 5000;
+  const paid = choose(paidBase, "R");
+  assert.equal(paid.state.factionFunds, 5000 - due);
+  assert.equal(paid.state.flags.chapterOne.unrest, base.flags.chapterOne.unrest + 1);
+  assert.match(paid.event, /賠付受斷貨影響的市販1兩/);
+  const unfundedBase = structuredClone(base);
+  unfundedBase.factionFunds = 0;
+  const unfunded = choose(unfundedBase, "R");
+  assert.equal(unfunded.state.factionFunds, 0);
+  assert.ok(unfunded.state.flags.chapterOne.unrest > paid.state.flags.chapterOne.unrest);
+  assert.match(unfunded.event, /可調度公款已見底/);
 });
 
 test("hunger raises unrest, then crowds overrun landmarks without a fixed turn limit", () => {
@@ -438,7 +460,7 @@ test("hunger raises unrest, then crowds overrun landmarks without a fixed turn l
   assert.equal(revived.flags.chapterOne.result, undefined);
   assert.equal(revived.worldFlags.includes("第一章城西斷供"), false);
   const beforeRaid = { ...start, flags: { ...start.flags, chapterOne: {
-    ...start.flags.chapterOne, foodShortageDays: 7, unrest: RAID_UNREST_THRESHOLD - 2 } } };
+    ...start.flags.chapterOne, foodShortageDays: 7, unrest: RAID_UNREST_THRESHOLD - 1 } } };
   const raided = choose(beforeRaid, "C");
   assert.deepEqual(raided.state.flags.chapterOne.lostLandmarks, [start.flags.chapterOne.affectedBusiness]);
   assert.match(raided.event, /街坊等糧等不到/);
@@ -449,10 +471,10 @@ test("hunger raises unrest, then crowds overrun landmarks without a fixed turn l
 
 test("dispatching guards costs funds and delays a crowd attack", () => {
   const start = inspectAffected(calmToShortage().state).state;
-  const tense = { ...start, factionFunds: 30, flags: { ...start.flags, chapterOne: {
-    ...start.flags.chapterOne, foodShortageDays: 7, unrest: RAID_UNREST_THRESHOLD - 2 } } };
+  const tense = { ...start, factionFunds: 10000, flags: { ...start.flags, chapterOne: {
+    ...start.flags.chapterOne, foodShortageDays: 7, unrest: RAID_UNREST_THRESHOLD - 1 } } };
   const guarded = choose(tense, "G");
-  assert.equal(guarded.state.factionFunds, 30 - 8 - 4);
+  assert.equal(guarded.state.factionFunds, 10000 - GUARD_COST - dailyVendorCompensation(8));
   assert.deepEqual(guarded.state.flags.chapterOne.lostLandmarks, []);
   assert.ok(guarded.state.flags.chapterOne.unrest < RAID_UNREST_THRESHOLD);
 });
@@ -460,7 +482,7 @@ test("dispatching guards costs funds and delays a crowd attack", () => {
 test("three lost landmarks end the chapter, including midway through travel", () => {
   const start = inspectAffected(calmToShortage().state).state;
   const doomed = { ...start, sectLifeline: 60, flags: { ...start.flags, chapterOne: {
-    ...start.flags.chapterOne, foodShortageDays: 7, unrest: RAID_UNREST_THRESHOLD - 2,
+    ...start.flags.chapterOne, foodShortageDays: 7, unrest: RAID_UNREST_THRESHOLD - 1,
     lostLandmarks: [start.flags.chapterOne.affectedBusiness, "晚秋茶寮"] } } };
   const loss = choose(structuredClone(doomed), "C");
   assert.equal(loss.state.flags.chapterOne.stage, "failed");
@@ -478,7 +500,7 @@ test("a third lost landmark ends the chapter before dock recovery can succeed", 
   const ready = { ...start, currentLocation: "碼頭", sectLifeline: 60,
     flags: { ...start.flags, chapterOne: { ...start.flags.chapterOne,
       evidence: 3, dockRouteKnown: true, foodShortageDays: 7,
-      unrest: RAID_UNREST_THRESHOLD - 2,
+      unrest: RAID_UNREST_THRESHOLD - 1,
       lostLandmarks: ["晚秋茶寮", "裂石擂"] } } };
   const won = choose(ready, "E");
   assert.equal(won.state.flags.chapterOne.stage, "failed");
@@ -503,7 +525,7 @@ test("evidence and a companion can restore dock logistics", () => {
 test("a prepared water route restores the dock without inventing a companion", () => {
   const start = { ...finished(), flags: { ...finished().flags, prologueCompanionLeads: [] } };
   let turn = inspectAffected(calmToShortage(start).state);
-  turn = choose({ ...turn.state, factionFunds: 40 }, "C");
+  turn = choose({ ...turn.state, factionFunds: STARTING_FACTION_FUNDS }, "C");
   turn = travelTo(turn.state, "碼頭");
   const won = choose(turn.state, "E");
   assert.equal(won.state.flags.chapterOne.result, "奪回碼頭");
@@ -528,7 +550,8 @@ test("a grounded F petition can gain conditional city intervention", () => {
 });
 
 test("persuading dock workers costs pressured turns and can win voluntary support", () => {
-  let scene = { ...travelTo(inspectAffected(calmToShortage().state).state, "碼頭").state, factionFunds: 40 };
+  let scene = { ...travelTo(inspectAffected(calmToShortage().state).state, "碼頭").state,
+    factionFunds: STARTING_FACTION_FUNDS };
   const firstText = "我同船工講：因為斷貨會令你哋家人挨餓，幫我守住糧藥。";
   const first = resolveSocialIntent(scene, inferSocialIntent(scene, firstText));
   assert.equal(first.state.flags.chapterOne.crewHired, false);

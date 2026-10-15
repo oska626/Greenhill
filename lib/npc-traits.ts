@@ -31,6 +31,9 @@ const AUDIENCE: Record<Landmark, readonly NamedNpc[]> = {
   "苦煙館": ["顧忘生"],
   "夜雨樓": ["柳照霜"],
   "碼頭": [],
+  "堂口舊賬房": [],
+  "廢棄更樓": [],
+  "醉春樓後巷": [],
 };
 
 export function namedNpcAudienceAt(location: Landmark): readonly NamedNpc[] {

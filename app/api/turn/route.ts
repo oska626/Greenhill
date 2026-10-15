@@ -38,6 +38,7 @@ const SPEAKER: Record<Landmark, string> = {
   "青鋒堂總壇": "何不歸", "晚秋茶寮": "容晚秋", "黑泥街": "陸千帆",
   "鬼骰坊": "祁觀衡", "裂石擂": "衛沉岳", "苦煙館": "顧忘生", "夜雨樓": "柳照霜",
   "碼頭": "碼頭腳夫",
+  "堂口舊賬房": "賬房守衛", "廢棄更樓": "巡哨弟子", "醉春樓後巷": "巷口乞丐",
 };
 
 function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker: string; line: string }, combatTurn = false): string {
@@ -73,6 +74,9 @@ function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker
     "苦煙館": ["你看清藥包封口，沒有碰來歷不明的丹藥。", "你聞到藥味，先守住自己的神志。"],
     "夜雨樓": ["你聽著樓裡閒話，暗記可疑客人的口音。", "你留心席間眼色，不急著露出底牌。"],
     "碼頭": ["你數著岸邊貨箱，記下守衛換班的時刻。", "船工仍望著被扣的糧藥，等你拿主意。"],
+    "堂口舊賬房": ["帳頁有被翻動的痕跡。", "暗格仍藏在舊櫃後。"],
+    "廢棄更樓": ["更樓的燈籠被人逐個破壞。", "暗哨倒在無人看守的門邊。"],
+    "醉春樓後巷": ["巷口乞丐一直望向接頭的小門。", "牆影裡有人等著換防消息。"],
   };
   const detail: Record<GameState["questStep"], string[]> = {
     prologue_briefing: ["你記牢何不歸交代的傷勢，沒有應聲。", "你看見何不歸的手壓著帳簿，知道五十文也要帶回。"],
@@ -105,6 +109,9 @@ function fallbackNarrative(event: string, state: GameState, npcReply?: { speaker
     "苦煙館": "先聞藥味。別急著入口。",
     "夜雨樓": "那人只看門口。你也該看一眼。",
     "碼頭": "貨箱仍在岸上。先把船次查清。",
+    "堂口舊賬房": "舊帳要對真單，別只看私章。",
+    "廢棄更樓": "燈滅得太齊，像有人認得巡哨時刻。",
+    "醉春樓後巷": "那乞丐等的不是施捨。",
   };
   const companionBetrayed = state.currentLocation === "黑泥街" && state.worldFlags.includes("出賣陸千帆");
   const speaker = npcReply?.speaker || localSpeaker(state, companionBetrayed ? "張斷骨" : SPEAKER[state.currentLocation]);

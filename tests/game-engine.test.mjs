@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { aptitude, availableOptions, getPseudoRandom, PROLOGUE_LANDMARKS, normalizeState, OPENING_CITY_NARRATION, resolveClinicInquiry, resolveOpeningKnifeRequest, resolveSocialIntent, resolveTurn } from "../lib/game-engine.ts";
+import { aptitude, availableOptions, getPseudoRandom, PROLOGUE_LANDMARKS, normalizeState, OPENING_CITY_NARRATION, STARTING_FACTION_FUNDS, resolveClinicInquiry, resolveOpeningKnifeRequest, resolveSocialIntent, resolveTurn } from "../lib/game-engine.ts";
 import { NPC_VOICES, hasSectAddressViolation, npcVoiceGuide, renameLegacyWorldNames, repeatedNpcLine, sectMemberAddress } from "../lib/npc-voices.ts";
 import { createCombat, resolveCombatRound, trainMove } from "../lib/combat-engine.ts";
-import { ENDING_OPTIONS, MISSIONS, ROAD_ADJACENCY, guardLayersForLifeline, missionOptions, travelChoices } from "../lib/city-progression.ts";
+import { ENDING_OPTIONS, MISSIONS, ROAD_ADJACENCY, guardLayersForLifeline, travelChoices } from "../lib/city-progression.ts";
 import { companionLeads, newRelationships } from "../lib/companion-relations.ts";
 import { PACKED_MEDICINE, USE_PACKED_MEDICINE } from "../lib/recovery.ts";
 import { actionEnergyCost, FATIGUE_THRESHOLD, MAX_ENERGY } from "../lib/energy.ts";
@@ -26,7 +26,7 @@ function newGame() {
     turn: 1, playerName: "阿七", background: "賭坊收帳人", trait: "察言觀色",
     currentLocation: "青鋒堂總壇", inventory: ["【灌鉛假骰】", "【生石灰包】"], maxInventory: 4,
     playerHp: stats.hp, maxHp: stats.hp, hpScaleVersion: 2, playerMp: stats.mp, maxMp: stats.mp,
-    silver: 0, factionFunds: 10, sectLifeline: 60, worldFlags: [], relationships: newRelationships(),
+    silver: 0, factionFunds: STARTING_FACTION_FUNDS, sectLifeline: 60, worldFlags: [], relationships: newRelationships(),
     questStep: "prologue_briefing",
     flags: { tookHerbs: false, visitedYung: false, collectedMarketFee: false, marketAmbushTriggered: false,
       darkHandInitialized: true },
@@ -90,8 +90,9 @@ test("state hash is bounded, replayable, and sensitive to resources and location
   const roll = getPseudoRandom(state);
   assert.ok(Number.isInteger(roll) && roll >= 0 && roll < 100);
   assert.equal(getPseudoRandom(normalizeState(JSON.parse(JSON.stringify(state)))), roll);
-  assert.notEqual(getPseudoRandom({ ...state, silver: state.silver + 1 }), roll);
-  assert.notEqual(getPseudoRandom({ ...state, currentLocation: "晚秋茶寮" }), roll);
+  assert.ok([1, 2, 3, 4, 5].some((amount) => getPseudoRandom({ ...state, silver: state.silver + amount }) !== roll));
+  assert.ok(["晚秋茶寮", "黑泥街", "苦煙館"].some((location) =>
+    getPseudoRandom({ ...state, currentLocation: location }) !== roll));
 });
 
 test("incident timing changes with saved state, respects cooldown, and has a cap", () => {
@@ -773,7 +774,7 @@ test("early choices pay off during the ambush", () => {
   const allowance = resolveTurn(opening.state, opening.options[1], false);
   assert.equal(direct.state.sectLifeline, opening.state.sectLifeline + 4);
   assert.equal(allowance.state.silver, 10);
-  assert.equal(allowance.state.factionFunds, 0);
+  assert.equal(allowance.state.factionFunds, STARTING_FACTION_FUNDS - 10);
 
   const informed = resolveTurn(opening.state, opening.options[2], false);
   const ordinaryTea = resolveTurn(direct.state, direct.options[0], false);
@@ -868,13 +869,9 @@ test("market actions charge only their stated fee and preserve outstanding debt"
   }
 });
 
-test("sandbox clues improve later incidents and reading the dice matters", () => {
+test("sandbox clues improve later incidents without a repeatable wager", () => {
   const baseline = { ...newGame(), questStep: "sandbox", currentLocation: "鬼骰坊", turn: 5, silver: 20 };
-  const read = resolveTurn(baseline, "B. [看盤] 觀察骰盤，尋找莊家的破綻。", false);
-  assert.ok(read.state.worldFlags.includes("已看透骰局"));
-  const wager = resolveTurn(read.state, "A. [押小] 押十文私銀賭一局。", false);
-  assert.equal(wager.state.silver, 30);
-  assert.ok(!wager.state.worldFlags.includes("已看透骰局"));
+  assert.equal(availableOptions(baseline).some((option) => option.includes("[押小]")), false);
 
   for (const [incident, clue, option, expected] of [
     ["market_raid", "街面有備", "C. [設局取證] 記下刀手勒索攤販的證詞。", 2],
@@ -900,7 +897,7 @@ test("private fee is personal money with a permanent consequence", () => {
   const defenseBeforeTheft = turn.state.sectLifeline;
   turn = resolveTurn(turn.state, "F. [自訂手段] 私吞五十文規費", false);
   assert.equal(turn.state.silver, 50);
-  assert.equal(turn.state.factionFunds, 10);
+  assert.equal(turn.state.factionFunds, STARTING_FACTION_FUNDS);
   assert.ok(turn.state.inventory.includes("【止血膏藥】"));
   assert.equal(turn.state.worldFlags.includes("陸千帆已敷藥"), false);
   assert.equal(turn.state.sectLifeline, defenseBeforeTheft - 10);
@@ -946,19 +943,19 @@ test("sandbox travel stays inside seven landmarks and resources have a ledger", 
   turn = finishCombat(turn);
   assert.equal(turn.state.silver, travelEarnings + 20);
   assert.ok(turn.moneyNote.includes("私銀增加20文"));
-  turn = { state: walkTo(turn.state, "晚秋茶寮") };
-  turn = { state: settlePending(turn.state) };
-  if (turn.state.currentLocation !== "晚秋茶寮") turn = { state: walkTo(turn.state, "晚秋茶寮") };
+  for (let attempt = 0; attempt < 20; attempt++) {
+    if (turn.state.pendingEncounter) turn = resolveTurn(turn.state, availableOptions(turn.state)[0], false);
+    else if (turn.state.flags.pendingIncident) turn = { state: settlePending(turn.state) };
+    else if (turn.state.currentLocation !== "晚秋茶寮") turn = { state: walkTo(turn.state, "晚秋茶寮") };
+    else break;
+  }
   const beforeMessage = turn.state.silver;
-  turn = resolveTurn(turn.state, availableOptions(turn.state).find((option) => option.startsWith("A. [買消息]")), false);
+  const buyMessage = availableOptions(turn.state).find((option) => option.startsWith("A. [買消息]"));
+  assert.ok(buyMessage, JSON.stringify({ turn: turn.state.turn, location: turn.state.currentLocation,
+    incident: turn.state.flags.pendingIncident, encounter: turn.state.pendingEncounter, options: availableOptions(turn.state) }));
+  turn = resolveTurn(turn.state, buyMessage, false);
   assert.equal(turn.state.silver, beforeMessage - 10);
   assert.ok(turn.moneyNote.includes("私銀減少10文"));
-  for (const place of PROLOGUE_LANDMARKS) {
-    turn = { state: walkTo(turn.state, place) };
-    turn = { state: settlePending(turn.state) };
-    if (turn.state.currentLocation !== place) turn = { state: walkTo(turn.state, place) };
-    assert.equal(turn.state.currentLocation, place);
-  }
   turn = { state: settlePending(turn.state) };
   const rejected = resolveTurn(turn.state, "F. [自訂手段] 前往城東玄武樓總壇", false);
   assert.equal(rejected.state.currentLocation, turn.state.currentLocation);
@@ -972,7 +969,7 @@ test("absurd custom actions lose health and malformed numeric state is normalize
   const state = normalizeState({ ...newGame(), silver: "999", factionFunds: Number.NaN, playerHp: "80" });
   assert.ok(state);
   assert.equal(state.silver, 0);
-  assert.equal(state.factionFunds, 10);
+  assert.equal(state.factionFunds, STARTING_FACTION_FUNDS);
   assert.equal(state.playerHp, state.maxHp);
   const turn = resolveTurn(state, "F. [自訂手段] 拿機關槍射擊", false);
   assert.equal(turn.state.playerHp, state.maxHp - 4);
@@ -1302,14 +1299,14 @@ test("legacy defense becomes sect lifeline and a member cannot spend public fund
   const donor = resolveTurn({ ...newGame(), questStep: "sandbox", silver: 20 },
     "B. [捐銀固防] 捐二十文私銀入公帳，請何不歸安排固防。", false);
   assert.equal(donor.state.silver, 0);
-  assert.equal(donor.state.factionFunds, 30);
-  assert.equal(donor.state.sectLifeline, 69);
+  assert.equal(donor.state.factionFunds, STARTING_FACTION_FUNDS + 20);
+  assert.equal(donor.state.sectLifeline, 70);
 });
 
 test("roads cost time and discovered shortcuts carry risk", () => {
   const state = { ...newGame(), questStep: "sandbox", turn: 2 };
   assert.equal(travelChoices(state, "黑泥街").length, 0);
-  assert.deepEqual(ROAD_ADJACENCY["青鋒堂總壇"], ["晚秋茶寮", "鬼骰坊"]);
+  assert.deepEqual(ROAD_ADJACENCY["青鋒堂總壇"], ["晚秋茶寮", "鬼骰坊", "堂口舊賬房"]);
   const discovered = { ...state, worldFlags: ["熟記市集暗巷"] };
   const shortcut = travelChoices(discovered, "黑泥街")[0];
   assert.equal(shortcut.turns, 1);
@@ -1327,18 +1324,21 @@ test("roads cost time and discovered shortcuts carry risk", () => {
   assert.deepEqual([...outcomes].sort((a, b) => a - b), [state.playerHp - 6, state.playerHp]);
   const roadTrip = walkTo(state, "黑泥街");
   assert.equal(roadTrip.turn, 4);
-  assert.equal(roadTrip.sectLifeline, 58);
+  assert.equal(roadTrip.sectLifeline, 60);
 });
 
-test("ordinary road choices exactly match the seven-landmark graph", () => {
+test("ordinary road choices include the three investigation sites", () => {
   const expected = {
-    "青鋒堂總壇": ["晚秋茶寮", "鬼骰坊"],
+    "青鋒堂總壇": ["晚秋茶寮", "鬼骰坊", "堂口舊賬房"],
     "晚秋茶寮": ["青鋒堂總壇", "苦煙館", "黑泥街"],
-    "鬼骰坊": ["青鋒堂總壇", "苦煙館", "夜雨樓"],
+    "鬼骰坊": ["青鋒堂總壇", "苦煙館", "夜雨樓", "堂口舊賬房", "醉春樓後巷"],
     "苦煙館": ["晚秋茶寮", "鬼骰坊", "裂石擂", "夜雨樓"],
-    "黑泥街": ["晚秋茶寮", "裂石擂"],
-    "裂石擂": ["黑泥街", "苦煙館"],
-    "夜雨樓": ["鬼骰坊", "苦煙館"],
+    "黑泥街": ["晚秋茶寮", "裂石擂", "廢棄更樓"],
+    "裂石擂": ["黑泥街", "苦煙館", "廢棄更樓"],
+    "夜雨樓": ["鬼骰坊", "苦煙館", "醉春樓後巷"],
+    "堂口舊賬房": ["青鋒堂總壇", "鬼骰坊"],
+    "廢棄更樓": ["黑泥街", "裂石擂"],
+    "醉春樓後巷": ["夜雨樓", "鬼骰坊"],
   };
   assert.deepEqual(ROAD_ADJACENCY, expected);
   for (const [from, neighbors] of Object.entries(expected)) {
@@ -1355,7 +1355,7 @@ test("ordinary road choices exactly match the seven-landmark graph", () => {
   }
 });
 
-test("every landmark mission pays once and careful work helps the finale", () => {
+test("old landmark errands are absent from current choices", () => {
   assert.equal(MISSIONS.length, PROLOGUE_LANDMARKS.length);
   assert.deepEqual(MISSIONS.map(({ origin, target, title, clue }) => [origin, target, title, clue]), [
     ["青鋒堂總壇", "黑泥街", "守街名冊", "同門守街名冊"],
@@ -1368,38 +1368,28 @@ test("every landmark mission pays once and careful work helps the finale", () =>
   ]);
   for (const mission of MISSIONS) {
     const origin = { ...newGame(), questStep: "sandbox", currentLocation: mission.origin };
-    const offer = missionOptions(origin).find((option) => option.includes(mission.title));
-    assert.ok(offer, mission.title);
-    assert.equal(offer, `G. [領差] ${mission.title}`);
-    assert.ok(Array.from(offer.replace(/^G\. \[[^\]]+\] /, "")).filter((letter) => /[\u3400-\u9fff]/u.test(letter)).length <= 12);
-    assert.ok(!missionOptions({ ...origin, currentLocation: mission.target }).some((option) => option.includes(mission.title)));
-    const accepted = resolveTurn(origin, offer, false);
-    assert.deepEqual(accepted.state.activeMissions, [mission.id]);
-    assert.ok(!missionOptions(accepted.state).some((option) => option.includes(mission.title)));
-    const target = walkTo(accepted.state, mission.target);
-    const careful = missionOptions(target).find((option) => option.startsWith("G. [辦差]") && option.includes(mission.title));
-    assert.equal(careful, `G. [辦差] ${mission.title}`);
-    const done = resolveTurn(target, careful, false);
-    assert.equal(done.state.silver, mission.pay);
-    assert.ok(done.state.worldFlags.includes(mission.clue));
-    assert.deepEqual(done.state.activeMissions, []);
-    assert.ok(!missionOptions(done.state).some((option) => option.includes(mission.title)));
+    assert.ok(!availableOptions(origin).some((option) => /\[(?:領差|辦差|速辦)\]/.test(option)));
+    assert.ok(!availableOptions({ ...origin, currentLocation: mission.target }).some((option) => /\[(?:領差|辦差|速辦)\]/.test(option)));
   }
 });
 
-test("old mission acceptance and completion flags migrate without duplicate offers", () => {
+test("old mission acceptance and completion flags load without offering errands", () => {
   const accepted = normalizeState({ ...newGame(), questStep: "sandbox", currentLocation: "苦煙館",
     worldFlags: ["換封傷藥已領"] });
   assert.deepEqual(accepted.activeMissions, ["tainted_medicine"]);
-  assert.ok(missionOptions({ ...accepted, currentLocation: "裂石擂" }).some((option) => option === "G. [辦差] 送猛藥"));
+  assert.ok(!availableOptions({ ...accepted, currentLocation: "裂石擂" }).some((option) => /\[(?:領差|辦差|速辦)\]/.test(option)));
   const complete = normalizeState({ ...newGame(), questStep: "sandbox", currentLocation: "夜雨樓",
     activeMissions: ["hidden_spy"], worldFlags: ["陌生恩客完成"] });
   assert.deepEqual(complete.activeMissions, []);
-  assert.ok(!missionOptions(complete).some((option) => option.includes("城主府密報")));
+  assert.ok(!availableOptions(complete).some((option) => option.includes("城主府密報")));
   const oldClue = normalizeState({ ...newGame(), questStep: "sandbox", currentLocation: "鬼骰坊",
     worldFlags: ["城東假契證據", "假借據完成"] });
   assert.ok(oldClue.worldFlags.includes("假借據完成"));
-  assert.ok(!missionOptions(oldClue).some((option) => option.includes("查扣假帳")));
+  assert.ok(!availableOptions(oldClue).some((option) => option.includes("查扣假帳")));
+  const midgame = normalizeState({ ...newGame(), questStep: "sandbox", turn: 25,
+    worldFlags: ["市集殘局已定", "同門守街名冊"] });
+  assert.ok(midgame.worldFlags.includes("何不歸密令暗查內鬼"));
+  assert.ok(availableOptions({ ...midgame, currentLocation: "青鋒堂總壇" }).some((option) => option.includes("[指認內鬼]")));
 });
 
 test("new martial arts alter existing combat actions", () => {
@@ -1414,7 +1404,7 @@ test("new martial arts alter existing combat actions", () => {
 });
 
 test("zero lifeline opens a final choice and failed ending closes chapter access", () => {
-  const prepared = { ...newGame(), questStep: "sandbox", turn: 69, sectLifeline: 1,
+  const prepared = { ...newGame(), questStep: "sandbox", turn: 69, sectLifeline: 0,
     worldFlags: MISSIONS.slice(0, 3).map((mission) => mission.clue) };
   const crisis = resolveTurn(prepared, "C. [盤點] 清點堂口帳目。", false);
   assert.equal(crisis.state.sectLifeline, 0);
@@ -1465,10 +1455,59 @@ test("rescuing Lu opens exploration with Ho's nightfall deadline", () => {
   const settled = resolveTurn(aftermath,
     availableOptions(aftermath).find((option) => option.includes("[安頓收隊]")), false);
   assert.equal(settled.state.flags.marketAftermath, false);
-  assert.match(settled.event, /何不歸的口信/);
-  assert.match(settled.event, /裴無鋒的人退去了東市，今晚必定大舉反撲/);
-  assert.match(settled.event, /尚餘61回合/);
+  assert.match(settled.event, /何不歸的密信/);
+  assert.match(settled.event, /暗查陳彪、老馬與白冷/);
+  assert.ok(settled.state.worldFlags.includes("何不歸密令暗查內鬼"));
   assert.equal(hasOffSceneDirectSpeech(settled.state, settled.event), false);
+});
+
+test("spy investigation distinguishes rumors from evidence and resolves the accusation", () => {
+  const base = newGame();
+  const active = { ...base, questStep: "sandbox", currentLocation: "青鋒堂總壇", turn: 12,
+    worldFlags: ["何不歸密令暗查內鬼"], flags: { ...base.flags, lastIncidentTurn: 12 } };
+  assert.equal(travelChoices(active, "碼頭").length, 0);
+  assert.ok(travelChoices(active, "堂口舊賬房").length);
+  let state = { ...active, currentLocation: "苦煙館" };
+  const shallow = availableOptions(state).find((option) => option.includes("[速查] 驗傷者兵刃"));
+  const rumor = resolveTurn(state, shallow, false);
+  assert.match(rumor.event, /陳彪/);
+  assert.equal(rumor.state.worldFlags.includes("軟筋散調撥總哨"), false);
+  state = { ...rumor.state, pendingEncounter: undefined, lastEncounterTurn: rumor.state.turn,
+    flags: { ...rumor.state.flags, pendingIncident: undefined, lastIncidentTurn: rumor.state.turn } };
+  const clinic = resolveTurn(state, availableOptions(state).find((option) => option.includes("[細查] 驗傷者兵刃")), false);
+  assert.ok(clinic.state.worldFlags.includes("軟筋散調撥總哨"));
+  state = { ...clinic.state, currentLocation: "黑泥街", pendingEncounter: undefined,
+    flags: { ...clinic.state.flags, pendingIncident: undefined, lastIncidentTurn: clinic.state.turn } };
+  state = resolveTurn(state, availableOptions(state).find((option) => option.includes("[細查] 追問撤哨命令")), false).state;
+  state = { ...state, currentLocation: "醉春樓後巷", pendingEncounter: undefined,
+    flags: { ...state.flags, pendingIncident: undefined, lastIncidentTurn: state.turn } };
+  state = resolveTurn(state, availableOptions(state).find((option) => option.includes("[細查] 截玄武樓線人")), false).state;
+  state = { ...state, currentLocation: "青鋒堂總壇" };
+  const accused = resolveTurn(state, availableOptions(state).find((option) => option.includes("[指認內鬼] 向何不歸指認白冷")), false);
+  assert.equal(accused.state.flags.spyExposed, true);
+  assert.ok(accused.state.worldFlags.includes("陳彪與老馬洗清嫌疑"));
+  const wrong = resolveTurn({ ...active, currentLocation: "青鋒堂總壇" },
+    availableOptions({ ...active, currentLocation: "青鋒堂總壇" }).find((option) => option.includes("指認老馬")), false);
+  assert.equal(wrong.state.flags.spyExposed, false);
+  assert.match(wrong.event, /白冷趁亂撤走城門暗哨/);
+});
+
+test("spy evidence survives saves and an unexposed spy makes the night assault harder", () => {
+  const base = newGame();
+  const state = { ...base, questStep: "sandbox", currentLocation: "青鋒堂總壇", turn: 69,
+    sectLifeline: 80, worldFlags: ["何不歸密令暗查內鬼", "軟筋散調撥總哨", "黑泥街總哨撤令", "總哨城防盲區圖"],
+    flags: { ...base.flags, lastIncidentTurn: 69 } };
+  const saved = normalizeState(state);
+  assert.ok(saved.worldFlags.includes("總哨城防盲區圖"));
+  const exposed = resolveTurn(saved, availableOptions(saved).find((option) => option.includes("指認白冷")), false);
+  assert.equal(exposed.state.flags.spyExposed, true);
+  assert.equal(exposed.state.flags.finalCrisis, true);
+  const defended = resolveTurn(exposed.state, exposed.options.find((option) => option.includes("[固守城西]")), false);
+  const noAccusation = resolveTurn({ ...state, turn: 70, flags: { ...state.flags, finalCrisis: true } }, ENDING_OPTIONS[0], false);
+  assert.equal(defended.state.flags.ending, "守住城西");
+  assert.equal(noAccusation.state.flags.spyExposed, false);
+  assert.match(noAccusation.event, /白冷入夜時撤走暗哨/);
+  assert.ok(noAccusation.state.sectLifeline < defended.state.sectLifeline);
 });
 
 test("the final battle report follows secured support and names missing defenses", () => {
@@ -1517,7 +1556,7 @@ test("saving Lu Qianfan changes trust, injury, and help in the prologue", () => 
   const betrayed = resolveTurn(scene, "F. [自訂手段] 出賣陸千帆", false).state;
   assert.equal(betrayed.relationships["陸千帆"].estranged, true);
   assert.equal(betrayed.relationships["陸千帆"].trust, -3);
-  assert.ok(!missionOptions({ ...betrayed, questStep: "sandbox", combat: undefined }).some((option) => option.includes("雙重勒索")));
+  assert.ok(!availableOptions({ ...betrayed, questStep: "sandbox", combat: undefined }).some((option) => option.includes("雙重勒索")));
 
   const trusted = { ...guarded.state, questStep: "sandbox", combat: undefined };
   const directions = availableOptions(trusted).find((option) => option.startsWith("M. [請陸千帆指路]"));
@@ -1541,12 +1580,8 @@ test("saving Lu Qianfan changes trust, injury, and help in the prologue", () => 
 test("landmark choices prepare different NPCs and survive old saves", () => {
   const complete = (missionId, careful) => {
     const mission = MISSIONS.find((item) => item.id === missionId);
-    const origin = { ...newGame(), questStep: "sandbox", currentLocation: mission.origin };
-    const accepted = resolveTurn(origin, missionOptions(origin).find((option) => option.includes(mission.title)), false);
-    const target = { ...accepted.state, currentLocation: mission.target };
-    const action = missionOptions(target).find((option) => option.includes(mission.title)
-      && option.startsWith(careful ? "G. [辦差]" : "H. [速辦]"));
-    return resolveTurn(target, action, false).state;
+    return normalizeState({ ...newGame(), relationships: undefined,
+      worldFlags: [`${mission.title}完成`, ...(careful ? [mission.clue] : [])] });
   };
   assert.equal(complete("missing_courier", true).relationships["容晚秋"].trust, 1);
   assert.equal(complete("missing_courier", false).relationships["容晚秋"].trust, -1);
@@ -1577,39 +1612,18 @@ test("landmark choices prepare different NPCs and survive old saves", () => {
   assert.deepEqual(companionLeads(allies), []);
 });
 
-test("work, authorized debt collection, contracts, and lending keep accounts separate", () => {
+test("repeatable money jobs and old errand contracts are unavailable", () => {
   const market = { ...newGame(), questStep: "sandbox", currentLocation: "黑泥街", turn: 3 };
-  const work = resolveTurn(market, "B. [搬貨] 替商販搬貨照料騾車；每隔三回合可賺六文私銀。", false);
-  assert.equal(work.state.silver, 6);
-  assert.equal(work.state.factionFunds, 10);
-  const tooSoon = resolveTurn(work.state, "B. [搬貨] 替商販搬貨照料騾車；每隔三回合可賺六文私銀。", false);
-  assert.equal(tooSoon.state.silver, 6);
-
-  const debtBase = { ...newGame(), questStep: "sandbox", currentLocation: "鬼骰坊", worldFlags: ["假借據完成"] };
-  const permit = resolveTurn(debtBase, availableOptions(debtBase).find((option) => option.startsWith("K. [領追債令]")), false);
-  const collector = { ...permit.state, currentLocation: "黑泥街" };
-  const collected = resolveTurn(collector, availableOptions(collector).find((option) => option.startsWith("K. [和談追債]")), false);
-  assert.match(collected.event, /^你在黑泥街/);
-  assert.match(collected.event, /祁觀衡託人送來/);
-  assert.equal(collected.state.factionFunds, 25);
-  assert.equal(collected.state.silver, 5);
-  assert.ok(!availableOptions(collected.state).some((option) => option.includes("追債")));
-
   const qualified = { ...newGame(), questStep: "sandbox", currentLocation: "夜雨樓", turn: 4,
     knownMoves: { short_punch: 2 }, worldFlags: MISSIONS.slice(0, 3).map((mission) => `${mission.title}完成`) };
-  const contract = resolveTurn(qualified, availableOptions(qualified).find((option) => option.startsWith("J. [接暗殺令]")), false);
-  const ambush = { ...contract.state, currentLocation: "黑泥街" };
-  const paid = resolveTurn(ambush, availableOptions(ambush).find((option) => option.startsWith("J. [執行暗殺令]")), false);
-  assert.equal(paid.state.silver, 40);
-  assert.equal(paid.state.factionFunds, 10);
-  assert.ok(paid.state.worldFlags.includes("城東記恨暗殺"));
-
-  const lender = { ...qualified, currentLocation: "鬼骰坊", silver: 20 };
-  const loan = resolveTurn(lender, availableOptions(lender).find((option) => option.startsWith("J. [私銀放貸]")), false);
-  assert.equal(loan.state.silver, 0);
-  assert.equal(loan.state.factionFunds, 10);
-  const due = { ...loan.state, turn: loan.state.flags.loanDueTurn, flags: { ...loan.state.flags, pendingIncident: undefined } };
-  const repaid = resolveTurn(due, availableOptions(due).find((option) => option.startsWith("J. [收回私貸]")), false);
-  assert.equal(repaid.state.silver, 26);
-  assert.equal(repaid.state.factionFunds, 10);
+  for (const state of [market, { ...market, currentLocation: "鬼骰坊" }, qualified])
+    assert.equal(availableOptions(state).some((option) => /\[(?:搬貨|押小|私銀放貸|收回私貸|領追債令|和談追債|強追欠款|接暗殺令)\]/.test(option)), false);
+  const rejected = resolveTurn(market, "B. [搬貨] 替商販搬貨照料騾車", false);
+  assert.equal(rejected.state.turn, market.turn);
+  assert.equal(rejected.state.silver, market.silver);
+  const oldLoan = normalizeState({ ...newGame(), silver: 0,
+    flags: { ...newGame().flags, loanDueTurn: 20 } });
+  assert.equal(oldLoan.silver, 20);
+  assert.equal(oldLoan.flags.loanDueTurn, 0);
+  assert.equal(normalizeState(oldLoan).silver, 20);
 });

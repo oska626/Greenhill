@@ -34,7 +34,7 @@ export function actionEnergyCost(state: GameState, action: string, turns = 1): n
       cost = state.playerMp >= 2 && state.playerHp <= Math.ceil(state.maxHp * 0.3) ? 2 : 1;
     if (tag === "全力陰手") cost = 2;
     if (tag === "踩籮翻牆" || tag === "踢翻餿水桶" || tag === "硬闖街口") cost = 2;
-    if (/查|核|探|追|盯|盤點|巡視|搬貨|做工|牽制|辨認|記住暗巷|問清敵情|詳問傷勢|辦差|速辦/.test(tag)) cost = 2;
+    if (/查|核|探|追|盯|盤點|巡視|做工|牽制|辨認|記住暗巷|問清敵情|詳問傷勢/.test(tag)) cost = 2;
     if (tag === "暗查巷口") cost = 3;
     if (/^習/.test(tag)) {
       const rank = tag === "習泥鰍步" ? state.knownMoves?.mud_step || 0
@@ -45,7 +45,7 @@ export function actionEnergyCost(state: GameState, action: string, turns = 1): n
     if (tag === "斷開跟梢") cost = 4;
     if (action.startsWith("F. [自訂手段]")) cost = /做工|牽制/.test(action) ? 3 : /查線索|護人/.test(action) ? 2 : 1;
   }
-  if (state.playerMp <= FATIGUE_THRESHOLD && /查|核|探|追|盯|問清|詳問|呈報|交涉|和談|買消息|買暗道|辨|盤點|領差|辦差|速辦/.test(tag)) cost += 1;
+  if (state.playerMp <= FATIGUE_THRESHOLD && /查|核|探|追|盯|問清|詳問|呈報|交涉|和談|買消息|買暗道|辨|盤點/.test(tag)) cost += 1;
   return cost;
 }
 
